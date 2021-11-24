@@ -1,0 +1,14 @@
+%% -*- erlang -*-
+{application, simulator,
+ [{description, "A Simulator"},
+  {vsn, git},
+  {modules, ["@@MODULES@@"]},
+  {registered, [neighbour_serv,
+                keydir_serv,
+                render_serv,
+                simulator_player_sup,
+                simulator_players_sup,
+                simulator_sup,
+                simulator_serv]},
+  {mod, {simulator_app, []}},
+  {applications, [kernel, stdlib, sasl, keydir]}]}.
