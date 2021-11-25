@@ -1,7 +1,13 @@
 -module(alsa).
 -export([init/0]).
--export([open/2, open/3, open/4, format_keys/0, close/1, strerror/1,
-         print_setup/2, read/2, write/2, prepare/1, recover/3, drain/1]).
+-export([open/2, get_hw_params/1, set_hw_params/2, get_sw_params/1,
+         set_sw_params/2,
+
+
+
+
+ close/1, strerror/1,
+         read/2, write/2, prepare/1, recover/3, drain/1]).
 -export_type([handle/0, reason/0, read_reason/0, write_reason/0]).
 
 -include("../include/alsa.hrl").
@@ -11,15 +17,8 @@
 -type handle() :: integer().
 -type device_name() :: string().
 
--type reason() :: integer().
+-type format() :: integer(). %% FIXME: be more precise
 
--type format() ::
-        s8 | u8 | s16_le | s16_be | u16_le | u16_be | s24_le | s24_be | u24_le |
-        u24_be | s32_le | s32_be | u32_le | u32_be | float_le | float_be |
-        float64_le | float64_be | iec958_subframe_le | iec958_subframe_be |
-        mu_law | a_law | ima_adpcm | mpeg | gsm | s20_le | s20_be | u20_le |
-        u20_be | special | s24_3le | s24_3be | u24_3le | u24_3be | s20_3le |
-        s20_3be | u20_3le | u20_3be | s18_3le | s18_3be | u18_3le | u18_3be.
 -type hw_params() :: #{format => format(),
                        channels => integer(),
                        rate => integer(),
@@ -28,10 +27,13 @@
 
 -type sw_params() :: #{start_threshold => integer()}.
 
+-type reason() :: integer().
+
 -type read_reason() ::
         ?ALSA_OVERRUN |
         ?ALSA_WAITING_FOR_RECOVERY |
         ?ALSA_NOT_PREPARED_NOR_RUNNING.
+
 -type write_reason() ::
         ?ALSA_UNDERRUN |
         ?ALSA_WAITING_FOR_RECOVERY |
@@ -43,40 +45,69 @@
 
 init() ->
     ok = erlang:load_nif(
-           filename:join(code:priv_dir(malsa), ?MODULE), none).
+           filename:join(code:priv_dir(alsa), alsa_nif), none).
 
 %%
 %% Exported: open
 %%
 
--spec open(device_name(), playback | capture, hw_params(), sw_params()) ->
+-spec open(device_name(), playback | capture) ->
           {ok, handle(), hw_params(), sw_params()} | {error, reason()}.
 
-open(DeviceName, Stream) ->
-    open(DeviceName, Stream, #{}, #{}).
-
-open(DeviceName, Stream, HwParams) ->
-    open(DeviceName, Stream, HwParams, #{}).
-
-open(_DeviceName, _Stream, _HwParams, _SwParams) ->
+open(_DeviceName, _Stream) ->
     exit(nif_library_not_loaded).
 
 %%
-%% Exported: format_keys
+%% Exported: get_hw_params
 %%
 
-format_keys() ->
-    [u8, s16_le, s16_be, u16_le, u16_be, s24_le, s24_be, u24_le, u24_be, s32_le,
-     s32_be, u32_le, u32_be, float_le, float_be, float64_le, float64_be,
-     iec958_subframe_le, iec958_subframe_be, mu_law, a_law, ima_adpcm, mpeg,
-     gsm, s20_le, s20_be, u20_le, u20_be, special, s24_3le, s24_3be, u24_3le,
-     u24_3be, s20_3le, s20_3be, u20_3le, u20_3be, s18_3le, s18_3be, u18_3le,
-     u18_3be].
+-spec get_hw_params(handle()) ->
+          {ok, hw_params()} | {error, reason()}.
+
+get_hw_params(_Handle) ->
+    exit(nif_library_not_loaded).
+
+
+%%
+%% Exported: set_hw_params
+%%
+
+-spec set_hw_params(handle(), hw_params()) ->
+          {ok, hw_params()} | {error, reason()}.
+
+set_hw_params(_Handle, _HwParams) ->
+    exit(nif_library_not_loaded).
+
+%%
+%% Exported: get_sw_params
+%%
+
+-spec get_sw_params(handle()) ->
+          {ok, sw_params()} | {error, reason()}.
+
+get_sw_params(_Handle) ->
+    exit(nif_library_not_loaded).
+
+
+%%
+%% Exported: set_sw_params
+%%
+
+-spec set_sw_params(handle(), sw_params()) ->
+          {ok, sw_params()} | {error, reason()}.
+
+set_sw_params(_Handle, _SwParams) ->
+    exit(nif_library_not_loaded).
+
+
+
+
 
 %%
 %% Exported: close
 %%
 
+%% NOT DONE
 -spec close(handle()) -> ok | {error, reason()}.
 
 close(_Handle) ->
@@ -86,24 +117,17 @@ close(_Handle) ->
 %% Exported: strerror
 %%
 
--spec strerror(reason() | write_reason() | read_reason()) -> string().
+%% NOT DONE
+-spec strerror(reason() | read_reason() | write_reason()) -> string().
 
 strerror(_Reason) ->
-    exit(nif_library_not_loaded).
-
-%%
-%% Exported: print_setup
-%%
-
--spec print_setup(handle(), stdout | stderr) -> ok.
-
-print_setup(_Handle, _InputStream) ->
     exit(nif_library_not_loaded).
 
 %%
 %% Exported: read
 %%
 
+%% NOT DONE
 -spec read(handle(), integer()) -> {ok, binary()} | {error, read_reason()}.
 
 read(_Handle, _Frames) ->
@@ -113,6 +137,7 @@ read(_Handle, _Frames) ->
 %% Exported: write
 %%
 
+%% NOT DONE
 -spec write(handle(), binary()) -> {ok, integer()} | {error, write_reason()}.
 
 write(_Handle, _Bin) ->
@@ -122,6 +147,7 @@ write(_Handle, _Bin) ->
 %% Exported: prepare
 %%
 
+%% NOT DONE
 -spec prepare(handle()) -> ok | {error, reason}.
 
 prepare(_Handle) ->
@@ -131,6 +157,7 @@ prepare(_Handle) ->
 %% Exported: recover
 %%
 
+%% NOT DONE
 -spec recover(handle(), reason(), boolean()) -> ok | {error, reason()}.
 
 recover(_Handle, _ErrorReason, _Silent) ->
@@ -140,6 +167,7 @@ recover(_Handle, _ErrorReason, _Silent) ->
 %% Exported: drain
 %%
 
+%% NOT DONE
 -spec drain(handle()) -> ok | {error, reason()}.
 
 drain(_Handle) ->

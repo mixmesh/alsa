@@ -1,15 +1,18 @@
+#include <stdbool.h>
 #include <erl_nif.h>
 #include <alsa/asoundlib.h>
 #include "uthash/uthash.h"
 
 #define ATOM(name) atm_##name
 
-#define DECL_ATOM(name)                         \
-    ERL_NIF_TERM atm_##name = 0
+#define DECL_ATOM(name) ERL_NIF_TERM atm_##name = 0
 
 // FIXME: Use enif_make_existing_atom(env, #name) (return -1 if it fails)
-#define LOAD_ATOM(name)                                 \
-    atm_##name = enif_make_atom(env, #name)
+#define LOAD_ATOM(name) atm_##name = enif_make_atom(env, #name)
+
+DECL_ATOM(ok);
+DECL_ATOM(error);
+DECL_ATOM(no_such_handle);
 
 DECL_ATOM(playback);
 DECL_ATOM(capture);
@@ -20,51 +23,10 @@ DECL_ATOM(rate);
 DECL_ATOM(period_size);
 DECL_ATOM(buffer_size);
 
-DECL_ATOM(s8);
-DECL_ATOM(u8);
-DECL_ATOM(s16_le);
-DECL_ATOM(s16_be);
-DECL_ATOM(u16_le);
-DECL_ATOM(u16_be);
-DECL_ATOM(s24_le);
-DECL_ATOM(s24_be);
-DECL_ATOM(u24_le);
-DECL_ATOM(u24_be);
-DECL_ATOM(s32_le);
-DECL_ATOM(s32_be);
-DECL_ATOM(u32_le);
-DECL_ATOM(u32_be);
-DECL_ATOM(float_le);
-DECL_ATOM(float_be);
-DECL_ATOM(float64_le);
-DECL_ATOM(float64_be);
-DECL_ATOM(iec958_subframe_le);
-DECL_ATOM(iec958_subframe_be);
-DECL_ATOM(mu_law);
-DECL_ATOM(a_law);
-DECL_ATOM(ima_adpcm);
-DECL_ATOM(mpeg);
-DECL_ATOM(gsm);
-DECL_ATOM(s20_le);
-DECL_ATOM(s20_be);
-DECL_ATOM(u20_le);
-DECL_ATOM(u20_be);
-DECL_ATOM(special);
-DECL_ATOM(s24_3le);
-DECL_ATOM(s24_3be);
-DECL_ATOM(u24_3le);
-DECL_ATOM(u24_3be);
-DECL_ATOM(s20_3le);
-DECL_ATOM(s20_3be);
-DECL_ATOM(u20_3le);
-DECL_ATOM(u20_3be);
-DECL_ATOM(s18_3le);
-DECL_ATOM(s18_3be);
-DECL_ATOM(u18_3le);
-DECL_ATOM(u18_3be);
+DECL_ATOM(start_threshold);
 
 typedef struct {
-    uint16_t handle;
+    int handle;
     snd_pcm_t *pcm;
     UT_hash_handle hh;
 } session_t;
@@ -75,7 +37,85 @@ void add_session(session_t *session) {
     HASH_ADD_INT(sessions, handle, session);
 }
 
-uint32_t next_free_handle = 0;
+session_t *find_session(int handle) {
+    session_t *session;
+    HASH_FIND_INT(sessions, &handle, session);
+    return session;
+}
+
+uint32_t next_handle = 0;
+
+int get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm,
+                      ERL_NIF_TERM *hw_params_map) {
+    int err;
+
+    snd_pcm_hw_params_t *hw_params;
+    if ((err = snd_pcm_hw_params_malloc(&hw_params)) < 0) {
+        return err;
+    }
+
+    if ((err = snd_pcm_hw_params_any(pcm, hw_params)) < 0) {
+        snd_pcm_hw_params_free(hw_params);
+        return err;
+    }
+
+    snd_pcm_format_t format;
+    snd_pcm_hw_params_get_format(hw_params, &format);
+    unsigned int channels;
+    snd_pcm_hw_params_get_channels(hw_params, &channels);
+    unsigned int rate;
+    int dir;
+    snd_pcm_hw_params_get_rate(hw_params, &rate, &dir);
+    snd_pcm_uframes_t period_size;
+    snd_pcm_hw_params_get_period_size(hw_params, &period_size, &dir);
+    snd_pcm_uframes_t buffer_size;
+    snd_pcm_hw_params_get_buffer_size(hw_params, &buffer_size);
+
+    ERL_NIF_TERM hw_params_keys =
+        enif_make_list5(env,
+                        ATOM(format),
+                        ATOM(channels),
+                        ATOM(rate),
+                        ATOM(period_size),
+                        ATOM(buffer_size));
+    ERL_NIF_TERM hw_params_values =
+        enif_make_list5(env,
+                        enif_make_uint(env, format),
+                        enif_make_uint(env, channels),
+                        enif_make_uint(env, rate),
+                        enif_make_uint(env, period_size),
+                        enif_make_uint(env, buffer_size));
+
+    enif_make_map_from_arrays(env, &hw_params_keys, &hw_params_values, 5,
+                              hw_params_map);
+    return 0;
+}
+
+int get_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm,
+                      ERL_NIF_TERM *sw_params_map) {
+    int err;
+
+    snd_pcm_sw_params_t *sw_params;
+    if ((err = snd_pcm_sw_params_malloc(&sw_params)) < 0) {
+        return err;
+    }
+
+    if ((err = snd_pcm_sw_params_current(pcm, sw_params)) < 0) {
+        snd_pcm_sw_params_free(sw_params);
+        return err;
+    }
+
+    snd_pcm_uframes_t start_threshold;
+    snd_pcm_sw_params_get_start_threshold(sw_params, &start_threshold);
+
+    ERL_NIF_TERM sw_params_keys = enif_make_list1(env, ATOM(start_threshold));
+    ERL_NIF_TERM sw_params_values =
+        enif_make_list1(env, enif_make_uint(env, start_threshold));
+
+    enif_make_map_from_arrays(env, &sw_params_keys, &sw_params_values, 5,
+                              sw_params_map);
+    return 0;
+}
 
 /*
  * open
@@ -84,14 +124,13 @@ uint32_t next_free_handle = 0;
 static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
 
-    // Extract parameters
     char device_name[64];
     if (enif_get_string(env, argv[0], device_name, 64, ERL_NIF_LATIN1) < 0) {
         return enif_make_badarg(env);
     }
 
     snd_pcm_stream_t stream;
-    if (ATOM(playback) == argv[1]) {
+    if (argv[1] == ATOM(playback)) {
         stream = SND_PCM_STREAM_PLAYBACK;
     } else if (argv[1] == ATOM(capture)) {
         stream = SND_PCM_STREAM_CAPTURE;
@@ -99,198 +138,184 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
         return enif_make_badarg(env);
     }
 
-
     // Add a new session
     session_t *session = malloc(sizeof(session_t));
-    session->handle = next_free_handle;
-    add_session(session);
+    session->handle = next_handle;
 
     // Open audio device
     if ((err = snd_pcm_open(&session->pcm, device_name, stream, 0)) < 0) {
         return enif_make_badarg(env);
     }
 
-    // Set hardware parameters
-    snd_pcm_hw_params_t *hw_params;
-    if (snd_pcm_hw_params_malloc(&hw_params) < 0) {
-        return enif_make_badarg(env);
+    ERL_NIF_TERM *hw_params_map;
+    if ((err = get_hw_params_map(env, session->pcm, hw_params_map)) < 0) {
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
     }
-    if (snd_pcm_hw_params_any(session->pcm, hw_params) < 0) {
+
+    ERL_NIF_TERM *sw_params_map;
+    if ((err = get_sw_params_map(env, session->pcm, sw_params_map)) < 0) {
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+    }
+
+    add_session(session);
+
+    return enif_make_tuple4(env, ATOM(ok),
+                            enif_make_uint(env, next_handle++),
+                            *hw_params_map,
+                            *sw_params_map);
+}
+
+/*
+ * get_hw_params
+ */
+
+static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
+                                   const ERL_NIF_TERM argv[]) {
+    int err;
+
+    session_t *session;
+    find_session(argv[0]);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+
+    ERL_NIF_TERM *hw_params_map;
+    if ((err = get_hw_params_map(env, session->pcm, hw_params_map)) < 0) {
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+    }
+
+    return enif_make_tuple2(env, ATOM(ok), *hw_params_map);
+}
+
+/*
+ * set_hw_params
+ */
+
+static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
+                                   const ERL_NIF_TERM argv[]) {
+    int err = 0;
+
+    session_t *session;
+    find_session(argv[0]);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+
+    snd_pcm_hw_params_t *hw_params;
+    if ((err = snd_pcm_hw_params_malloc(&hw_params)) < 0) {
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+    }
+
+    if ((err = snd_pcm_hw_params_any(session->pcm, hw_params)) < 0) {
         snd_pcm_hw_params_free(hw_params);
-        return enif_make_badarg(env);
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
     }
 
     size_t size;
-    if (enif_get_map_size(env, argv[2], &size)) {
+    if (enif_get_map_size(env, argv[1], &size)) {
         if (size > 0) {
             ErlNifMapIterator iter;
-            if (enif_map_iterator_create(env, argv[2], &iter,
+            if (enif_map_iterator_create(env, argv[1], &iter,
                                          ERL_NIF_MAP_ITERATOR_FIRST)) {
                 ERL_NIF_TERM key, value;
+                bool badarg = false;
                 while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
                     if (key == ATOM(format)) {
                         snd_pcm_format_t format;
-                        if (value == ATOM(s8)) {
-                            format = SND_PCM_FORMAT_S8;
-                        } else if (value == ATOM(u8)) {
-                            format = SND_PCM_FORMAT_U8;
-                        } else if (value == ATOM(s16_le)) {
-                            format = SND_PCM_FORMAT_S16_LE;
-                        } else if (value == ATOM(s16_be)) {
-                            format = SND_PCM_FORMAT_S16_BE;
-                        } else if (value == ATOM(u16_le)) {
-                            format = SND_PCM_FORMAT_U16_LE;
-                        } else if (value == ATOM(u16_be)) {
-                            format = SND_PCM_FORMAT_U16_BE;
-                        } else if (value == ATOM(s24_le)) {
-                            format = SND_PCM_FORMAT_S24_LE;
-                        } else if (value == ATOM(s24_be)) {
-                            format = SND_PCM_FORMAT_S24_BE;
-                        } else if (value == ATOM(u24_le)) {
-                            format = SND_PCM_FORMAT_U24_LE;
-                        } else if (value == ATOM(u24_be)) {
-                            format = SND_PCM_FORMAT_U24_BE;
-                        } else if (value == ATOM(s32_le)) {
-                            format = SND_PCM_FORMAT_S32_LE;
-                        } else if (value == ATOM(s32_be)) {
-                            format = SND_PCM_FORMAT_S32_BE;
-                        } else if (value == ATOM(u32_le)) {
-                            format = SND_PCM_FORMAT_U32_LE;
-                        } else if (value == ATOM(u32_be)) {
-                            format = SND_PCM_FORMAT_U32_BE;
-                        } else if (value == ATOM(float_le)) {
-                            format = SND_PCM_FORMAT_FLOAT_LE;
-                        } else if (value == ATOM(float_be)) {
-                            format = SND_PCM_FORMAT_FLOAT_BE;
-                        } else if (value == ATOM(float64_le)) {
-                            format = SND_PCM_FORMAT_FLOAT_LE;
-                        } else if (value == ATOM(float64_be)) {
-                            format = SND_PCM_FORMAT_FLOAT64_BE;
-                        } else if (value == ATOM(iec958_subframe_le)) {
-                            format = SND_PCM_FORMAT_FLOAT64_BE;
-                        } else if (value == ATOM(iec958_subframe_le)) {
-                            format = SND_PCM_FORMAT_IEC958_SUBFRAME_LE;
-                        } else if (value == ATOM(iec958_subframe_be)) {
-                            format = SND_PCM_FORMAT_IEC958_SUBFRAME_BE;
-                        } else if (value == ATOM(mu_law)) {
-                            format = SND_PCM_FORMAT_MU_LAW;
-                        } else if (value == ATOM(a_law)) {
-                            format = SND_PCM_FORMAT_A_LAW;
-                        } else if (value == ATOM(ima_adpcm)) {
-                            format = SND_PCM_FORMAT_IMA_ADPCM;
-                        } else if (value == ATOM(mpeg)) {
-                            format = SND_PCM_FORMAT_MPEG;
-                        } else if (value == ATOM(gsm)) {
-                            format = SND_PCM_FORMAT_GSM;
-                        } else if (value == ATOM(s20_le)) {
-                            format = SND_PCM_FORMAT_S20_LE;
-                        } else if (value == ATOM(s20_be)) {
-                            format = SND_PCM_FORMAT_S20_BE;
-                        } else if (value == ATOM(u20_le)) {
-                            format = SND_PCM_FORMAT_U20_LE;
-                        } else if (value == ATOM(u20_be)) {
-                            format = SND_PCM_FORMAT_U20_BE;
-                        } else if (value == ATOM(special)) {
-                            format = SND_PCM_FORMAT_SPECIAL;
-                        } else if (value == ATOM(s24_3le)) {
-                            format = SND_PCM_FORMAT_S24_3LE;
-                        } else if (value == ATOM(s24_3be)) {
-                            format = SND_PCM_FORMAT_S24_3BE;
-                        } else if (value == ATOM(u24_3le)) {
-                            format = SND_PCM_FORMAT_U24_3LE;
-                        } else if (value == ATOM(u24_3be)) {
-                            format = SND_PCM_FORMAT_U24_3BE;
-                        } else if (value == ATOM(s20_3le)) {
-                            format = SND_PCM_FORMAT_S20_3LE;
-                        } else if (value == ATOM(s20_3be)) {
-                            format = SND_PCM_FORMAT_S20_3BE;
-                        } else if (value == ATOM(u20_3le)) {
-                            format = SND_PCM_FORMAT_U20_3LE;
-                        } else if (value == ATOM(u20_3be)) {
-                            format = SND_PCM_FORMAT_U20_3BE;
-                        } else if (value == ATOM(s18_3le)) {
-                            format = SND_PCM_FORMAT_S18_3LE;
-                        } else if (value == ATOM(s18_3be)) {
-                            format = SND_PCM_FORMAT_S18_3BE;
-                        } else if (value == ATOM(u18_3le)) {
-                            format = SND_PCM_FORMAT_U18_3LE;
-                        } else if (value == ATOM(u18_3be)) {
-                            format = SND_PCM_FORMAT_U18_3BE;
+                        if (enif_get_int(env, value, &format)) {
+                            if ((err = snd_pcm_hw_params_set_format(
+                                           session->pcm, hw_params,
+                                           format)) < 0) {
+                                break;
+                            }
                         } else {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
-                            return enif_make_badarg(env);
-                        }
-                        if (snd_pcm_hw_params_set_format(session->pcm, hw_params,
-                                                         format) < 0) {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
-                            return enif_make_badarg(env);
+                            badarg = true;
+                            break;
                         }
                     } else if (key == ATOM(channels)) {
-                        int channels;
-                        if (enif_get_int(env, value, &channels)) {
-                            if (snd_pcm_hw_params_set_channels(session->pcm,
-                                                               hw_params,
-                                                               channels) < 0) {
-                                snd_pcm_hw_params_free(hw_params);
-                                enif_map_iterator_destroy(env, &iter);
+                        unsigned int channels;
+                        if (enif_get_uint(env, value, &channels)) {
+                            if ((err = snd_pcm_hw_params_set_channels(
+                                           session->pcm, hw_params,
+                                           channels)) < 0) {
+                                break;
                             }
                         } else {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
+                            badarg = true;
+                            break;
                         }
                     } else if (key == ATOM(rate)) {
-                        int rate;
-                        if (enif_get_int(env, value, &rate)) {
-                            if (snd_pcm_hw_params_set_rate(session->pcm,
-                                                           hw_params,
-                                                           rate,
-                                                           0) < 0) {
-                                snd_pcm_hw_params_free(hw_params);
-                                enif_map_iterator_destroy(env, &iter);
+                        unsigned int rate;
+                        if (enif_get_uint(env, value, &rate)) {
+                            if ((err = snd_pcm_hw_params_set_rate(
+                                           session->pcm, hw_params, rate,
+                                           0)) < 0) {
+                                break;
                             }
                         } else {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
+                            badarg = true;
+                            break;
                         }
                     } else if (key == ATOM(period_size)) {
-                        int period_size;
-                        if (enif_get_int(env, value, &period_size)) {
-                            if (snd_pcm_hw_params_set_period_size(
-                                  session->pcm, hw_params, period_size,
-                                  0) < 0) {
-                                snd_pcm_hw_params_free(hw_params);
-                                enif_map_iterator_destroy(env, &iter);
+                        snd_pcm_uframes_t period_size;
+                        int dir;
+                        if (enif_get_ulong(env, value, &period_size)) {
+                            if ((err = snd_pcm_hw_params_set_period_size_near(
+                                           session->pcm, hw_params,
+                                           &period_size, &dir)) < 0) {
+                                break;
                             }
                         } else {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
+                            badarg = true;
+                            break;
                         }
                     } else if (key == ATOM(buffer_size)) {
-                        int buffer_size;
-                        if (enif_get_int(env, value, &buffer_size)) {
-                            if (snd_pcm_hw_params_set_buffer_size(
-                                    session->pcm, hw_params, buffer_size) < 0) {
-                                snd_pcm_hw_params_free(hw_params);
-                                enif_map_iterator_destroy(env, &iter);
+                        snd_pcm_uframes_t buffer_size;
+                        if (enif_get_ulong(env, value, &buffer_size)) {
+                            if ((err = snd_pcm_hw_params_set_buffer_size_near(
+                                           session->pcm, hw_params,
+                                           &buffer_size)) < 0) {
+                                break;
                             }
                         } else {
-                            snd_pcm_hw_params_free(hw_params);
-                            enif_map_iterator_destroy(env, &iter);
+                            badarg = true;
+                            break;
                         }
                     } else {
-                        snd_pcm_hw_params_free(hw_params);
-                        enif_map_iterator_destroy(env, &iter);
-                        return enif_make_badarg(env);
+                        badarg = true;
+                        break;
                     }
                     enif_map_iterator_next(env, &iter);
                 }
                 enif_map_iterator_destroy(env, &iter);
 
-                if ((err = snd_pcm_hw_params(session->pcm, hw_params)) < 0) {
+                if (badarg) {
                     snd_pcm_hw_params_free(hw_params);
                     return enif_make_badarg(env);
+                } else if (err != 0) {
+                    snd_pcm_hw_params_free(hw_params);
+                    return enif_make_tuple2(env,
+                                            ATOM(error),
+                                            enif_make_int(env, err));
+                } else {
+                    if ((err = snd_pcm_hw_params(session->pcm,
+                                                 hw_params)) < 0) {
+                        snd_pcm_hw_params_free(hw_params);
+                        return enif_make_tuple2(env,
+                                                ATOM(error),
+                                                enif_make_int(env, err));
+                    }
+
+                    snd_pcm_hw_params_free(hw_params);
+
+                    ERL_NIF_TERM *hw_params_map;
+                    if ((err = get_hw_params_map(env, session->pcm,
+                                                 hw_params_map)) < 0) {
+                        return enif_make_tuple2(env, ATOM(error),
+                                                enif_make_int(env, err));
+                    }
+
+                    return enif_make_tuple2(env, ATOM(ok), *hw_params_map);
                 }
             } else {
                 snd_pcm_hw_params_free(hw_params);
@@ -301,11 +326,40 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
         snd_pcm_hw_params_free(hw_params);
         return enif_make_badarg(env);
     }
-
-    return enif_make_badarg(env);
 }
 
+
+/*
+ * get_sw_params
+ */
+
+static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
+                                   const ERL_NIF_TERM argv[]) {
+    int err;
+
+    session_t *session;
+    find_session(argv[0]);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+
+    ERL_NIF_TERM *sw_params_map;
+    if ((err = get_sw_params_map(env, session->pcm, sw_params_map)) < 0) {
+        return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+    }
+
+    return enif_make_tuple2(env, ATOM(ok), *sw_params_map);
+}
+
+/*
+ * load
+ */
+
 static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
+    LOAD_ATOM(ok);
+    LOAD_ATOM(error);
+    LOAD_ATOM(no_such_handle);
+
     LOAD_ATOM(playback);
     LOAD_ATOM(capture);
 
@@ -316,57 +370,29 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
     LOAD_ATOM(period_size);
     LOAD_ATOM(buffer_size);
 
-    LOAD_ATOM(s8);
-    LOAD_ATOM(u8);
-    LOAD_ATOM(s16_le);
-    LOAD_ATOM(s16_be);
-    LOAD_ATOM(u16_le);
-    LOAD_ATOM(u16_be);
-    LOAD_ATOM(s24_le);
-    LOAD_ATOM(s24_be);
-    LOAD_ATOM(u24_le);
-    LOAD_ATOM(u24_be);
-    LOAD_ATOM(s32_le);
-    LOAD_ATOM(s32_be);
-    LOAD_ATOM(u32_le);
-    LOAD_ATOM(u32_be);
-    LOAD_ATOM(float_le);
-    LOAD_ATOM(float_be);
-    LOAD_ATOM(float64_le);
-    LOAD_ATOM(float64_be);
-    LOAD_ATOM(iec958_subframe_le);
-    LOAD_ATOM(iec958_subframe_be);
-    LOAD_ATOM(mu_law);
-    LOAD_ATOM(a_law);
-    LOAD_ATOM(ima_adpcm);
-    LOAD_ATOM(mpeg);
-    LOAD_ATOM(gsm);
-    LOAD_ATOM(s20_le);
-    LOAD_ATOM(s20_be);
-    LOAD_ATOM(u20_le);
-    LOAD_ATOM(u20_be);
-    LOAD_ATOM(special);
-    LOAD_ATOM(s24_3le);
-    LOAD_ATOM(s24_3be);
-    LOAD_ATOM(u24_3le);
-    LOAD_ATOM(u24_3be);
-    LOAD_ATOM(s20_3le);
-    LOAD_ATOM(s20_3be);
-    LOAD_ATOM(u20_3le);
-    LOAD_ATOM(u20_3be);
-    LOAD_ATOM(s18_3le);
-    LOAD_ATOM(s18_3be);
-    LOAD_ATOM(u18_3le);
-    LOAD_ATOM(u18_3be);
+    LOAD_ATOM(start_threshold);
+
     return 0;
 }
+
+/*
+ * unload
+ */
+
 
 static void unload(ErlNifEnv* env, void* priv_data) {
 }
 
+/*
+ * NIF functions registration
+ */
+
 static ErlNifFunc nif_funcs[] =
     {
-     {"open", 4, _open, 0},
+     {"open", 2, _open, 0},
+     {"get_hw_params", 1, _get_hw_params, 0},
+     {"set_hw_params", 2, _set_hw_params, 0},
+     {"get_sw_params", 1, _get_hw_params, 0},
      /*
      {"close", 1, _close, 0},
      {"strerror", 1, _strerror, 0},
@@ -382,7 +408,7 @@ static ErlNifFunc nif_funcs[] =
      */
     };
 
-ERL_NIF_INIT(malsa, nif_funcs, load, NULL, NULL, unload);
+ERL_NIF_INIT(alsa, nif_funcs, load, NULL, NULL, unload);
 
 /*
 strerror(overrun) ->

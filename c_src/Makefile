@@ -8,7 +8,7 @@ CFLAGS=-I$(ERL_TOP)/usr/include
 CFLAGS+=-std=c99 -Wall -Werror -O
 OCFLAGS=-I/usr/local/lib/erlang/usr/include -D_REENTRANT
 SOLDFLAGS=-shared
-S2DLDFLAGS=-L/usr/lib/x86_64-linux-gnu -L/usr/local/lib
+S2DLDFLAGS=-L/usr/lib/x86_64-linux-gnu -L/usr/local/lib $(shell pkg-config --libs alsa)
 
 all: ../priv/alsa_nif.so
 
