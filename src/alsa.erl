@@ -1,6 +1,6 @@
 -module(alsa).
 -export([init/0]).
--export([open/2, get_hw_params/1, set_hw_params/2, get_sw_params/1,
+-export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
          set_sw_params/2,
 
 
@@ -51,10 +51,10 @@ init() ->
 %% Exported: open
 %%
 
--spec open(device_name(), playback | capture) ->
+-spec open(device_name(), playback | capture, hw_params(), sw_params()) ->
           {ok, handle(), hw_params(), sw_params()} | {error, reason()}.
 
-open(_DeviceName, _Stream) ->
+open(_DeviceName, _Stream, _HwParams, _SwParams) ->
     exit(nif_library_not_loaded).
 
 %%
