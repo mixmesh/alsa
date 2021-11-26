@@ -3,6 +3,9 @@
 #include <alsa/asoundlib.h>
 #include "uthash/uthash.h"
 
+// #define DEBUGF(f,a...) fprintf(stderr, f "\r\n", a)
+#define DEBUGF(f,a...)
+
 #define ATOM(name) atm_##name
 
 #define DECL_ATOM(name) ERL_NIF_TERM atm_##name = 0
@@ -139,6 +142,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     if (key == ATOM(format)) {
                         snd_pcm_format_t format;
                         if (enif_get_int(env, value, &format)) {
+			    DEBUGF("format=%d", format);
                             if ((err = snd_pcm_hw_params_set_format(
                                            pcm_handle, hw_params,
                                            format)) < 0) {
@@ -157,6 +161,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     } else if (key == ATOM(channels)) {
                         unsigned int channels;
                         if (enif_get_uint(env, value, &channels)) {
+			    DEBUGF("channels=%d", channels);
                             if ((err = snd_pcm_hw_params_set_channels(
                                            pcm_handle, hw_params,
                                            channels)) < 0) {
@@ -176,6 +181,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                         unsigned int rate;
                         int dir;
                         if (enif_get_uint(env, value, &rate)) {
+			    DEBUGF("rate=%u", rate);
                             if ((err = snd_pcm_hw_params_set_rate_near(
                                            pcm_handle, hw_params, &rate, &dir)) < 0) {
                                 reason = enif_make_tuple4(env,
@@ -194,6 +200,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                         snd_pcm_uframes_t period_size;
                         int dir;
                         if (enif_get_ulong(env, value, &period_size)) {
+			    DEBUGF("period_size=%lu", period_size);
                             if ((err = snd_pcm_hw_params_set_period_size_near(
                                            pcm_handle, hw_params,
                                            &period_size, &dir)) < 0) {
@@ -212,6 +219,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     } else if (key == ATOM(buffer_size)) {
                         snd_pcm_uframes_t buffer_size;
                         if (enif_get_ulong(env, value, &buffer_size)) {
+			    DEBUGF("buffer_size=%lu", buffer_size);
                             if ((err = snd_pcm_hw_params_set_buffer_size_near(
                                            pcm_handle, hw_params,
                                            &buffer_size)) < 0) {
@@ -446,9 +454,10 @@ static ERL_NIF_TERM _close(ErlNifEnv* env, int argc,
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
-    delete_session(session);
     snd_pcm_drain(session->pcm_handle);
     snd_pcm_close(session->pcm_handle);
+    delete_session(session);
+
     return ATOM(ok);
 }
 
@@ -618,12 +627,12 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
         return enif_make_badarg(env);
     }
 
-    ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, frames);
-    ErlNifBinary buf[buflen];
+    //ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, frames);
+    ErlNifBinary buf;
 
-    if (enif_inspect_binary(env, argv[1], buf)) {
-        snd_pcm_uframes_t written_frames =
-            snd_pcm_writei(session->pcm_handle, buf, frames);
+    if (enif_inspect_binary(env, argv[1], &buf)) {
+        snd_pcm_sframes_t written_frames =
+            snd_pcm_writei(session->pcm_handle, buf.data, frames);
         if (written_frames == -EPIPE) {
             if (snd_pcm_recover(session->pcm_handle, written_frames, 0) < 0) {
                 return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
