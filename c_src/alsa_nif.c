@@ -44,6 +44,11 @@ session_t *find_session(int handle) {
     return session;
 }
 
+void delete_session(session_t *session) {
+    HASH_DEL(sessions, session);
+    free(session);
+}
+
 uint32_t next_handle = 0;
 
 ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
@@ -416,6 +421,21 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 }
 
 /*
+ * close
+ */
+
+static ERL_NIF_TERM _close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    session_t *session = find_session(argv[0]);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    delete_session(session);
+    snd_pcm_drain(session->pcm_handle);
+    snd_pcm_close(session->pcm_handle);
+    return ATOM(ok);
+}
+
+/*
  * get_hw_params
  */
 
@@ -572,13 +592,19 @@ static void unload(ErlNifEnv* env, void* priv_data) {
 static ErlNifFunc nif_funcs[] =
     {
      {"open", 4, _open, 0},
+     {"close", 1, _close, 0},
      {"get_hw_params", 1, _get_hw_params, 0},
      {"set_hw_params", 2, _set_hw_params, 0},
      {"get_sw_params", 1, _get_sw_params, 0},
      {"set_sw_params", 2, _set_sw_params, 0},
+
+
+
      {"strerror", 1, _strerror, 0},
+
+
      /*
-     {"close", 1, _close, 0},
+
      {"strerror", 1, _strerror, 0},
      {"get_hw_params", 1, _get_hw_params, 0},
      {"set_hw_params", 2, _set_hw_params, 0},

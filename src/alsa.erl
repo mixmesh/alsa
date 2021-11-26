@@ -59,7 +59,7 @@ open(_DeviceName, _Stream, _HwParams, _SwParams) ->
 %%
 
 -spec get_hw_params(handle()) ->
-          {ok, hw_params()} | {error, alsa_reason()}.
+          {ok, hw_params()} | {error, alsa_reason() | no_such_handle}.
 
 get_hw_params(_Handle) ->
     exit(nif_library_not_loaded).
@@ -70,7 +70,7 @@ get_hw_params(_Handle) ->
 
 -spec set_hw_params(handle(), hw_params()) ->
           {ok, hw_params()} |
-          {error, alsa_reason() | bad_param_reason()}.
+          {error, alsa_reason() | bad_param_reason() | no_such_handle}.
 
 set_hw_params(_Handle, _HwParams) ->
     exit(nif_library_not_loaded).
@@ -80,7 +80,7 @@ set_hw_params(_Handle, _HwParams) ->
 %%
 
 -spec get_sw_params(handle()) ->
-          {ok, sw_params()} | {error, alsa_reason()}.
+          {ok, sw_params()} | {error, alsa_reason() | no_such_handle}.
 
 get_sw_params(_Handle) ->
     exit(nif_library_not_loaded).
@@ -91,7 +91,7 @@ get_sw_params(_Handle) ->
 
 -spec set_sw_params(handle(), sw_params()) ->
           {ok, sw_params()} |
-          {error, alsa_reason() | bad_param_reason()}.
+          {error, alsa_reason() | bad_param_reason() | no_such_handle}.
 
 set_sw_params(_Handle, _SwParams) ->
     exit(nif_library_not_loaded).
@@ -100,8 +100,7 @@ set_sw_params(_Handle, _SwParams) ->
 %% Exported: close
 %%
 
-%% NOT DONE
--spec close(handle()) -> ok | {error, alsa_reason()}.
+-spec close(handle()) -> ok | {error, alsa_reason() | no_such_handle}.
 
 close(_Handle) ->
     exit(nif_library_not_loaded).
