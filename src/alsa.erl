@@ -10,7 +10,7 @@
 -type handle() :: integer().
 -type device_name() :: string().
 
--type format() :: integer(). % Any of SND_PCM_FORMAT_... in include/alsa.hrl
+-type format() :: integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
 
 -type hw_params() :: #{format => format(),
                        channels => integer(),

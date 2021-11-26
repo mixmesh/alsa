@@ -472,7 +472,7 @@ static ERL_NIF_TERM _strerror(ErlNifEnv* env, int argc,
                           snd_strerror(err));
         } else {
             enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
-                          "Unknown error: %T %T %d", argv[0], terms[0], arity);
+                          "Unknown error: %T", argv[0]);
         }
     } else {
         enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
@@ -599,31 +599,31 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
 
-    snd_pcm_uframes_t nframes;
-    if (!enif_get_ulong(env, argv[2], &nframes)) {
+    snd_pcm_uframes_t frames;
+    if (!enif_get_ulong(env, argv[2], &frames)) {
         return enif_make_badarg(env);
     }
 
-    ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, nframes);
+    ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, frames);
     ErlNifBinary buf[buflen];
 
     if (enif_inspect_binary(env, argv[1], buf)) {
-        snd_pcm_uframes_t frames =
-            snd_pcm_writei(session->pcm_handle, buf, nframes);
-        if (frames == -EPIPE) {
-            if (snd_pcm_recover(session->pcm_handle, frames, 0) < 0) {
+        snd_pcm_uframes_t written_frames =
+            snd_pcm_writei(session->pcm_handle, buf, frames);
+        if (written_frames == -EPIPE) {
+            if (snd_pcm_recover(session->pcm_handle, written_frames, 0) < 0) {
                 return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
             }
             return enif_make_tuple2(env, ATOM(ok), ATOM(underrun));
-        } else if (frames == -ESTRPIPE) {
-            if (snd_pcm_recover(session->pcm_handle, frames, 0) < 0) {
+        } else if (written_frames == -ESTRPIPE) {
+            if (snd_pcm_recover(session->pcm_handle, written_frames, 0) < 0) {
                 return enif_make_tuple2(env, ATOM(error), ATOM(suspend_event));
             }
             return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
-        } else if (frames < 0) {
-            return enif_make_tuple2(env, ATOM(error), enif_make_int(env, frames));
+        } else if (written_frames < 0) {
+            return enif_make_tuple2(env, ATOM(error), enif_make_int(env, written_frames));
         } else {
-            return enif_make_tuple2(env, ATOM(ok), enif_make_int(env, frames));
+            return enif_make_tuple2(env, ATOM(ok), enif_make_int(env, written_frames));
         }
     } else {
         return enif_make_badarg(env);
