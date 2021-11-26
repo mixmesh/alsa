@@ -1,7 +1,7 @@
 -module(playback).
 -export([start/1]).
 
--define(PERIOD_SIZE, 1024).
+-define(PERIOD_SIZE, 960).
 -define(BUFFER_MULTIPLICATOR, 8).
 
 -include("../include/alsa.hrl").
@@ -12,22 +12,22 @@ start(FilePath) ->
             WantedHwParams =
                 #{format => ?SND_PCM_FORMAT_S16_LE,
                   channels => 2,
-                  rate => 44100,
+                  rate => 48000,
                   period_size => ?PERIOD_SIZE,
                   buffer_size => ?PERIOD_SIZE * ?BUFFER_MULTIPLICATOR},
             WantedSwParams =
                 #{start_threshold => ?PERIOD_SIZE * (?BUFFER_MULTIPLICATOR - 1)},
-            case alsa:open("plughw:0,0", playback, WantedHwParams,
+            case alsa:open("hw:0,0", playback, WantedHwParams,
                            WantedSwParams) of
                 {ok, AlsaHandle, ActualHwParams, ActualSwParams} ->
-                    io:format("~p\n", [{ActualHwParams, ActualSwParams}]),
+                    io:format("Params: ~p\n", [{ActualHwParams, ActualSwParams}]),
                     playback(AlsaHandle, Fd);
                 {error, Reason} ->
                     file:close(Fd),
-                    {error, Reason}
+                    {error, alsa:strerror(Reason)}
             end;
         {error, Reason} ->
-            {error, Reason}
+            {error, file:format_error(Reason)}
     end.
 
 playback(AlsaHandle, Fd) ->
@@ -54,5 +54,5 @@ playback(AlsaHandle, Fd) ->
         {error, Reason} ->
             alsa:close(AlsaHandle),
             file:close(Fd),
-            {error, Reason}
+            {error, alsa:strerror(Reason)}
     end.
