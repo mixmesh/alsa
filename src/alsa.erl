@@ -1,14 +1,8 @@
 -module(alsa).
 -export([init/0]).
 -export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
-         set_sw_params/2,
-
-
-
-
- close/1, strerror/1,
-         read/2, write/2, prepare/1, recover/3, drain/1]).
--export_type([handle/0, reason/0, read_reason/0, write_reason/0]).
+         set_sw_params/2, close/1, strerror/1, read/2, write/2, prepare/1,
+         recover/3, drain/1]).
 
 -include("../include/alsa.hrl").
 
@@ -17,7 +11,7 @@
 -type handle() :: integer().
 -type device_name() :: string().
 
--type format() :: integer(). %% FIXME: be more precise
+-type format() :: integer(). % Any of SND_PCM_FORMAT_... in include/alsa.hrl
 
 -type hw_params() :: #{format => format(),
                        channels => integer(),
@@ -27,7 +21,9 @@
 
 -type sw_params() :: #{start_threshold => integer()}.
 
--type reason() :: integer().
+-type alsa_reason() :: integer().
+
+-type bad_param_reason() :: {bad_param, atom(), integer(), alsa_reason()}.
 
 -type read_reason() ::
         ?ALSA_OVERRUN |
@@ -52,7 +48,8 @@ init() ->
 %%
 
 -spec open(device_name(), playback | capture, hw_params(), sw_params()) ->
-          {ok, handle(), hw_params(), sw_params()} | {error, reason()}.
+          {ok, handle(), hw_params(), sw_params()} |
+          {error, alsa_reason() | bad_param_reason()}.
 
 open(_DeviceName, _Stream, _HwParams, _SwParams) ->
     exit(nif_library_not_loaded).
@@ -62,18 +59,18 @@ open(_DeviceName, _Stream, _HwParams, _SwParams) ->
 %%
 
 -spec get_hw_params(handle()) ->
-          {ok, hw_params()} | {error, reason()}.
+          {ok, hw_params()} | {error, alsa_reason()}.
 
 get_hw_params(_Handle) ->
     exit(nif_library_not_loaded).
-
 
 %%
 %% Exported: set_hw_params
 %%
 
 -spec set_hw_params(handle(), hw_params()) ->
-          {ok, hw_params()} | {error, reason()}.
+          {ok, hw_params()} |
+          {error, alsa_reason() | bad_param_reason()}.
 
 set_hw_params(_Handle, _HwParams) ->
     exit(nif_library_not_loaded).
@@ -83,32 +80,28 @@ set_hw_params(_Handle, _HwParams) ->
 %%
 
 -spec get_sw_params(handle()) ->
-          {ok, sw_params()} | {error, reason()}.
+          {ok, sw_params()} | {error, alsa_reason()}.
 
 get_sw_params(_Handle) ->
     exit(nif_library_not_loaded).
-
 
 %%
 %% Exported: set_sw_params
 %%
 
 -spec set_sw_params(handle(), sw_params()) ->
-          {ok, sw_params()} | {error, reason()}.
+          {ok, sw_params()} |
+          {error, alsa_reason() | bad_param_reason()}.
 
 set_sw_params(_Handle, _SwParams) ->
     exit(nif_library_not_loaded).
-
-
-
-
 
 %%
 %% Exported: close
 %%
 
 %% NOT DONE
--spec close(handle()) -> ok | {error, reason()}.
+-spec close(handle()) -> ok | {error, alsa_reason()}.
 
 close(_Handle) ->
     exit(nif_library_not_loaded).
@@ -117,8 +110,7 @@ close(_Handle) ->
 %% Exported: strerror
 %%
 
-%% NOT DONE
--spec strerror(reason() | read_reason() | write_reason()) -> string().
+-spec strerror(alsa_reason() | bad_param_reason()) -> string().
 
 strerror(_Reason) ->
     exit(nif_library_not_loaded).
@@ -158,7 +150,7 @@ prepare(_Handle) ->
 %%
 
 %% NOT DONE
--spec recover(handle(), reason(), boolean()) -> ok | {error, reason()}.
+-spec recover(handle(), alsa_reason(), boolean()) -> ok | {error, alsa_reason()}.
 
 recover(_Handle, _ErrorReason, _Silent) ->
     exit(nif_library_not_loaded).
@@ -168,7 +160,7 @@ recover(_Handle, _ErrorReason, _Silent) ->
 %%
 
 %% NOT DONE
--spec drain(handle()) -> ok | {error, reason()}.
+-spec drain(handle()) -> ok | {error, alsa_reason()}.
 
 drain(_Handle) ->
     exit(nif_library_not_loaded).

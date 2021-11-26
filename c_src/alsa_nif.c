@@ -17,7 +17,7 @@ DECL_ATOM(no_such_handle);
 DECL_ATOM(playback);
 DECL_ATOM(capture);
 
-DECL_ATOM(bad_value);
+DECL_ATOM(bad_param);
 DECL_ATOM(format);
 DECL_ATOM(channels);
 DECL_ATOM(rate);
@@ -135,7 +135,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                            pcm_handle, hw_params,
                                            format)) < 0) {
                                 reason = enif_make_tuple4(env,
-                                                          ATOM(bad_value),
+                                                          ATOM(bad_param),
                                                           ATOM(format),
                                                           value,
                                                           enif_make_int(env, err));
@@ -152,7 +152,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                            pcm_handle, hw_params,
                                            channels)) < 0) {
                                 reason = enif_make_tuple4(env,
-                                                          ATOM(bad_value),
+                                                          ATOM(bad_param),
                                                           ATOM(channels),
                                                           value,
                                                           enif_make_int(env, err));
@@ -169,7 +169,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_hw_params_set_rate_near(
                                            pcm_handle, hw_params, &rate, &dir)) < 0) {
                                 reason = enif_make_tuple4(env,
-                                                          ATOM(bad_value),
+                                                          ATOM(bad_param),
                                                           ATOM(rate),
                                                           value,
                                                           enif_make_int(env, err));
@@ -187,7 +187,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                            pcm_handle, hw_params,
                                            &period_size, &dir)) < 0) {
                                 reason = enif_make_tuple4(env,
-                                                          ATOM(bad_value),
+                                                          ATOM(bad_param),
                                                           ATOM(period_size),
                                                           value,
                                                           enif_make_int(env, err));
@@ -204,7 +204,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                            pcm_handle, hw_params,
                                            &buffer_size)) < 0) {
                                 reason = enif_make_tuple4(env,
-                                                          ATOM(bad_value),
+                                                          ATOM(bad_param),
                                                           ATOM(buffer_size),
                                                           value,
                                                           enif_make_int(env, err));
@@ -296,7 +296,7 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
             ErlNifMapIterator iter;
             if (enif_map_iterator_create(env, sw_params_map, &iter,
                                          ERL_NIF_MAP_ITERATOR_FIRST)) {
-                ERL_NIF_TERM key, value;
+                ERL_NIF_TERM key, value, reason = 0;
                 bool badarg = false;
                 while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
                     if (key == ATOM(start_threshold)) {
@@ -305,6 +305,11 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_sw_params_set_start_threshold(
                                            pcm_handle, sw_params,
                                            start_threshold)) < 0) {
+                                reason = enif_make_tuple4(env,
+                                                          ATOM(bad_param),
+                                                          ATOM(start_threshold),
+                                                          value,
+                                                          enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -322,9 +327,9 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                 if (badarg) {
                     snd_pcm_sw_params_free(sw_params);
                     return enif_make_badarg(env);
-                } else if (err != 0) {
+                } else if (reason != 0) {
                     snd_pcm_sw_params_free(sw_params);
-                    return enif_make_int(env, err);
+                    return reason;
                 } else {
                     if ((err = snd_pcm_sw_params(pcm_handle,
                                                  sw_params)) < 0) {
@@ -333,7 +338,6 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     }
 
                     snd_pcm_sw_params_free(sw_params);
-
                     return 0;
                 }
             } else {
@@ -511,7 +515,7 @@ static ERL_NIF_TERM _strerror(ErlNifEnv* env, int argc,
     if (enif_get_int(env, argv[0], &err)) {
         enif_snprintf(strerror_buf, MAX_STRERROR_LEN, snd_strerror(err));
     } else if (enif_get_tuple(env, argv[0], &arity, &terms)) {
-        if (terms[0] == ATOM(bad_value) && arity == 4) {
+        if (terms[0] == ATOM(bad_param) && arity == 4) {
             int err;
             enif_get_int(env, terms[3], &err);
             enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
@@ -541,7 +545,7 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
     LOAD_ATOM(playback);
     LOAD_ATOM(capture);
 
-    LOAD_ATOM(bad_value);
+    LOAD_ATOM(bad_param);
     LOAD_ATOM(format);
     LOAD_ATOM(format);
     LOAD_ATOM(channels);
