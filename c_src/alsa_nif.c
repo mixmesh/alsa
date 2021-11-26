@@ -146,7 +146,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(format),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -163,7 +164,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(channels),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -180,7 +182,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(rate),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -198,7 +201,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(period_size),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -215,7 +219,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(buffer_size),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -317,7 +322,8 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                                           ATOM(bad_param),
                                                           ATOM(start_threshold),
                                                           value,
-                                                          enif_make_int(env, err));
+                                                          enif_make_int(env,
+                                                                        err));
                                 break;
                             }
                         } else {
@@ -388,7 +394,8 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     session_t *session = malloc(sizeof(session_t));
     session->handle = next_handle;
 
-    if ((err = snd_pcm_open(&session->pcm_handle, device_name, stream, 0)) < 0) {
+    if ((err = snd_pcm_open(&session->pcm_handle, device_name, stream,
+                            0)) < 0) {
         return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
     }
 
@@ -398,7 +405,8 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     }
 
     ERL_NIF_TERM hw_params_map;
-    if ((reason = get_hw_params_map(env, session->pcm_handle, &hw_params_map)) != 0) {
+    if ((reason = get_hw_params_map(env, session->pcm_handle,
+                                    &hw_params_map)) != 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -407,7 +415,8 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     }
 
     ERL_NIF_TERM sw_params_map;
-    if ((reason = get_sw_params_map(env, session->pcm_handle, &sw_params_map)) != 0) {
+    if ((reason = get_sw_params_map(env, session->pcm_handle,
+                                    &sw_params_map)) != 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -427,7 +436,8 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
  * close
  */
 
-static ERL_NIF_TERM _close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+static ERL_NIF_TERM _close(ErlNifEnv* env, int argc,
+                           const ERL_NIF_TERM argv[]) {
     int handle;
     if (!enif_get_int(env, argv[0], &handle)) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
@@ -498,7 +508,8 @@ static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM hw_params_map, reason;
-    if ((reason = get_hw_params_map(env, session->pcm_handle, &hw_params_map)) < 0) {
+    if ((reason = get_hw_params_map(env, session->pcm_handle,
+                                    &hw_params_map)) < 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -526,7 +537,8 @@ static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM hw_params_map;
-    if ((reason = get_hw_params_map(env, session->pcm_handle, &hw_params_map)) != 0) {
+    if ((reason = get_hw_params_map(env, session->pcm_handle,
+                                    &hw_params_map)) != 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -549,7 +561,8 @@ static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM sw_params_map, reason;
-    if ((reason = get_sw_params_map(env, session->pcm_handle, &sw_params_map)) != 0) {
+    if ((reason = get_sw_params_map(env, session->pcm_handle,
+                                    &sw_params_map)) != 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -577,7 +590,8 @@ static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
     }
 
     ERL_NIF_TERM sw_params_map;
-    if ((reason = get_sw_params_map(env, session->pcm_handle, &sw_params_map)) != 0) {
+    if ((reason = get_sw_params_map(env, session->pcm_handle,
+                                    &sw_params_map)) != 0) {
         return enif_make_tuple2(env, ATOM(error), reason);
     }
 
@@ -621,9 +635,11 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
             }
             return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
         } else if (written_frames < 0) {
-            return enif_make_tuple2(env, ATOM(error), enif_make_int(env, written_frames));
+            return enif_make_tuple2(env, ATOM(error),
+                                    enif_make_int(env, written_frames));
         } else {
-            return enif_make_tuple2(env, ATOM(ok), enif_make_int(env, written_frames));
+            return enif_make_tuple2(env, ATOM(ok),
+                                    enif_make_int(env, written_frames));
         }
     } else {
         return enif_make_badarg(env);
