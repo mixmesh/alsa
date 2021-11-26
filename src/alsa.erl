@@ -1,7 +1,7 @@
 -module(alsa).
 -export([init/0]).
 -export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
-         set_sw_params/2, close/1, strerror/1, read/2, write/2, prepare/1,
+         set_sw_params/2, close/1, strerror/1, read/2, write/3, prepare/1,
          recover/3, drain/1]).
 
 -include("../include/alsa.hrl").
@@ -24,16 +24,6 @@
 -type alsa_reason() :: integer().
 
 -type bad_param_reason() :: {bad_param, atom(), integer(), alsa_reason()}.
-
--type read_reason() ::
-        ?ALSA_OVERRUN |
-        ?ALSA_WAITING_FOR_RECOVERY |
-        ?ALSA_NOT_PREPARED_NOR_RUNNING.
-
--type write_reason() ::
-        ?ALSA_UNDERRUN |
-        ?ALSA_WAITING_FOR_RECOVERY |
-        ?ALSA_NOT_PREPARED_NOR_RUNNING.
 
 %%
 %% Exported: init
@@ -119,7 +109,7 @@ strerror(_Reason) ->
 %%
 
 %% NOT DONE
--spec read(handle(), integer()) -> {ok, binary()} | {error, read_reason()}.
+%%-spec read(handle(), integer()) -> {ok, binary()} | {error, read_reason()}.
 
 read(_Handle, _Frames) ->
     exit(nif_library_not_loaded).
@@ -128,10 +118,11 @@ read(_Handle, _Frames) ->
 %% Exported: write
 %%
 
-%% NOT DONE
--spec write(handle(), binary()) -> {ok, integer()} | {error, write_reason()}.
+-spec write(handle(), binary(), integer()) ->
+          {ok, integer() | underrun | suspend_event} |
+          {error, alsa_reason() | no_such_handle | underrun | suspend_event}.
 
-write(_Handle, _Bin) ->
+write(_Handle, _Bin, _Frames) ->
     exit(nif_library_not_loaded).
 
 %%

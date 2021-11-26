@@ -26,6 +26,9 @@ DECL_ATOM(buffer_size);
 
 DECL_ATOM(start_threshold);
 
+DECL_ATOM(underrun);
+DECL_ATOM(suspend_event);
+
 typedef struct {
     int handle;
     snd_pcm_t *pcm_handle;
@@ -425,7 +428,11 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
  */
 
 static ERL_NIF_TERM _close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    session_t *session = find_session(argv[0]);
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
@@ -436,12 +443,56 @@ static ERL_NIF_TERM _close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) 
 }
 
 /*
+ * strerror
+ */
+
+#define MAX_STRERROR_LEN 256
+static char strerror_buf[MAX_STRERROR_LEN];
+
+static ERL_NIF_TERM _strerror(ErlNifEnv* env, int argc,
+                              const ERL_NIF_TERM argv[]) {
+    int err, arity;
+    const ERL_NIF_TERM *terms;
+    if (enif_get_int(env, argv[0], &err)) {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN, snd_strerror(err));
+    } else if (argv[0] == ATOM(no_such_handle)) {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN, "Alsa handle is stale");
+    } else if (argv[0] == ATOM(underrun)) {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                      "Failed to receover from underrun");
+    } else if (argv[0] == ATOM(underrun)) {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                      "Failed to recover from suspend event");
+    } else if (enif_get_tuple(env, argv[0], &arity, &terms)) {
+        if (terms[0] == ATOM(bad_param) && arity == 4) {
+            int err;
+            enif_get_int(env, terms[3], &err);
+            enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                          "%T cannot be %T (%s)", terms[1], terms[2],
+                          snd_strerror(err));
+        } else {
+            enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                          "Unknown error: %T %T %d", argv[0], terms[0], arity);
+        }
+    } else {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                      "Unknown error: %T", argv[0]);
+    }
+
+    return enif_make_string(env, strerror_buf, ERL_NIF_LATIN1);
+}
+
+/*
  * get_hw_params
  */
 
 static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
-    session_t *session = find_session(argv[0]);
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
@@ -460,7 +511,11 @@ static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
-    session_t *session = find_session(argv[0]);
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
@@ -484,7 +539,11 @@ static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
-    session_t *session = find_session(argv[0]);
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
@@ -503,7 +562,11 @@ static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
-    session_t *session = find_session(argv[0]);
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
     if (session == NULL) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
@@ -522,35 +585,48 @@ static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
 }
 
 /*
- * strerror
+ * write
  */
 
-#define MAX_STRERROR_LEN 256
-static char strerror_buf[MAX_STRERROR_LEN];
-
-static ERL_NIF_TERM _strerror(ErlNifEnv* env, int argc,
-                              const ERL_NIF_TERM argv[]) {
-    int err, arity;
-    const ERL_NIF_TERM *terms;
-    if (enif_get_int(env, argv[0], &err)) {
-        enif_snprintf(strerror_buf, MAX_STRERROR_LEN, snd_strerror(err));
-    } else if (enif_get_tuple(env, argv[0], &arity, &terms)) {
-        if (terms[0] == ATOM(bad_param) && arity == 4) {
-            int err;
-            enif_get_int(env, terms[3], &err);
-            enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
-                          "%T cannot be %T (%s)", terms[1], terms[2],
-                          snd_strerror(err));
-        } else {
-            enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
-                          "Unknown error1: %T %T %d", argv[0], terms[0], arity);
-        }
-    } else {
-        enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
-                      "Unknown error2: %T", argv[0]);
+static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
+                           const ERL_NIF_TERM argv[]) {
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
     }
 
-    return enif_make_string(env, strerror_buf, ERL_NIF_LATIN1);
+    snd_pcm_uframes_t nframes;
+    if (!enif_get_ulong(env, argv[2], &nframes)) {
+        return enif_make_badarg(env);
+    }
+
+    ssize_t bin_len = snd_pcm_frames_to_bytes(session->pcm_handle, nframes);
+    ErlNifBinary bin[bin_len];
+    if (enif_inspect_binary(env, argv[1], bin)) {
+        snd_pcm_uframes_t frames =
+            snd_pcm_writei(session->pcm_handle, bin, nframes);
+        if (frames == -EPIPE) {
+            if (snd_pcm_recover(session->pcm_handle, frames, 0) < 0) {
+                return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
+            }
+            return enif_make_tuple2(env, ATOM(ok), ATOM(underrun));
+        } else if (frames == -ESTRPIPE) {
+            if (snd_pcm_recover(session->pcm_handle, frames, 0) < 0) {
+                return enif_make_tuple2(env, ATOM(error), ATOM(suspend_event));
+            }
+            return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
+        } else if (frames < 0) {
+            return enif_make_tuple2(env, ATOM(error), enif_make_int(env, frames));
+        } else {
+            return enif_make_tuple2(env, ATOM(ok), enif_make_int(env, frames));
+        }
+    } else {
+        return enif_make_badarg(env);
+    }
 }
 
 /*
@@ -575,6 +651,9 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
 
     LOAD_ATOM(start_threshold);
 
+    LOAD_ATOM(underrun);
+    LOAD_ATOM(suspend_event);
+
     return 0;
 }
 
@@ -593,25 +672,22 @@ static ErlNifFunc nif_funcs[] =
     {
      {"open", 4, _open, 0},
      {"close", 1, _close, 0},
+     {"strerror", 1, _strerror, 0},
      {"get_hw_params", 1, _get_hw_params, 0},
      {"set_hw_params", 2, _set_hw_params, 0},
      {"get_sw_params", 1, _get_sw_params, 0},
      {"set_sw_params", 2, _set_sw_params, 0},
+     {"write", 3, _write, ERL_NIF_DIRTY_JOB_IO_BOUND},
 
 
 
-     {"strerror", 1, _strerror, 0},
 
 
      /*
 
-     {"strerror", 1, _strerror, 0},
-     {"get_hw_params", 1, _get_hw_params, 0},
-     {"set_hw_params", 2, _set_hw_params, 0},
-     {"get_sw_params", 1, _get_sw_params, 0},
 
      {"read", 2, _read, ERL_NIF_DIRTY_JOB_IO_BOUND},
-     {"write", 2, _write, ERL_NIF_DIRTY_JOB_IO_BOUND},
+
      {"prepare", 1, _prepare, 0},
      {"recover", 3, _recover, 0},
      {"drain", 1, _drain, 0}
@@ -619,12 +695,3 @@ static ErlNifFunc nif_funcs[] =
     };
 
 ERL_NIF_INIT(alsa, nif_funcs, load, NULL, NULL, unload);
-
-/*
-strerror(overrun) ->
-    "An overrun occurred";
-strerror(waiting_for_recovery) ->
-    "Stream is suspended and waiting for an application recovery";
-strerror(not_prepared_nor_running) ->
-    "Stream not prepared nor running";
-*/
