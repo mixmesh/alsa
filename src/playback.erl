@@ -1,7 +1,15 @@
 -module(playback).
 -export([start/1]).
 
+-include("../include/alsa.hrl").
+
+-define(FORMAT, ?SND_PCM_FORMAT_S16_LE).
+-define(RATE_IN_HZ, 48000).
+-define(CHANNELS, 2).
 -define(PERIOD_SIZE_IN_FRAMES, 960).
+-define(SAMPLE_SIZE_IN_BYTES, 2).
+-define(PERIOD_SIZE_IN_BYTES,
+        (?PERIOD_SIZE_IN_FRAMES * ?CHANNELS * ?SAMPLE_SIZE_IN_BYTES)).
 -define(BUFFER_MULTIPLICATOR, 8).
 
 -include("../include/alsa.hrl").
@@ -10,9 +18,9 @@ start(FilePath) ->
     case file:open(FilePath, [read, raw, binary, read_ahead]) of
         {ok, Fd} ->
             WantedHwParams =
-                #{format => ?SND_PCM_FORMAT_S16_LE,
-                  channels => 2,
-                  rate => 48000,
+                #{format => ?FORMAT,
+                  channels => ?CHANNELS,
+                  rate => ?RATE_IN_HZ,
                   period_size => ?PERIOD_SIZE_IN_FRAMES,
                   buffer_size => ?PERIOD_SIZE_IN_FRAMES * ?BUFFER_MULTIPLICATOR},
             WantedSwParams =
@@ -32,7 +40,7 @@ start(FilePath) ->
     end.
 
 playback(AlsaHandle, Fd) ->
-    case file:read(Fd, ?PERIOD_SIZE_IN_FRAMES) of
+    case file:read(Fd, ?PERIOD_SIZE_IN_BYTES) of
         {ok, Bin} ->
             case alsa:write(AlsaHandle, Bin, ?PERIOD_SIZE_IN_FRAMES) of
                 {ok, ?PERIOD_SIZE_IN_FRAMES} ->

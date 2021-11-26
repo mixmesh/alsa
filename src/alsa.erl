@@ -1,8 +1,7 @@
 -module(alsa).
 -export([init/0]).
 -export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
-         set_sw_params/2, close/1, strerror/1, read/2, write/3, prepare/1,
-         recover/3, drain/1]).
+         set_sw_params/2, close/1, strerror/1, read/2, write/3]).
 
 -include("../include/alsa.hrl").
 
@@ -123,34 +122,4 @@ read(_Handle, _Frames) ->
           {error, alsa_reason() | no_such_handle | underrun | suspend_event}.
 
 write(_Handle, _Bin, _Frames) ->
-    exit(nif_library_not_loaded).
-
-%%
-%% Exported: prepare
-%%
-
-%% NOT DONE
--spec prepare(handle()) -> ok | {error, reason}.
-
-prepare(_Handle) ->
-    exit(nif_library_not_loaded).
-
-%%
-%% Exported: recover
-%%
-
-%% NOT DONE
--spec recover(handle(), alsa_reason(), boolean()) -> ok | {error, alsa_reason()}.
-
-recover(_Handle, _ErrorReason, _Silent) ->
-    exit(nif_library_not_loaded).
-
-%%
-%% Exported: drain
-%%
-
-%% NOT DONE
--spec drain(handle()) -> ok | {error, alsa_reason()}.
-
-drain(_Handle) ->
     exit(nif_library_not_loaded).

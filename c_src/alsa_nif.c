@@ -677,21 +677,8 @@ static ErlNifFunc nif_funcs[] =
      {"set_hw_params", 2, _set_hw_params, 0},
      {"get_sw_params", 1, _get_sw_params, 0},
      {"set_sw_params", 2, _set_sw_params, 0},
-     {"write", 3, _write, ERL_NIF_DIRTY_JOB_IO_BOUND},
-
-
-
-
-
-     /*
-
-
-     {"read", 2, _read, ERL_NIF_DIRTY_JOB_IO_BOUND},
-
-     {"prepare", 1, _prepare, 0},
-     {"recover", 3, _recover, 0},
-     {"drain", 1, _drain, 0}
-     */
+     //{"read", 2, _read, ERL_NIF_DIRTY_JOB_IO_BOUND}
+     {"write", 3, _write, ERL_NIF_DIRTY_JOB_IO_BOUND}
     };
 
 ERL_NIF_INIT(alsa, nif_funcs, load, NULL, NULL, unload);
