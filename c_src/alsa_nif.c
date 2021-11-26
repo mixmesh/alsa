@@ -604,11 +604,12 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
         return enif_make_badarg(env);
     }
 
-    ssize_t bin_len = snd_pcm_frames_to_bytes(session->pcm_handle, nframes);
-    ErlNifBinary bin[bin_len];
-    if (enif_inspect_binary(env, argv[1], bin)) {
+    ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, nframes);
+    ErlNifBinary buf[buflen];
+
+    if (enif_inspect_binary(env, argv[1], buf)) {
         snd_pcm_uframes_t frames =
-            snd_pcm_writei(session->pcm_handle, bin, nframes);
+            snd_pcm_writei(session->pcm_handle, buf, nframes);
         if (frames == -EPIPE) {
             if (snd_pcm_recover(session->pcm_handle, frames, 0) < 0) {
                 return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
