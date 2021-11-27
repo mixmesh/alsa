@@ -6,7 +6,7 @@
 
 -include("../include/alsa.hrl").
 
--type handle() :: integer().
+-type handle() :: reference().
 -type device_name() :: string().
 -type format() :: integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
 -type hw_params() :: #{format => format(),
