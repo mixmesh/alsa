@@ -1,5 +1,5 @@
--module(playback).
--export([start/1]).
+-module(capture).
+-export([start/2]).
 
 -include("../include/alsa.hrl").
 
@@ -12,8 +12,8 @@
         (?PERIOD_SIZE_IN_FRAMES * ?CHANNELS * ?SAMPLE_SIZE_IN_BYTES)).
 -define(BUFFER_MULTIPLICATOR, 8).
 
-start(FilePath) ->
-    case file:open(FilePath, [read, raw, binary, read_ahead]) of
+start(FilePath, DurationInSeconds) ->
+    case file:open(FilePath, [write, raw, binary]) of
         {ok, Fd} ->
             WantedHwParams =
                 #{format => ?FORMAT,
@@ -21,14 +21,11 @@ start(FilePath) ->
                   rate => ?RATE_IN_HZ,
                   period_size => ?PERIOD_SIZE_IN_FRAMES,
                   buffer_size => ?PERIOD_SIZE_IN_FRAMES * ?BUFFER_MULTIPLICATOR},
-            WantedSwParams =
-                #{start_threshold =>
-                      ?PERIOD_SIZE_IN_FRAMES * (?BUFFER_MULTIPLICATOR - 1)},
-            case alsa:open("hw:0,0", playback, WantedHwParams,
-                           WantedSwParams) of
+            case alsa:open("hw:0,0", capture, WantedHwParams, #{}) of
                 {ok, AlsaHandle, ActualHwParams, ActualSwParams} ->
                     io:format("Params: ~p\n", [{ActualHwParams, ActualSwParams}]),
-                    playback(AlsaHandle, Fd);
+                    ProceedUntil = erlang:monotonic_time(second) + DurationInSeconds,
+                    capture(AlsaHandle, Fd, ProceedUntil);
                 {error, Reason} ->
                     file:close(Fd),
                     {error, alsa:strerror(Reason)}
@@ -37,29 +34,32 @@ start(FilePath) ->
             {error, file:format_error(Reason)}
     end.
 
-playback(AlsaHandle, Fd) ->
-    case file:read(Fd, ?PERIOD_SIZE_IN_BYTES) of
-        {ok, Bin} ->
-            case alsa:write(AlsaHandle, Bin) of
-                {ok, ?PERIOD_SIZE_IN_FRAMES} ->
-                    playback(AlsaHandle, Fd);
-                {ok, underrun} ->
-                    io:format("Recovered from underrun\n"),
-                    playback(AlsaHandle, Fd);
+capture(AlsaHandle, Fd, ProceedUntil) ->
+    case ProceedUntil - erlang:monotonic_time(second) of
+        TimeLeft when TimeLeft < 0 ->
+            alsa:close(AlsaHandle),
+            file:close(Fd),
+            ok;
+        _ ->
+            case alsa:read(AlsaHandle, ?PERIOD_SIZE_IN_BYTES) of
+                {ok, Bin} when is_binary(Bin) ->
+                    case file:write(Fd, Bin) of
+                        ok ->
+                            capture(AlsaHandle, Fd, ProceedUntil);
+                        {error, Reason} ->
+                            alsa:close(AlsaHandle),
+                            file:close(Fd),
+                            {error, file:format_error(Reason)}
+                    end;
+                {ok, overrun} ->
+                    io:format("Recovered from overrun\n"),
+                    capture(AlsaHandle, Fd, ProceedUntil);
                 {ok, suspend_event} ->
                     io:format("Recovered from suspend event\n"),
-                    playback(AlsaHandle, Fd);
+                    capture(AlsaHandle, Fd, ProceedUntil);
                 {error, Reason} ->
                     alsa:close(AlsaHandle),
                     file:close(Fd),
                     {error, alsa:strerror(Reason)}
-            end;
-        eof ->
-            alsa:close(AlsaHandle),
-            file:close(Fd),
-            eof;
-        {error, Reason} ->
-            alsa:close(AlsaHandle),
-            file:close(Fd),
-            {error, alsa:strerror(Reason)}
+            end
     end.

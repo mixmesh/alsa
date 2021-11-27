@@ -29,7 +29,9 @@ DECL_ATOM(buffer_size);
 
 DECL_ATOM(start_threshold);
 
+DECL_ATOM(too_little_data);
 DECL_ATOM(underrun);
+DECL_ATOM(overrun);
 DECL_ATOM(suspend_event);
 
 typedef struct {
@@ -82,8 +84,6 @@ ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     snd_pcm_hw_params_get_period_size(hw_params, &period_size, &dir);
     snd_pcm_uframes_t buffer_size;
     snd_pcm_hw_params_get_buffer_size(hw_params, &buffer_size);
-    //fprintf(stderr, "get_hw_params: %p:%d:%d:%d:%ld:%ld\n",
-    //        pcm_handle, format, channels, rate, period_size, buffer_size);
 
     ERL_NIF_TERM hw_params_keys[5] =
         {
@@ -478,7 +478,10 @@ static ERL_NIF_TERM _strerror(ErlNifEnv* env, int argc,
         enif_snprintf(strerror_buf, MAX_STRERROR_LEN, "Alsa handle is stale");
     } else if (argv[0] == ATOM(underrun)) {
         enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
-                      "Failed to receover from underrun");
+                      "Failed to recover from underrun");
+    } else if (argv[0] == ATOM(overrun)) {
+        enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
+                      "Failed to recover from overrun");
     } else if (argv[0] == ATOM(underrun)) {
         enif_snprintf(strerror_buf, MAX_STRERROR_LEN,
                       "Failed to recover from suspend event");
@@ -608,11 +611,10 @@ static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
 }
 
 /*
- * write
+ * read
  */
 
-static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
-                           const ERL_NIF_TERM argv[]) {
+static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int handle;
     if (!enif_get_int(env, argv[0], &handle)) {
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
@@ -627,10 +629,61 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
         return enif_make_badarg(env);
     }
 
-    ErlNifBinary buf;
-    if (enif_inspect_binary(env, argv[1], &buf)) {
+    ssize_t binlen = snd_pcm_frames_to_bytes(session->pcm_handle, frames);
+    ErlNifBinary bin;
+    if (!enif_alloc_binary(binlen, &bin)) {
+        return enif_make_badarg(env);
+    }
+
+    snd_pcm_sframes_t read_frames =
+        snd_pcm_readi(session->pcm_handle, bin.data, frames);
+    if (read_frames == -EPIPE) {
+        if (snd_pcm_recover(session->pcm_handle, read_frames, 0) < 0) {
+            enif_release_binary(&bin);
+            return enif_make_tuple2(env, ATOM(error), ATOM(overrun));
+        }
+        enif_release_binary(&bin);
+        return enif_make_tuple2(env, ATOM(ok), ATOM(overrun));
+    } else if (read_frames == -ESTRPIPE) {
+        if (snd_pcm_recover(session->pcm_handle, read_frames, 0) < 0) {
+            enif_release_binary(&bin);
+            return enif_make_tuple2(env, ATOM(error), ATOM(suspend_event));
+        }
+        enif_release_binary(&bin);
+        return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
+    } else if (read_frames < 0) {
+        enif_release_binary(&bin);
+        return enif_make_tuple2(env, ATOM(error),
+                                enif_make_int(env, read_frames));
+    } else {
+        return enif_make_tuple2(env, ATOM(ok), enif_make_binary(env, &bin));
+    }
+}
+
+/*
+ * write
+ */
+
+static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
+                           const ERL_NIF_TERM argv[]) {
+    int handle;
+    if (!enif_get_int(env, argv[0], &handle)) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+    session_t *session = find_session(handle);
+    if (session == NULL) {
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    }
+
+    ErlNifBinary bin;
+    if (enif_inspect_binary(env, argv[1], &bin)) {
+        snd_pcm_uframes_t frames =
+            snd_pcm_bytes_to_frames(session->pcm_handle, bin.size);
+        if (frames == 0) {
+            return enif_make_tuple2(env, ATOM(error), ATOM(too_little_data));
+        }
         snd_pcm_sframes_t written_frames =
-            snd_pcm_writei(session->pcm_handle, buf.data, frames);
+            snd_pcm_writei(session->pcm_handle, bin.data, frames);
         if (written_frames == -EPIPE) {
             if (snd_pcm_recover(session->pcm_handle, written_frames, 0) < 0) {
                 return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
@@ -675,7 +728,9 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
 
     LOAD_ATOM(start_threshold);
 
+    LOAD_ATOM(too_little_data);
     LOAD_ATOM(underrun);
+    LOAD_ATOM(overrun);
     LOAD_ATOM(suspend_event);
 
     return 0;
@@ -701,8 +756,8 @@ static ErlNifFunc nif_funcs[] =
      {"set_hw_params", 2, _set_hw_params, 0},
      {"get_sw_params", 1, _get_sw_params, 0},
      {"set_sw_params", 2, _set_sw_params, 0},
-     //{"read", 2, _read, ERL_NIF_DIRTY_JOB_IO_BOUND}
-     {"write", 3, _write, ERL_NIF_DIRTY_JOB_IO_BOUND}
+     {"read", 2, _read, ERL_NIF_DIRTY_JOB_IO_BOUND},
+     {"write", 2, _write, ERL_NIF_DIRTY_JOB_IO_BOUND}
     };
 
 ERL_NIF_INIT(alsa, nif_funcs, load, NULL, NULL, unload);
