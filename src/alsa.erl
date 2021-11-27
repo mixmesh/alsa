@@ -1,7 +1,7 @@
 -module(alsa).
--export([init/0]).
 -export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
          set_sw_params/2, close/1, strerror/1, read/2, write/2]).
+-export([init/0, preloaded_atoms/0]). % internal
 -on_load(init/0).
 
 -include("../include/alsa.hrl").
@@ -26,6 +26,15 @@
 init() ->
     ok = erlang:load_nif(
            filename:join(code:priv_dir(alsa), alsa_nif), none).
+
+%%
+%% Exported: preloaded_atoms
+%%
+
+preloaded_atoms() ->
+    [ok, error, no_such_handle, playback, capture, bad_param, format, channels,
+     rate, period_size, buffer_size, start_threshold, too_little_data, underrun,
+     overrun, suspend_event].
 
 %%
 %% Exported: open

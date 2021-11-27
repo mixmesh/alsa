@@ -10,8 +10,11 @@
 
 #define DECL_ATOM(name) ERL_NIF_TERM atm_##name = 0
 
-// FIXME: Use enif_make_existing_atom(env, #name) (return -1 if it fails)
-#define LOAD_ATOM(name) atm_##name = enif_make_atom(env, #name)
+#define LOAD_ATOM(name) \
+    do { \
+        if (!enif_make_existing_atom(env, #name, &atm_##name, ERL_NIF_LATIN1)) \
+            return -1; \
+    } while (0)
 
 DECL_ATOM(ok);
 DECL_ATOM(error);
