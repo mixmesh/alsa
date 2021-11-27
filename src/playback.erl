@@ -12,8 +12,6 @@
         (?PERIOD_SIZE_IN_FRAMES * ?CHANNELS * ?SAMPLE_SIZE_IN_BYTES)).
 -define(BUFFER_MULTIPLICATOR, 8).
 
--include("../include/alsa.hrl").
-
 start(FilePath) ->
     case file:open(FilePath, [read, raw, binary, read_ahead]) of
         {ok, Fd} ->

@@ -627,9 +627,7 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
         return enif_make_badarg(env);
     }
 
-    //ssize_t buflen = snd_pcm_frames_to_bytes(session->pcm_handle, frames);
     ErlNifBinary buf;
-
     if (enif_inspect_binary(env, argv[1], &buf)) {
         snd_pcm_sframes_t written_frames =
             snd_pcm_writei(session->pcm_handle, buf.data, frames);
