@@ -625,7 +625,7 @@ static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     }
 
     snd_pcm_uframes_t frames;
-    if (!enif_get_ulong(env, argv[2], &frames)) {
+    if (!enif_get_ulong(env, argv[1], &frames)) {
         return enif_make_badarg(env);
     }
 
@@ -637,6 +637,7 @@ static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
     snd_pcm_sframes_t read_frames =
         snd_pcm_readi(session->pcm_handle, bin.data, frames);
+
     if (read_frames == -EPIPE) {
         if (snd_pcm_recover(session->pcm_handle, read_frames, 0) < 0) {
             enif_release_binary(&bin);
