@@ -1,14 +1,7 @@
 %% -*- erlang -*-
-{application, simulator,
- [{description, "A Simulator"},
+{application, alsa,
+ [{description, "An Alsa NIF"},
   {vsn, git},
   {modules, ["@@MODULES@@"]},
-  {registered, [neighbour_serv,
-                keydir_serv,
-                render_serv,
-                simulator_player_sup,
-                simulator_players_sup,
-                simulator_sup,
-                simulator_serv]},
-  {mod, {simulator_app, []}},
-  {applications, [kernel, stdlib, sasl, keydir]}]}.
+  {registered, []},
+  {applications, [kernel, stdlib, sasl]}]}.
