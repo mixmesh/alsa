@@ -37,17 +37,15 @@ start(FilePath, DurationInSeconds) ->
 capture(AlsaHandle, Fd, ProceedUntil) ->
     case ProceedUntil - erlang:monotonic_time(second) of
         TimeLeft when TimeLeft < 0 ->
-            alsa:close(AlsaHandle),
             file:close(Fd),
             ok;
         _ ->
-            case alsa:read(AlsaHandle, ?PERIOD_SIZE_IN_BYTES) of
+            case alsa:read(AlsaHandle, ?PERIOD_SIZE_IN_FRAMES) of
                 {ok, Bin} when is_binary(Bin) ->
                     case file:write(Fd, Bin) of
                         ok ->
                             capture(AlsaHandle, Fd, ProceedUntil);
                         {error, Reason} ->
-                            alsa:close(AlsaHandle),
                             file:close(Fd),
                             {error, file:format_error(Reason)}
                     end;
@@ -58,7 +56,6 @@ capture(AlsaHandle, Fd, ProceedUntil) ->
                     io:format("Recovered from suspend event\n"),
                     capture(AlsaHandle, Fd, ProceedUntil);
                 {error, Reason} ->
-                    alsa:close(AlsaHandle),
                     file:close(Fd),
                     {error, alsa:strerror(Reason)}
             end

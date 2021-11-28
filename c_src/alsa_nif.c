@@ -421,23 +421,6 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 }
 
 /*
- * close
- */
-
-static ERL_NIF_TERM _close(ErlNifEnv* env, int argc,
-                           const ERL_NIF_TERM argv[]) {
-    handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
-        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
-    snd_pcm_drain(handle->pcm_handle);
-    snd_pcm_close(handle->pcm_handle);
-    enif_release_resource(handle);
-    return ATOM(ok);
-}
-
-/*
  * strerror
  */
 
@@ -722,7 +705,6 @@ static void unload(ErlNifEnv* env, void* priv_data) {
 static ErlNifFunc nif_funcs[] =
     {
      {"open", 4, _open, 0},
-     {"close", 1, _close, 0},
      {"strerror", 1, _strerror, 0},
      {"get_hw_params", 1, _get_hw_params, 0},
      {"set_hw_params", 2, _set_hw_params, 0},

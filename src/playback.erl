@@ -50,16 +50,13 @@ playback(AlsaHandle, Fd) ->
                     io:format("Recovered from suspend event\n"),
                     playback(AlsaHandle, Fd);
                 {error, Reason} ->
-                    alsa:close(AlsaHandle),
                     file:close(Fd),
                     {error, alsa:strerror(Reason)}
             end;
         eof ->
-            alsa:close(AlsaHandle),
             file:close(Fd),
             eof;
         {error, Reason} ->
-            alsa:close(AlsaHandle),
             file:close(Fd),
             {error, alsa:strerror(Reason)}
     end.
