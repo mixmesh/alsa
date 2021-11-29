@@ -7,7 +7,7 @@
 -include("../include/alsa.hrl").
 
 -type handle() :: reference().
--type device_name() :: string().
+-type pcm_name() :: string().
 -type format() :: integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
 -type hw_params() :: #{format => format(),
                        channels => integer(),
@@ -32,19 +32,19 @@ init() ->
 %%
 
 preloaded_atoms() ->
-    [ok, error, no_such_handle, playback, capture, bad_param, format, channels,
-     rate, period_size, buffer_size, start_threshold, too_little_data, underrun,
+    [no_such_handle, playback, capture, bad_param, format, channels, rate,
+     period_size, buffer_size, start_threshold, too_little_data, underrun,
      overrun, suspend_event].
 
 %%
 %% Exported: open
 %%
 
--spec open(device_name(), playback | capture, hw_params(), sw_params()) ->
+-spec open(pcm_name(), playback | capture, hw_params(), sw_params()) ->
           {ok, handle(), hw_params(), sw_params()} |
           {error, alsa_reason() | bad_param_reason()}.
 
-open(_DeviceName, _Stream, _HwParams, _SwParams) ->
+open(_PcmName, _Stream, _HwParams, _SwParams) ->
     exit(nif_library_not_loaded).
 
 %%
