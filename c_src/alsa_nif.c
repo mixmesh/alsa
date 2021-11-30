@@ -39,8 +39,57 @@ DECL_ATOM(suspend_event);
 ErlNifResourceType *handle_resource_type;
 
 typedef struct {
+    ErlNifMutex* access_mtx;
+    int          access_count;
+    int          is_open;
     snd_pcm_t *pcm_handle;
 } handle_t;
+
+// Get handle and update access count under lock so pcm_handle
+// is not closed while we execute alsa call, must call done_handle!
+static int get_handle(ErlNifEnv* env, ERL_NIF_TERM arg,
+		      handle_t** handle_ptr) {
+    handle_t* handle;
+    int r;
+    if (!enif_get_resource(env, arg, handle_resource_type,(void **)&handle))
+	return 0;
+    enif_mutex_lock(handle->access_mtx);
+    if ((r = handle->is_open))
+	handle->access_count++;
+    enif_mutex_unlock(handle->access_mtx);
+    *handle_ptr = handle;
+    return r;
+}
+
+// code calling get_handle must call done_handle at the end of code
+static void done_handle(handle_t* handle) {
+    int must_close = 0;
+    
+    enif_mutex_lock(handle->access_mtx);
+    DEBUGF("done_handle access_count = %d", handle->access_count);    
+    handle->access_count--;
+    if ((handle->access_count == 0) && !handle->is_open)
+	must_close = 1;
+    enif_mutex_unlock(handle->access_mtx);    
+    if (must_close) {
+	DEBUGF("done_handle must_close, access_count = %d",
+	      handle->access_count);
+	snd_pcm_drain(handle->pcm_handle);
+	snd_pcm_close(handle->pcm_handle);
+    }
+}
+
+// Value must be return from NIF
+ERL_NIF_TERM handle_ok(ErlNifEnv* env, handle_t* handle, ERL_NIF_TERM value) {
+    done_handle(handle);
+    return enif_make_tuple2(env, ATOM(ok), value);
+}
+
+// Value must be return from NIF
+ERL_NIF_TERM handle_error(ErlNifEnv* env, handle_t* handle, ERL_NIF_TERM err) {
+    done_handle(handle);
+    return enif_make_tuple2(env, ATOM(error), err);
+}
 
 ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                                ERL_NIF_TERM *hw_params_map) {
@@ -399,11 +448,26 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     handle_t *handle =
         enif_alloc_resource(handle_resource_type, sizeof(handle_t));
     handle->pcm_handle = pcm_handle;
+    handle->access_mtx = enif_mutex_create("pcm_access");
+    handle->access_count = 0;
+    handle->is_open = 1;
     ERL_NIF_TERM handle_resource = enif_make_resource(env, handle);
     enif_release_resource(handle);
 
     return enif_make_tuple4(env, ATOM(ok), handle_resource, hw_params_map,
                             sw_params_map);
+}
+
+static ERL_NIF_TERM _close(ErlNifEnv* env, int argc,
+			   const ERL_NIF_TERM argv[]) {
+    handle_t *handle;
+    if (!get_handle(env, argv[0], &handle))
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+    enif_mutex_lock(handle->access_mtx);
+    handle->is_open = 0;
+    enif_mutex_unlock(handle->access_mtx);
+    done_handle(handle);
+    return ATOM(ok);
 }
 
 /*
@@ -457,18 +521,15 @@ static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
 
     handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
+    if (!get_handle(env, argv[0], &handle))
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
-
+    
     ERL_NIF_TERM hw_params_map, reason;
     if ((reason = get_hw_params_map(env, handle->pcm_handle,
                                     &hw_params_map)) < 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
-
-    return enif_make_tuple2(env, ATOM(ok), hw_params_map);
+    return handle_ok(env, handle, hw_params_map);
 }
 
 /*
@@ -478,23 +539,21 @@ static ERL_NIF_TERM _get_hw_params(ErlNifEnv* env, int argc,
 static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
     handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
+    if (!get_handle(env, argv[0], &handle))
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
 
     ERL_NIF_TERM reason;
     if ((reason = set_hw_params_map(env, handle->pcm_handle, argv[1])) < 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
 
     ERL_NIF_TERM hw_params_map;
     if ((reason = get_hw_params_map(env, handle->pcm_handle,
                                     &hw_params_map)) != 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
 
-    return enif_make_tuple2(env, ATOM(ok), hw_params_map);
+    return handle_ok(env, handle, hw_params_map);
 }
 
 /*
@@ -504,18 +563,16 @@ static ERL_NIF_TERM _set_hw_params(ErlNifEnv* env, int argc,
 static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
     handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
+    if (!get_handle(env, argv[0], &handle))
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
-
+    
     ERL_NIF_TERM sw_params_map, reason;
     if ((reason = get_sw_params_map(env, handle->pcm_handle,
                                     &sw_params_map)) != 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
 
-    return enif_make_tuple2(env, ATOM(ok), sw_params_map);
+    return handle_ok(env, handle, sw_params_map);
 }
 
 /*
@@ -525,23 +582,21 @@ static ERL_NIF_TERM _get_sw_params(ErlNifEnv* env, int argc,
 static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
     handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
+    if (!get_handle(env, argv[0], &handle))
         return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
 
     ERL_NIF_TERM reason;
     if ((reason = set_sw_params_map(env, handle->pcm_handle, argv[1])) < 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
 
     ERL_NIF_TERM sw_params_map;
     if ((reason = get_sw_params_map(env, handle->pcm_handle,
                                     &sw_params_map)) != 0) {
-        return enif_make_tuple2(env, ATOM(error), reason);
+        return handle_error(env, handle, reason);
     }
 
-    return enif_make_tuple2(env, ATOM(ok), sw_params_map);
+    return handle_ok(env, handle, sw_params_map);
 }
 
 /*
@@ -549,20 +604,21 @@ static ERL_NIF_TERM _set_sw_params(ErlNifEnv* env, int argc,
  */
 
 static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
-        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
 
     snd_pcm_uframes_t frames;
     if (!enif_get_ulong(env, argv[1], &frames)) {
         return enif_make_badarg(env);
     }
 
+    handle_t *handle;
+    if (!get_handle(env, argv[0], &handle))
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+
+
     ssize_t binlen = snd_pcm_frames_to_bytes(handle->pcm_handle, frames);
     ErlNifBinary bin;
     if (!enif_alloc_binary(binlen, &bin)) {
+	done_handle(handle);
         return enif_make_badarg(env);
     }
 
@@ -572,23 +628,23 @@ static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     if (read_frames == -EPIPE) {
         if (snd_pcm_recover(handle->pcm_handle, read_frames, 0) < 0) {
             enif_release_binary(&bin);
-            return enif_make_tuple2(env, ATOM(error), ATOM(overrun));
+            return handle_error(env, handle, ATOM(overrun));
         }
         enif_release_binary(&bin);
-        return enif_make_tuple2(env, ATOM(ok), ATOM(overrun));
+        return handle_ok(env, handle, ATOM(overrun));
     } else if (read_frames == -ESTRPIPE) {
         if (snd_pcm_recover(handle->pcm_handle, read_frames, 0) < 0) {
             enif_release_binary(&bin);
-            return enif_make_tuple2(env, ATOM(error), ATOM(suspend_event));
+            return handle_error(env, handle, ATOM(suspend_event));
         }
         enif_release_binary(&bin);
-        return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
+        return handle_ok(env, handle, ATOM(suspend_event));
     } else if (read_frames < 0) {
         enif_release_binary(&bin);
-        return enif_make_tuple2(env, ATOM(error),
-                                enif_make_int(env, read_frames));
+        return handle_error(env, handle,
+			    enif_make_int(env, read_frames));
     } else {
-        return enif_make_tuple2(env, ATOM(ok), enif_make_binary(env, &bin));
+        return handle_ok(env, handle, enif_make_binary(env, &bin));
     }
 }
 
@@ -599,39 +655,36 @@ static ERL_NIF_TERM _read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
                            const ERL_NIF_TERM argv[]) {
     handle_t *handle;
-    if (!enif_get_resource(env, argv[0], handle_resource_type,
-                           (void **)&handle)) {
-        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
-    }
-
     ErlNifBinary bin;
-    if (enif_inspect_binary(env, argv[1], &bin)) {
-        snd_pcm_uframes_t frames =
-            snd_pcm_bytes_to_frames(handle->pcm_handle, bin.size);
-        if (frames == 0) {
-            return enif_make_tuple2(env, ATOM(error), ATOM(too_little_data));
-        }
-        snd_pcm_sframes_t written_frames =
-            snd_pcm_writei(handle->pcm_handle, bin.data, frames);
-        if (written_frames == -EPIPE) {
-            if (snd_pcm_recover(handle->pcm_handle, written_frames, 0) < 0) {
-                return enif_make_tuple2(env, ATOM(error), ATOM(underrun));
-            }
-            return enif_make_tuple2(env, ATOM(ok), ATOM(underrun));
-        } else if (written_frames == -ESTRPIPE) {
-            if (snd_pcm_recover(handle->pcm_handle, written_frames, 0) < 0) {
-                return enif_make_tuple2(env, ATOM(error), ATOM(suspend_event));
-            }
-            return enif_make_tuple2(env, ATOM(ok), ATOM(suspend_event));
-        } else if (written_frames < 0) {
-            return enif_make_tuple2(env, ATOM(error),
-                                    enif_make_int(env, written_frames));
-        } else {
-            return enif_make_tuple2(env, ATOM(ok),
-                                    enif_make_int(env, written_frames));
-        }
+    
+    if (!enif_inspect_binary(env, argv[1], &bin))
+	return enif_make_badarg(env);
+    
+    if (!get_handle(env, argv[0], &handle))
+        return enif_make_tuple2(env, ATOM(error), ATOM(no_such_handle));
+
+    snd_pcm_uframes_t frames =
+	snd_pcm_bytes_to_frames(handle->pcm_handle, bin.size);
+    if (frames == 0) // ?? maybe {ok, 0}?
+	return handle_error(env, handle, ATOM(too_little_data));
+    
+    snd_pcm_sframes_t written_frames =
+	snd_pcm_writei(handle->pcm_handle, bin.data, frames);
+    
+    if (written_frames == -EPIPE) {
+	if (snd_pcm_recover(handle->pcm_handle, written_frames, 0) < 0) {
+	    return handle_error(env, handle, ATOM(underrun));
+	}
+	return handle_ok(env, handle, ATOM(underrun));
+    } else if (written_frames == -ESTRPIPE) {
+	if (snd_pcm_recover(handle->pcm_handle, written_frames, 0) < 0) {
+	    return handle_error(env, handle, ATOM(suspend_event));
+	}
+	return handle_ok(env, handle, ATOM(suspend_event));
+    } else if (written_frames < 0) {
+	return handle_error(env, handle, enif_make_int(env, written_frames));
     } else {
-        return enif_make_badarg(env);
+	return handle_ok(env, handle, enif_make_int(env, written_frames));
     }
 }
 
@@ -641,8 +694,16 @@ static ERL_NIF_TERM _write(ErlNifEnv* env, int argc,
 
 void handle_resource_dtor(ErlNifEnv *env, void *obj) {
     handle_t *handle = (handle_t *)obj;
-    snd_pcm_drain(handle->pcm_handle);
-    snd_pcm_close(handle->pcm_handle);
+    if (handle->is_open) {
+	DEBUGF("dtor (open) access_count = %d", handle->access_count);
+	snd_pcm_drain(handle->pcm_handle);
+	snd_pcm_close(handle->pcm_handle);
+	handle->is_open = 0;
+    }
+    else {
+	DEBUGF("dtor (closed) access_count = %d", handle->access_count);
+    }
+    enif_mutex_destroy(handle->access_mtx);
 }
 
 static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info) {
@@ -691,6 +752,7 @@ static void unload(ErlNifEnv* env, void* priv_data) {
 static ErlNifFunc nif_funcs[] =
     {
      {"open", 4, _open, 0},
+     {"close", 1, _close, 0},
      {"strerror", 1, _strerror, 0},
      {"get_hw_params", 1, _get_hw_params, 0},
      {"set_hw_params", 2, _set_hw_params, 0},

@@ -1,5 +1,5 @@
 -module(alsa).
--export([open/4, get_hw_params/1, set_hw_params/2, get_sw_params/1,
+-export([open/4, close/1, get_hw_params/1, set_hw_params/2, get_sw_params/1,
          set_sw_params/2, strerror/1, read/2, write/2]).
 -export([init/0, preloaded_atoms/0]). % internal
 -on_load(init/0).
@@ -45,6 +45,16 @@ preloaded_atoms() ->
           {error, alsa_reason() | bad_param_reason()}.
 
 open(_PcmName, _Stream, _HwParams, _SwParams) ->
+    exit(nif_library_not_loaded).
+
+%%
+%% Exported: close
+%%
+
+-spec close(handle()) ->
+          ok | {error, alsa_reason() | no_such_handle}.
+
+close(_Handle) ->
     exit(nif_library_not_loaded).
 
 %%
