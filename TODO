@@ -1,0 +1,3 @@
+* non-blocking + select. check midi_nif.c
+* start to use alsa:close/1 in capture.erl, payback.erl
+* look carefully at Tonus fixes
