@@ -155,8 +155,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
         return enif_make_int(env, err);
     }
 
-    if ((err = snd_pcm_hw_params_set_access(pcm_handle, hw_params,
-                                            SND_PCM_ACCESS_RW_INTERLEAVED)) <
+    if ((err = snd_pcm_hw_params_set_access(
+                   pcm_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) <
         0) {
         snd_pcm_hw_params_free(hw_params);
         return enif_make_int(env, err);
@@ -178,12 +178,9 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_hw_params_set_format(
                                            pcm_handle, hw_params,
                                            format)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(format),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                             env, ATOM(bad_param), ATOM(format),
+                                             value, enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -197,12 +194,10 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_hw_params_set_channels(
                                            pcm_handle, hw_params,
                                            channels)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(channels),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                             env, ATOM(bad_param),
+                                             ATOM(channels), value,
+                                             enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -216,12 +211,9 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 			    DEBUGF("rate=%u", rate);
                             if ((err = snd_pcm_hw_params_set_rate_near(
                                            pcm_handle, hw_params, &rate, &dir)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(rate),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                             env, ATOM(bad_param), ATOM(rate),
+                                             value, enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -236,12 +228,10 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_hw_params_set_period_size_near(
                                            pcm_handle, hw_params,
                                            &period_size, &dir)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(period_size),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                            env, ATOM(bad_param),
+                                            ATOM(period_size), value,
+                                            enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -255,12 +245,10 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_hw_params_set_buffer_size_near(
                                            pcm_handle, hw_params,
                                            &buffer_size)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(buffer_size),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                             env, ATOM(bad_param),
+                                             ATOM(buffer_size), value,
+                                             enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -282,8 +270,8 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     snd_pcm_hw_params_free(hw_params);
                     return reason;
                 } else {
-                    if ((err = snd_pcm_hw_params(pcm_handle,
-                                                 hw_params)) < 0) {
+                    if ((err = snd_pcm_hw_params(
+                                   pcm_handle, hw_params)) < 0) {
                         snd_pcm_hw_params_free(hw_params);
                         return enif_make_int(env, err);
                     }
@@ -358,12 +346,10 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             if ((err = snd_pcm_sw_params_set_start_threshold(
                                            pcm_handle, sw_params,
                                            start_threshold)) < 0) {
-                                reason = enif_make_tuple4(env,
-                                                          ATOM(bad_param),
-                                                          ATOM(start_threshold),
-                                                          value,
-                                                          enif_make_int(env,
-                                                                        err));
+                                reason = enif_make_tuple4(
+                                             env, ATOM(bad_param),
+                                             ATOM(start_threshold), value,
+                                             enif_make_int(env, err));
                                 break;
                             }
                         } else {
@@ -385,8 +371,8 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     snd_pcm_sw_params_free(sw_params);
                     return reason;
                 } else {
-                    if ((err = snd_pcm_sw_params(pcm_handle,
-                                                 sw_params)) < 0) {
+                    if ((err = snd_pcm_sw_params(
+                                   pcm_handle, sw_params)) < 0) {
                         snd_pcm_sw_params_free(sw_params);
                         return enif_make_int(env, err);
                     }
@@ -411,13 +397,13 @@ ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
  * open
  */
 
-#define MAX_DEVICE_NAME_LEN 64
+#define MAX_PCM_NAME_LEN 64
 
 static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
 
-    char device_name[MAX_DEVICE_NAME_LEN];
-    if (enif_get_string(env, argv[0], device_name, MAX_DEVICE_NAME_LEN,
+    char pcm_name[MAX_PCM_NAME_LEN];
+    if (enif_get_string(env, argv[0], pcm_name, MAX_PCM_NAME_LEN,
                         ERL_NIF_LATIN1) < 1) {
         return enif_make_badarg(env);
     }
@@ -432,7 +418,7 @@ static ERL_NIF_TERM _open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     }
 
     snd_pcm_t *pcm_handle;
-    if ((err = snd_pcm_open(&pcm_handle, device_name, stream, 0)) < 0) {
+    if ((err = snd_pcm_open(&pcm_handle, pcm_name, stream, 0)) < 0) {
         return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
     }
 
