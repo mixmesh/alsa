@@ -140,7 +140,7 @@ write_header_(Fd, Header) ->
     
 encode_header(#{ format := Format,
 		 channels := NumChannels,
-		 rate := SampleRate
+		 sample_rate := SampleRate
 	       }) ->
     {AudioFormat, BitsPerChannel} = from_snd(Format),
     ByteRate = SampleRate*(((NumChannels*BitsPerChannel)+7) div 8),
@@ -175,7 +175,7 @@ decode_header(Bin) ->
 				bits_per_channel => BitsPerChannel,
 				valid_bit_per_channel => ValidBitsPerChannel,
 				channel_mask => ChannelMask,
-				rate => SampleRate,
+				sample_rate => SampleRate,
 				byte_rate => ByteRate
 			      }};
 			_ ->
@@ -187,7 +187,7 @@ decode_header(Bin) ->
 			    audio_format => AudioFormat,
 			    channels => NumChannels,
 			    bits_per_channel => BitsPerChannel,
-			    rate => SampleRate,
+			    sample_rate => SampleRate,
 			    byte_rate => ByteRate
 			  }}
 	    end;

@@ -5,7 +5,7 @@
 -include("../include/alsa.hrl").
 
 -define(DEFAULT_FORMAT, s16_le). %% ?SND_PCM_FORMAT_S16_LE).
--define(DEFAULT_RATE_IN_HZ, 48000).
+-define(DEFAULT_SAMPLE_RATE, 48000).
 -define(DEFAULT_CHANNELS, 2).
 -define(PERIOD_SIZE_IN_FRAMES, 4800).  %% 100ms
 -define(BUFFER_PERIODS, 8).
@@ -28,6 +28,7 @@ file(FilePath, Params) ->
 
 %% Play samples from file use [ram] option to send non-file samples...
 fd(Fd, Params0) ->
+    io:format("alsa_playback:fd params0 = ~p\n", [Params0]),
     PeriodSizeInFrames = 
 	maps:get(period_size, Params0, ?PERIOD_SIZE_IN_FRAMES),
     NumBufferPeriods =
@@ -42,28 +43,33 @@ fd(Fd, Params0) ->
 		     file:position(Fd, 0),
 		     Params0
 	     end,
+    io:format("alsa_playback:fd params = ~p\n", [Params]),
     Format = maps:get(format, Params, ?DEFAULT_FORMAT),
     Channels0 = maps:get(channels, Params, ?DEFAULT_CHANNELS),
     Channels = if Channels0 =:= 1 -> 2;
 		  true -> Channels0
 	       end,
-    Rate = maps:get(rate, Params, ?DEFAULT_RATE_IN_HZ),
+    SampleRate = maps:get(sample_rate, Params, ?DEFAULT_SAMPLE_RATE),
     Device = maps:get(device, Params, ?DEFAULT_DEVICE),
     Pan = maps:get(pan, Params, 0.0), %% pan 0.0=left .. 1.0 = right
     WantedHwParams =
 	#{format => Format,
 	  channels => Channels,
-	  rate => Rate,
+	  sample_rate => SampleRate,
 	  period_size => PeriodSizeInFrames,
 	  buffer_size => BufferSizeInFrames
 	 },
+    io:format("alsa_playback:fd wanted_hw_params = ~p\n", [WantedHwParams]),
     WantedSwParams =
 	#{start_threshold =>
 	      PeriodSizeInFrames * (NumBufferPeriods-1)},
     case alsa:open(Device, playback, WantedHwParams,
 		   WantedSwParams) of
 	{ok, Handle, ActualHwParams, ActualSwParams} ->
-	    io:format("Params: ~p\n", [{ActualHwParams, ActualSwParams}]),
+	    io:format("alsa_playback:fd actual_hw_params = ~p\n", 
+		      [ActualHwParams]),
+	    io:format("alsa_playback:fd actual_sw_params = ~p\n", 
+		      [ActualSwParams]),
 	    Format1 = maps:get(format, ActualHwParams),
 	    PeriodSizeInFrames1 = maps:get(period_size, ActualHwParams),
 	    Channels1 = maps:get(channels, ActualHwParams),

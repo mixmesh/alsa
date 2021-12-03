@@ -54,7 +54,7 @@
 -type format() :: atom() | integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
 -type hw_params() :: #{format => format(),
                        channels => integer(),
-                       rate => integer(),
+                       sample_rate => integer(),
                        period_size => integer(),
                        buffer_size => integer()}.
 -type sw_params() :: #{start_threshold => integer()}.
@@ -93,7 +93,7 @@ preloaded_atoms_() ->
      %% open mode
      playback, capture,
      %% hw-params
-     format, channels, rate, period_size, buffer_size,
+     format, channels, sample_rate, period_size, buffer_size,
      %% sw-params
      start_threshold,
      %% high level errors

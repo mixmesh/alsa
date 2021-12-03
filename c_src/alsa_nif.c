@@ -34,7 +34,7 @@ DECL_ATOM(capture);
 
 DECL_ATOM(format);
 DECL_ATOM(channels);
-DECL_ATOM(rate);
+DECL_ATOM(sample_rate);
 DECL_ATOM(period_size);
 DECL_ATOM(buffer_size);
 
@@ -438,9 +438,9 @@ ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     snd_pcm_hw_params_get_format(hw_params, &format);
     unsigned int channels;
     snd_pcm_hw_params_get_channels(hw_params, &channels);
-    unsigned int rate;
+    unsigned int sample_rate;
     int dir;
-    snd_pcm_hw_params_get_rate(hw_params, &rate, &dir);
+    snd_pcm_hw_params_get_rate(hw_params, &sample_rate, &dir);
     snd_pcm_uframes_t period_size;
     snd_pcm_hw_params_get_period_size(hw_params, &period_size, &dir);
     snd_pcm_uframes_t buffer_size;
@@ -450,7 +450,7 @@ ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
         {
          ATOM(format),
          ATOM(channels),
-         ATOM(rate),
+         ATOM(sample_rate),
          ATOM(period_size),
          ATOM(buffer_size)
         };
@@ -459,7 +459,7 @@ ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
         {
 	 make_format(env, format),
          enif_make_uint(env, channels),
-         enif_make_uint(env, rate),
+         enif_make_uint(env, sample_rate),
          enif_make_uint(env, period_size),
          enif_make_uint(env, buffer_size)
         };
@@ -533,15 +533,15 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                             badarg = true;
                             break;
                         }
-                    } else if (key == ATOM(rate)) {
-                        unsigned int rate;
+                    } else if (key == ATOM(sample_rate)) {
+                        unsigned int sample_rate;
                         int dir;
-                        if (enif_get_uint(env, value, &rate)) {
-			    DEBUGF("rate=%u", rate);
+                        if (enif_get_uint(env, value, &sample_rate)) {
+			    DEBUGF("sample_rate=%u", sample_rate);
                             if ((err = snd_pcm_hw_params_set_rate_near(
-                                           pcm_handle, hw_params, &rate, &dir)) < 0) {
+                                           pcm_handle, hw_params, &sample_rate, &dir)) < 0) {
                                 reason = enif_make_tuple4(
-                                             env, ATOM(bad_param), ATOM(rate),
+                                             env, ATOM(bad_param), ATOM(sample_rate),
                                              value, enif_make_int(env, err));
                                 break;
                             }
@@ -1535,7 +1535,7 @@ static int load_atoms(ErlNifEnv* env)
     // hw-parameters
     LOAD_ATOM(format);
     LOAD_ATOM(channels);
-    LOAD_ATOM(rate);
+    LOAD_ATOM(sample_rate);
     LOAD_ATOM(period_size);
     LOAD_ATOM(buffer_size);
     // sw-parameters
