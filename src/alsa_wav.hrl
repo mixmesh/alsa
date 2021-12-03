@@ -31,8 +31,8 @@
 	AudioFormat:16/little,
 	NumChannels:16/little,
 	SampleRate:32/little,
-	ByteRate:32/little,
-	BlockAlign:16/little,	
+	ByteRate:32/little,        %% (SampleRate*BitsPerSample*Channel)/8
+	FrameSize:16/little,	   %% BitsPerSample*Channels)/8
 	BitsPerChannel:16/little).
 
 -define(XWAV_HEADER_FIELDS(

@@ -1,5 +1,5 @@
 -module(alsa_capture).
--export([file/1, file/2]).
+-export([file/1, file/2, file/3]).
 
 -include("../include/alsa.hrl").
 
@@ -14,13 +14,17 @@
 file(FilePath) ->
     file_(FilePath, #{ duration => ?DEFAULT_DURATION}).
 
-file(FilePath, Duration) ->
-    file_(FilePath, #{ duration => Duration}).
+file(FilePath, Duration) when is_number(Duration) ->
+    file_(FilePath, #{ duration => Duration});
+file(FilePath, Params) when is_map(Params) ->
+    file_(FilePath, Params).
+
+file(FilePath, Duration, Params) when is_number(Duration) ->
+    file_(FilePath, Params#{ duration => Duration}).
 
 file_(FilePath, Params) ->
     io:format("alsa_capture: file_ params = ~p\n", [Params]),
-    DurationInSeconds =
-	maps:get(duration, Params, ?DEFAULT_DURATION),
+    DurationInSeconds =	maps:get(duration, Params, ?DEFAULT_DURATION),
     PeriodSizeInFrames = 
 	maps:get(period_size, Params, ?PERIOD_SIZE_IN_FRAMES),
     NumBufferPeriods =
@@ -62,7 +66,15 @@ file_(FilePath, Params) ->
 					       #{ format => Format1,
 						  channels => Channels1,
 						  sample_rate => SampleRate1 }),
-                    capture(AlsaHandle, Fd, PeriodSizeInFrames1, ProceedUntil);
+                    try capture(AlsaHandle, Fd, PeriodSizeInFrames1,
+				ProceedUntil) of
+			ok ->
+			    alsa_wav:poke_file_length(Fd);
+			Error ->
+			    Error
+		    after
+			file:close(Fd)
+		    end;
                 {error, Reason} ->
                     file:close(Fd),
                     {error, alsa:strerror(Reason)}
@@ -75,7 +87,6 @@ capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
     case ProceedUntil - erlang:monotonic_time(second) of
         TimeLeft when TimeLeft < 0 ->
 	    alsa:close(Handle),
-            file:close(Fd),
             ok;
         _ ->
             case alsa:read(Handle, PeriodSizeInFrames) of
@@ -85,7 +96,6 @@ capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
                             capture(Handle,Fd,PeriodSizeInFrames,ProceedUntil);
                         {error, Reason} ->
 			    alsa:close(Handle),
-                            file:close(Fd),
                             {error, file:format_error(Reason)}
                     end;
                 {ok, overrun} ->
@@ -96,7 +106,6 @@ capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
                     capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil);
                 {error, Reason} ->
 		    alsa:close(Handle),
-                    file:close(Fd),
                     {error, alsa:strerror(Reason)}
             end
     end.

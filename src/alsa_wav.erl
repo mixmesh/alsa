@@ -12,6 +12,10 @@
 -include("../include/alsa.hrl").
 -include("alsa_wav.hrl").
 
+-export([to_snd/2]).
+-export([from_snd/1]).
+-export([poke_file_length/1]).  %% fixme: extended header?
+
 
 to_snd(AudioFormat, BitsPerChannel) ->	
     case AudioFormat of
@@ -78,6 +82,7 @@ read_file_header(Filename) ->
 read_header(Fd) ->	
     case read_taglen(Fd) of
 	{ok,?WAV_ID_RIFF,_FileLength} ->
+	    io:format("FileLength = ~w\n", [_FileLength + 8]),
 	    case read_tag(Fd) of
 		{ok, ?WAV_ID_WAVE} ->
 		    case read_taglen(Fd) of
@@ -123,7 +128,15 @@ write_header(Fd, FileLength, Header) ->
 		ok ->
 		    case write_taglen(Fd, ?WAV_ID_FMT, 2+2+4+4+2+2) of
 			ok ->
-			    write_header_(Fd, Header);
+			    case write_header_(Fd, Header) of
+				ok ->
+				    case write_taglen(Fd, ?WAV_ID_DATA,
+						      FileLength-24) of
+					ok -> ok;
+					Error -> Error
+				    end;
+				Error -> Error
+			    end;
 			Error -> Error
 		    end;
 		Error -> Error
@@ -136,7 +149,20 @@ write_header_(Fd, Header) ->
 	ok -> ok;
 	Err = {error,_} -> Err
     end.
-	    
+
+%% asssume Fd is at end of file, poke the length
+poke_file_length(Fd) ->
+    {ok, EOF} = file:position(Fd, cur),
+    %% assume simple header is written 
+    %% size = 16, offset before header is 8+4+8 = 20
+    Offs = 4,  %% offset to file length
+    Len  = EOF - 8,
+    file:position(Fd, {bof,Offs}),
+    file:write(Fd, <<Len:32/little>>),
+    file:position(Fd, {cur,20}),
+    file:write(Fd, <<(Len-24):32/little>>).
+    
+
     
 encode_header(#{ format := Format,
 		 channels := NumChannels,
@@ -144,11 +170,12 @@ encode_header(#{ format := Format,
 	       }) ->
     {AudioFormat, BitsPerChannel} = from_snd(Format),
     ByteRate = SampleRate*(((NumChannels*BitsPerChannel)+7) div 8),
+    FrameSize = (BitsPerChannel*NumChannels+7) div 8,
     <<?WAV_HEADER_FIELDS(AudioFormat,
 			 NumChannels,
 			 SamplesRate,
 			 ByteRate,
-			 0,
+			 FrameSize,
 			 BitsPerChannel)>>.
 
 decode_header(Bin) ->
@@ -157,7 +184,7 @@ decode_header(Bin) ->
 			     NumChannels,
 			     SamplesRate,
 			     ByteRate,
-			     _BlockAlign,
+			     FrameSize,
 			     BitsPerChannel),
 	  XBin/binary>> ->
 	    if AudioFormat =:= ?WAVE_FORMAT_EXTENSIBLE ->
@@ -176,6 +203,7 @@ decode_header(Bin) ->
 				valid_bit_per_channel => ValidBitsPerChannel,
 				channel_mask => ChannelMask,
 				sample_rate => SampleRate,
+				frame_size => FrameSize,
 				byte_rate => ByteRate
 			      }};
 			_ ->
@@ -188,6 +216,7 @@ decode_header(Bin) ->
 			    channels => NumChannels,
 			    bits_per_channel => BitsPerChannel,
 			    sample_rate => SampleRate,
+			    frame_size => FrameSize,
 			    byte_rate => ByteRate
 			  }}
 	    end;
