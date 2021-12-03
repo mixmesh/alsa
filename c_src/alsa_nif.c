@@ -500,8 +500,9 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                 ERL_NIF_TERM key, value, reason = 0;
                 bool badarg = false;
                 while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
-                    if (key == ATOM(format)) {
+                    if (key == ATOM(format)) {			
                         snd_pcm_format_t format;
+			DEBUGF("set_hw_params_map: format%s", "");
                         if (get_format(env, value, &format)) {
 			    DEBUGF("format=%d", format);
                             if ((err = snd_pcm_hw_params_set_format(
@@ -518,6 +519,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                         }
                     } else if (key == ATOM(channels)) {
                         unsigned int channels;
+			DEBUGF("set_hw_params_map: channels%s", "");
                         if (enif_get_uint(env, value, &channels)) {
 			    DEBUGF("channels=%d", channels);
                             if ((err = snd_pcm_hw_params_set_channels(
@@ -536,12 +538,14 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     } else if (key == ATOM(sample_rate)) {
                         unsigned int sample_rate;
                         int dir;
+			DEBUGF("set_hw_params_map: sample_rate%s", "");
                         if (enif_get_uint(env, value, &sample_rate)) {
 			    DEBUGF("sample_rate=%u", sample_rate);
                             if ((err = snd_pcm_hw_params_set_rate_near(
                                            pcm_handle, hw_params, &sample_rate, &dir)) < 0) {
                                 reason = enif_make_tuple4(
-                                             env, ATOM(bad_param), ATOM(sample_rate),
+                                             env, ATOM(bad_param),
+					     ATOM(sample_rate),
                                              value, enif_make_int(env, err));
                                 break;
                             }
@@ -552,6 +556,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                     } else if (key == ATOM(period_size)) {
                         snd_pcm_uframes_t period_size;
                         int dir;
+			DEBUGF("set_hw_params_map: period_size%s", "");
                         if (enif_get_ulong(env, value, &period_size)) {
 			    DEBUGF("period_size=%lu", period_size);
                             if ((err = snd_pcm_hw_params_set_period_size_near(
@@ -569,6 +574,7 @@ ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
                         }
                     } else if (key == ATOM(buffer_size)) {
                         snd_pcm_uframes_t buffer_size;
+			DEBUGF("set_hw_params_map: buffer_size%s", "");
                         if (enif_get_ulong(env, value, &buffer_size)) {
 			    DEBUGF("buffer_size=%lu", buffer_size);
                             if ((err = snd_pcm_hw_params_set_buffer_size_near(

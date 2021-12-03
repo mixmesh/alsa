@@ -42,8 +42,7 @@
 	 format_silence/1,
 	 make_silence/3
 	]).
--export([formats/0]).
-
+-export([formats/0]).          % declare atoms and formats available
 -export([preloaded_atoms_/0]). % internal
 
 
@@ -105,31 +104,11 @@ preloaded_atoms_() ->
 
      %% state atoms - mostly debugging
      open, setup, prepared, running, xrun, draining, paused,
-     suspended, disconnected, private1,
+     suspended, disconnected, private1
      
-     %% formats
-     s8, u8,
-     s16_le, s16_be, u16_le, u16_be,
-     s24_le, s24_be, u24_le, u24_be,
-     s32_le, s32_be, u32_le, u32_be,
-     float_le, float_be,
-     float64_le, float64_be,
-     iec958_subframe_le,
-     iec958_subframe_be,
-     mu_law, a_law ,
-     ima_adpcm,
-     g723_24, g723_40,
-     dsd_u8, dsd_u16_le, dsd_u32_le,
-     dsd_u16_be, dsd_u32_be,
-     mpeg, gsm,
-     s20_le, s20_be, u20_le, u20_be,
-     special,
-     s24_3le, s24_3be, u24_3le, u24_3be,
-     s20_3le, s20_3be, u20_3le, u20_3be,
-     s18_3le, s18_3be, u18_3le, u18_3be,
-     g723_24_1b, g723_40_1b
     ].
 
+%% All formats must be present here, nif will assume all atoms are defined
 formats() ->
     [
      s8, u8,
@@ -275,7 +254,7 @@ read(Handle, Frames, Acc) ->
 	    ok = select_(Handle),
 	    receive
 		{select,Handle,undefined,_Ready} ->
-		    io:format("read continue\n", []),
+		    %% io:format("read continue\n", []),
 		    read(Handle, Frames, Acc)
 	    end;
 	{error, epipe} ->
@@ -348,7 +327,7 @@ write(Handle, Bin, SoFar) ->
 	    ok = select_(Handle),
 	    receive
 		{select,Handle,undefined,_Ready} ->
-		    io:format("write continue: ~w\n", [SoFar]),
+		    %% io:format("write continue: ~w\n", [SoFar]),
 		    write(Handle, Bin, SoFar)
 	    end;
 	{error, epipe} ->
@@ -387,7 +366,7 @@ drain(Handle) ->
 	    ok = select_(Handle),
 	    receive
 		{select,Handle,undefined,_Ready} ->
-		    io:format("drain continue\n"),
+		    %% io:format("drain continue\n"),
 		    drain(Handle)
 	    end;
 	Result ->
