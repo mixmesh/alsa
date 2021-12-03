@@ -828,9 +828,9 @@ static ERL_NIF_TERM nif_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 
     handle_t *handle =
         enif_alloc_resource(handle_resource_type, sizeof(handle_t));
+    memset(handle, 0, sizeof(handle_t));
     handle->pcm_handle = pcm_handle;
     handle->access_mtx = enif_mutex_create("pcm_access");
-    handle->access_count = 0;
     handle->is_open = 1;
     ERL_NIF_TERM handle_resource = enif_make_resource(env, handle);
     enif_release_resource(handle);
