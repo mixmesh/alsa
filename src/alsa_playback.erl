@@ -10,6 +10,7 @@
 -define(PERIOD_SIZE_IN_FRAMES, 4800).  %% 100ms
 -define(BUFFER_PERIODS, 8).
 -define(DEFAULT_DEVICE, "hw:0,0").
+-define(DEFAULT_PAN, 0.5).  %%  %% pan 0.0=left .. 1.0 = right
 
 file(FilePath) ->
     file(FilePath, #{}).
@@ -51,7 +52,7 @@ fd(Fd, Params0) ->
 	       end,
     SampleRate = maps:get(sample_rate, Params, ?DEFAULT_SAMPLE_RATE),
     Device = maps:get(device, Params, ?DEFAULT_DEVICE),
-    Pan = maps:get(pan, Params, 0.0), %% pan 0.0=left .. 1.0 = right
+    Pan = maps:get(pan, Params, ?DEFAULT_PAN),
     WantedHwParams =
 	#{format => Format,
 	  channels => Channels,
