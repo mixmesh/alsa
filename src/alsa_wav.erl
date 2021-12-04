@@ -87,7 +87,18 @@ read_header(Fd) ->
 		{ok, ?WAV_ID_WAVE} ->
 		    case read_taglen(Fd) of
 			{ok,?WAV_ID_FMT, HdrLen} ->
-			    read_header_(Fd, (HdrLen+1) band -2);
+			    case read_header_(Fd, (HdrLen+1) band -2) of
+				{ok,Header} ->
+				    case read_taglen(Fd) of
+					{ok, ?WAV_ID_DATA, DataLength} ->
+					    io:format("DataLength = ~w\n",
+						      [DataLength]),
+					    {ok,Header};
+					_ ->
+					    {error, missing_data}
+				    end;
+				Err = {error,_} -> Err
+			    end;
 			{ok,_,_} -> {error, not_wav};
 			Err = {error,_} -> Err
 		    end;
@@ -150,17 +161,21 @@ write_header_(Fd, Header) ->
 	Err = {error,_} -> Err
     end.
 
+-define(FILE_LENGTH_OFFSET, 4).
+-define(DATA_LENGTH_OFFSET, 40).  %% of 50 for extended header
+-define(WAV_HEADER_LEN, 16).
+-define(XWAV_HEADER_LEN, (?WAV_HEADER_LEN+10)).
+
 %% asssume Fd is at end of file, poke the length
 poke_file_length(Fd) ->
     {ok, EOF} = file:position(Fd, cur),
     %% assume simple header is written 
-    %% size = 16, offset before header is 8+4+8 = 20
-    Offs = 4,  %% offset to file length
     Len  = EOF - 8,
-    file:position(Fd, {bof,Offs}),
+    file:position(Fd, {bof,?FILE_LENGTH_OFFSET}),
     file:write(Fd, <<Len:32/little>>),
-    file:position(Fd, {cur,20}),
-    file:write(Fd, <<(Len-24):32/little>>).
+    file:position(Fd, {bof,?DATA_LENGTH_OFFSET}),
+    %% remove wav header length(16) "WAVE"(4) "fmt "(4)+len(4) "data"(4) +len(4)
+    file:write(Fd, <<(Len-(?WAV_HEADER_LEN+20)):32/little>>).
     
 
     

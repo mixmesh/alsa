@@ -21,6 +21,30 @@
 -define(WAVE_FORMAT_ULAW,       16#0007).
 -define(WAVE_FORMAT_EXTENSIBLE, 16#FFFE).
 
+%% WAV HEADER LAYOUT
+%% Offs  Type                 Typical value
+%% 0   <<"RIFF">>
+%% 4   FileLength:32/little
+%% 8   <<"WAVE">>
+%% 12  <<"fmt ">>
+%% 16  HeaderLen:32/little       16
+%% 20  AudioFormat:16/little     1   ?WAVE_FORMAT_PCM
+%% 22  NumChannels:16/little     2
+%% 24  SampleRate:32/little     44100
+%% 28  ByteRate:32/little,      176400 (SampleRate*BitsPerSample*Channel+7)/8
+%% 32  FrameSize:16/little      4      (BitsPerSample*Channels+7)/8
+%% 34  BitsPerChannel:16/little 16
+%% ----- AudioFormat = ?WAVE_FORMAT_EXTENSIBLE = 16#FFFE
+%% 36  CbSize:16/little
+%% 38  ValidBitsPerChannel:16/little
+%% 40  ChannelMask:32/little
+%% 44  AudioFormat:16/little     actual audio format
+%% 36/46 <<"data">>
+%% 40/50 DataLen:32/little
+%%     Frame1
+%%     Frame2
+%%     ....
+%%
 -define(WAV_HEADER_FIELDS(
 	  AudioFormat,
 	  NumChannels,

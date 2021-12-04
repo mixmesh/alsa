@@ -6,7 +6,7 @@
 -define(DEFAULT_FORMAT, s16_le).
 -define(DEFAULT_SAMPLE_RATE, 48000).
 -define(DEFAULT_CHANNELS, 2).
--define(PERIOD_SIZE_IN_FRAMES, 960).
+-define(PERIOD_SIZE_IN_FRAMES, 4800).  %% 100ms
 -define(BUFFER_PERIODS, 8).
 -define(DEFAULT_DURATION, 5). %% in seconds
 -define(DEFAULT_DEVICE, "hw:0,0").
@@ -61,7 +61,7 @@ file_(FilePath, Params) ->
 		    %% PeriodSizeInBytes = PeriodSizeInFrames1*Channels1,
 		    %% Size1 = alsa:format_size(Format1, Channels1),
 		    %% TotalLen = trunc(SampleRate1*Size1*DurationInSeconds),
-		    TotalLen = 0,
+		    TotalLen = 28,  %% = header with no data
 		    ok = alsa_wav:write_header(Fd, TotalLen, 
 					       #{ format => Format1,
 						  channels => Channels1,
@@ -73,6 +73,7 @@ file_(FilePath, Params) ->
 			Error ->
 			    Error
 		    after
+			alsa:close(AlsaHandle),
 			file:close(Fd)
 		    end;
                 {error, Reason} ->
@@ -86,7 +87,6 @@ file_(FilePath, Params) ->
 capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
     case ProceedUntil - erlang:monotonic_time(second) of
         TimeLeft when TimeLeft < 0 ->
-	    alsa:close(Handle),
             ok;
         _ ->
             case alsa:read(Handle, PeriodSizeInFrames) of
@@ -95,7 +95,6 @@ capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
                         ok ->
                             capture(Handle,Fd,PeriodSizeInFrames,ProceedUntil);
                         {error, Reason} ->
-			    alsa:close(Handle),
                             {error, file:format_error(Reason)}
                     end;
                 {ok, overrun} ->
@@ -105,7 +104,6 @@ capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil) ->
                     io:format("Recovered from suspend event\n"),
                     capture(Handle, Fd, PeriodSizeInFrames, ProceedUntil);
                 {error, Reason} ->
-		    alsa:close(Handle),
                     {error, alsa:strerror(Reason)}
             end
     end.
