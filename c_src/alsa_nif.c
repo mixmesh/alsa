@@ -2,6 +2,10 @@
 #include <erl_nif.h>
 #include <alsa/asoundlib.h>
 
+#ifdef  __GNUC__
+#define alloca(size)   __builtin_alloca (size)
+#endif
+
 // #define DEBUGF(f,a...) enif_fprintf(stderr, f "\r\n", a)
 #define DEBUGF(f,a...)
 #define ERRORF(f,a...) enif_fprintf(stderr, f "\r\n", a)
@@ -35,6 +39,7 @@ DECL_ATOM(playback);
 DECL_ATOM(capture);
 // hw params
 DECL_ATOM(format);
+DECL_ATOM(formats);
 DECL_ATOM(channels);
 DECL_ATOM(channels_min);
 DECL_ATOM(channels_max);
@@ -245,6 +250,7 @@ static int lookup_atom(helem_t** hvec, size_t hsize, ERL_NIF_TERM arg)
 
 enum {
     HW_FORMAT,
+    HW_FORMATS,
     HW_RATE,
     HW_RATE_MIN,
     HW_RATE_MAX,    
@@ -270,6 +276,7 @@ enum {
 helem_t hw_elems[] =
 {
     HELEM(ATOM(format), HW_FORMAT),
+    HELEM(ATOM(formats), HW_FORMATS),
     HELEM(ATOM(rate), HW_RATE),
     HELEM(ATOM(rate_min), HW_RATE_MIN),
     HELEM(ATOM(rate_max), HW_RATE_MAX),    
@@ -386,7 +393,6 @@ helem_t info_elems[] =
     { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}
 };
 
-
 #define HW_HASH_SIZE     (2*(sizeof(hw_elems)/sizeof(helem_t))+1)
 #define SW_HASH_SIZE     (2*(sizeof(sw_elems)/sizeof(helem_t))+1)
 #define FORMAT_HASH_SIZE (2*(sizeof(format_elems)/sizeof(helem_t))+1)
@@ -436,8 +442,6 @@ ErlNifFunc nif_funcs[] =
 {
     NIF_LIST
 };
-
-
 
 // Get handle and update access count under lock so pcm_handle
 // is not closed while we execute alsa call, must call done_handle!
@@ -648,6 +652,24 @@ static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    err = snd_pcm_hw_params_get_format(hw_params, &format);
 	    if (err < 0) goto error;
 	    kv[i++] = enif_make_tuple2(env, head, make_format(env, format));
+	    break;
+	}
+	case HW_FORMATS: {
+	    // snd_pcm_format_mask_t* mask;
+	    snd_pcm_format_t format;
+	    ERL_NIF_TERM format_list = enif_make_list(env, 0);
+	    // snd_pcm_format_mask_alloca(&mask);
+	    // snd_pcm_hw_params_get_format_mask(hw_params, mask);
+	    // if (snd_pcm_format_mask_test(mask, format) == 0) {
+	    for (format = SND_PCM_FORMAT_LAST; format >= 0; format--) {
+		if (snd_pcm_hw_params_test_format(pcm_handle, hw_params,
+						  format) == 0) {
+		    format_list = enif_make_list_cell(env,
+						      make_format(env, format),
+						      format_list);
+		}
+	    }
+	    kv[i++] = enif_make_tuple2(env, head, format_list);
 	    break;
 	}
 	case HW_CHANNELS: {
@@ -928,7 +950,7 @@ static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 
     int err;
     snd_pcm_sw_params_t *params;
-    ERL_NIF_TERM kv[MAX_HW_PARAMS];
+    ERL_NIF_TERM kv[MAX_SW_PARAMS];
     unsigned int i;    
     nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);
     
@@ -942,7 +964,7 @@ static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 
     ERL_NIF_TERM head, tail;
     i = 0;
-    while(enif_get_list_cell(env, list, &head, &tail) && (i < MAX_HW_PARAMS)) {
+    while(enif_get_list_cell(env, list, &head, &tail) && (i < MAX_SW_PARAMS)) {
 	const ERL_NIF_TERM* pair;
 	int arity;
 	// allow {key,value} and ignore value 
@@ -979,7 +1001,7 @@ static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     }
     if (!enif_is_empty_list(env, list))
 	goto badarg;
-    if (i == MAX_HW_PARAMS)
+    if (i == MAX_SW_PARAMS)
 	goto badarg;
     *result = enif_make_list_from_array(env, kv, i);
     return 1;
@@ -2028,6 +2050,7 @@ static int load_atoms(ErlNifEnv* env)
 
     // hw-parameters
     LOAD_ATOM(format);
+    LOAD_ATOM(formats);
     LOAD_ATOM(channels);
     LOAD_ATOM(channels_min);
     LOAD_ATOM(channels_max);

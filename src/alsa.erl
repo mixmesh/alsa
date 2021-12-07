@@ -30,7 +30,7 @@
 	 get_hw_params_/2, get_hw_params_/3,
 	 set_hw_params_/2,
 	 sw_params/0,
-	 get_sw_params_/1, get_sw_params_/2,
+	 get_sw_params/1, get_sw_params_/2,
 	 set_sw_params_/2, 
 	 select_/1,
 	 card_info/1, card_info/2,
@@ -246,10 +246,7 @@ close_(_Handle) ->
 -spec hw_params() -> [hw_param_key()].
 
 hw_params() ->
-    [format, 
-     channels, channels_min, channels_max, 
-     rate, rate_min, rate_max,
-     period_size, period_size_min, period_size_max,
+    [format, channels, rate, period_size, 
      buffer_size,
      is_double, is_half_duplex,
      can_pause, can_resume, can_sync_start,
@@ -257,7 +254,8 @@ hw_params() ->
     ].
 
 hw_range_params() ->
-    [channels_min, channels_max, 
+    [formats,
+     channels_min, channels_max, 
      rate_min, rate_max,
      period_size_min, period_size_max,
      is_double, is_half_duplex,
@@ -317,11 +315,10 @@ sw_params() ->
 %%
 %% Exported: get_sw_params
 %%
-
--spec get_sw_params_(handle()) ->
+-spec get_sw_params(handle()) ->
           {ok, sw_params()} | {error, alsa_reason() | no_such_handle}.
 
-get_sw_params_(Handle) ->
+get_sw_params(Handle) ->
     get_sw_params_(Handle, sw_params()).
 
 %%
