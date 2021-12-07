@@ -390,7 +390,7 @@ read(Handle, Frames, Acc) ->
 	{error, AlsaError} when is_integer(AlsaError) ->
 	    {error, strerror(AlsaError)};
 	{ok, {ReadFrames,Samples}} ->
-	    io:format("read_: frames=~w\n", [ReadFrames]),
+	    %% io:format("read_: frames=~w\n", [ReadFrames]),
 	    if Frames =:= ReadFrames ->
 		    if Acc =:= [] ->
 			    {ok, Samples};
