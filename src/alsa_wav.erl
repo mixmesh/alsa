@@ -179,16 +179,16 @@ poke_file_length(Fd) ->
     
 
     
-encode_header(#{ format := Format,
-		 channels := NumChannels,
-		 sample_rate := SampleRate
-	       }) ->
+encode_header(Params) ->
+    Format = proplists:get_value(format, Params),
+    NumChannels = proplists:get_value(channels, Params),
+    Rate = proplists:get_value(rate, Params),
     {AudioFormat, BitsPerChannel} = from_snd(Format),
-    ByteRate = SampleRate*(((NumChannels*BitsPerChannel)+7) div 8),
+    ByteRate = Rate*(((NumChannels*BitsPerChannel)+7) div 8),
     FrameSize = (BitsPerChannel*NumChannels+7) div 8,
     <<?WAV_HEADER_FIELDS(AudioFormat,
 			 NumChannels,
-			 SamplesRate,
+			 Rate,
 			 ByteRate,
 			 FrameSize,
 			 BitsPerChannel)>>.
@@ -197,7 +197,7 @@ decode_header(Bin) ->
     case Bin of
 	<<?WAV_HEADER_FIELDS(AudioFormat,
 			     NumChannels,
-			     SamplesRate,
+			     Rate,
 			     ByteRate,
 			     FrameSize,
 			     BitsPerChannel),
@@ -211,29 +211,28 @@ decode_header(Bin) ->
 			  _/binary>> ->
 			    SndFormat = to_snd(AudioFormat1, BitsPerChannel),
 			    {ok,
-			     #{ format => SndFormat,
-				audio_format => AudioFormat1,
-				channels => NumChannels,
-				bits_per_channel => BitsPerChannel,
-				valid_bit_per_channel => ValidBitsPerChannel,
-				channel_mask => ChannelMask,
-				sample_rate => SampleRate,
-				frame_size => FrameSize,
-				byte_rate => ByteRate
-			      }};
+			     [{format,SndFormat},
+			      {audio_format,AudioFormat1},
+			      {channels,NumChannels},
+			      {bits_per_channel, BitsPerChannel},
+			      {valid_bit_per_channel,ValidBitsPerChannel},
+			      {channel_mask,ChannelMask},
+			      {rate, Rate},
+			      {frame_size,FrameSize},
+			      {byte_rate,ByteRate}]};
 			_ ->
 			    {error, too_short}
 		    end;
 	       true ->
 		    SndFormat = to_snd(AudioFormat, BitsPerChannel),
-		    {ok, #{ format => SndFormat,
-			    audio_format => AudioFormat,
-			    channels => NumChannels,
-			    bits_per_channel => BitsPerChannel,
-			    sample_rate => SampleRate,
-			    frame_size => FrameSize,
-			    byte_rate => ByteRate
-			  }}
+		    {ok, [{format,SndFormat},
+			  {audio_format,AudioFormat},
+			  {channels,NumChannels},
+			  {bits_per_channel,BitsPerChannel},
+			  {rate,Rate},
+			  {frame_size,FrameSize},
+			  {byte_rate,ByteRate}
+			 ]}
 	    end;
 	<<_/binary>> ->
 	    {error, header_too_short}

@@ -4,7 +4,7 @@
 -include("../include/alsa.hrl").
 
 -define(DEFAULT_FORMAT, s16_le).
--define(DEFAULT_SAMPLE_RATE, 48000).
+-define(DEFAULT_RATE, 48000).
 -define(DEFAULT_CHANNELS, 2).
 -define(PERIOD_SIZE_IN_FRAMES, 4800).  %% 100ms
 -define(BUFFER_PERIODS, 8).
@@ -12,50 +12,58 @@
 -define(DEFAULT_DEVICE, "hw:0,0").
 
 file(FilePath) ->
-    file_(FilePath, #{ duration => ?DEFAULT_DURATION}).
+    file_(FilePath, [{duration,?DEFAULT_DURATION}]).
 
 file(FilePath, Duration) when is_number(Duration) ->
-    file_(FilePath, #{ duration => Duration});
+    file_(FilePath, [{duration,Duration}]);
+file(FilePath, Params) when is_list(Params) ->
+    file_(FilePath, Params);
 file(FilePath, Params) when is_map(Params) ->
-    file_(FilePath, Params).
+    file_(FilePath, maps:to_list(Params)).
 
-file(FilePath, Duration, Params) when is_number(Duration) ->
-    file_(FilePath, Params#{ duration => Duration}).
+file(FilePath, Duration, Params) when is_number(Duration), is_list(Params) ->
+    file_(FilePath, [{duration,Duration}|Params]);
+file(FilePath, Duration, Params) when is_number(Duration), is_map(Params) ->
+    file_(FilePath, [{duration,Duration}|maps:to_list(Params)]).
 
-file_(FilePath, Params) ->
+
+file_(FilePath, Params) when is_list(Params) ->
     io:format("alsa_capture: file_ params = ~p\n", [Params]),
-    DurationInSeconds =	maps:get(duration, Params, ?DEFAULT_DURATION),
+    DurationInSeconds =	proplists:get_value(duration,Params,?DEFAULT_DURATION),
     PeriodSizeInFrames = 
-	maps:get(period_size, Params, ?PERIOD_SIZE_IN_FRAMES),
+	proplists:get_value(period_size, Params, ?PERIOD_SIZE_IN_FRAMES),
     NumBufferPeriods =
-	maps:get(buffer_periods, Params, ?BUFFER_PERIODS),
+	proplists:get_value(buffer_periods, Params, ?BUFFER_PERIODS),
     BufferSizeInFrames = PeriodSizeInFrames * NumBufferPeriods,
-    Format = maps:get(format, Params, ?DEFAULT_FORMAT),
-    Channels = maps:get(channels, Params, ?DEFAULT_CHANNELS),
-    SampleRate = maps:get(sample_rate, Params, ?DEFAULT_SAMPLE_RATE),
-    Device = maps:get(device, Params, ?DEFAULT_DEVICE),
+    Format = proplists:get_value(format, Params, ?DEFAULT_FORMAT),
+    Channels = proplists:get_value(channels, Params, ?DEFAULT_CHANNELS),
+    Rate = proplists:get_value(rate, Params, ?DEFAULT_RATE),
+    Device = proplists:get_value(device, Params, ?DEFAULT_DEVICE),
     case file:open(FilePath, [write, raw, binary]) of
         {ok, Fd} ->
-            WantedHwParams =
-                #{format => Format,
-                  channels => Channels,
-                  sample_rate => SampleRate,
-                  period_size => PeriodSizeInFrames,
-                  buffer_size => BufferSizeInFrames},
+            WantedHwParams = 
+		[
+		 {format,Format},
+		 {channels,Channels},
+		 {rate,Rate},
+		 {period_size,PeriodSizeInFrames},
+		 {buffer_size,BufferSizeInFrames}],
 	    io:format("alsa_capture: file_ wanted_hw_params = ~p\n",
 		      [WantedHwParams]),
             WantedSwParams =
-                #{start_threshold => PeriodSizeInFrames },
+                [{start_threshold,PeriodSizeInFrames},
+		 {avail_min, PeriodSizeInFrames-1}],
             case alsa:open(Device, capture, WantedHwParams, WantedSwParams) of
                 {ok, AlsaHandle, ActualHwParams, ActualSwParams} ->
 		    io:format("alsa_capture: file_ actual_hw_params = ~p\n",
 			      [ActualHwParams]),
 		    io:format("alsa_capture: file_ actual_sw_params = ~p\n",
 			      [ActualSwParams]),
-		    Format1 = maps:get(format, ActualHwParams),
-		    Channels1 = maps:get(channels, ActualHwParams),
-		    SampleRate1 = maps:get(sample_rate, ActualHwParams),
-		    PeriodSizeInFrames1 = maps:get(period_size, ActualHwParams),		    
+		    Format1 = proplists:get_value(format, ActualHwParams),
+		    Channels1 = proplists:get_value(channels, ActualHwParams),
+		    Rate1 = proplists:get_value(rate, ActualHwParams),
+		    PeriodSizeInFrames1 = proplists:get_value(period_size,
+							      ActualHwParams),
                     ProceedUntil = erlang:monotonic_time(second) + 
 			DurationInSeconds,
 		    %% PeriodSizeInBytes = PeriodSizeInFrames1*Channels1,
@@ -63,9 +71,9 @@ file_(FilePath, Params) ->
 		    %% TotalLen = trunc(SampleRate1*Size1*DurationInSeconds),
 		    TotalLen = 28,  %% = header with no data
 		    ok = alsa_wav:write_header(Fd, TotalLen, 
-					       #{ format => Format1,
-						  channels => Channels1,
-						  sample_rate => SampleRate1 }),
+					       [{format,Format1},
+						{channels,Channels1},
+						{rate,Rate1}]),
                     try capture(AlsaHandle, Fd, PeriodSizeInFrames1,
 				ProceedUntil) of
 			ok ->

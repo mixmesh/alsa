@@ -30,8 +30,8 @@
 %% 16  HeaderLen:32/little       16
 %% 20  AudioFormat:16/little     1   ?WAVE_FORMAT_PCM
 %% 22  NumChannels:16/little     2
-%% 24  SampleRate:32/little     44100
-%% 28  ByteRate:32/little,      176400 (SampleRate*BitsPerSample*Channel+7)/8
+%% 24  Rate:32/little            44100
+%% 28  ByteRate:32/little,       176400 (Rate*BitsPerSample*Channel+7)/8
 %% 32  FrameSize:16/little      4      (BitsPerSample*Channels+7)/8
 %% 34  BitsPerChannel:16/little 16
 %% ----- AudioFormat = ?WAVE_FORMAT_EXTENSIBLE = 16#FFFE
@@ -48,14 +48,14 @@
 -define(WAV_HEADER_FIELDS(
 	  AudioFormat,
 	  NumChannels,
-	  SamplesRate,
+	  Rate,
 	  ByteRate,
 	  BlockAlign,
 	  BitsPerChannel),
 	AudioFormat:16/little,
 	NumChannels:16/little,
-	SampleRate:32/little,
-	ByteRate:32/little,        %% (SampleRate*BitsPerSample*Channel)/8
+	Rate:32/little,
+	ByteRate:32/little,        %% (Rate*BitsPerSample*Channel)/8
 	FrameSize:16/little,	   %% BitsPerSample*Channels)/8
 	BitsPerChannel:16/little).
 

@@ -28,17 +28,42 @@ DECL_ATOM(true);
 DECL_ATOM(false);
 DECL_ATOM(ok);
 DECL_ATOM(error);
+DECL_ATOM(current);
+DECL_ATOM(any);
 
 DECL_ATOM(playback);
 DECL_ATOM(capture);
-
+// hw params
 DECL_ATOM(format);
 DECL_ATOM(channels);
-DECL_ATOM(sample_rate);
+DECL_ATOM(channels_min);
+DECL_ATOM(channels_max);
+DECL_ATOM(rate);
+DECL_ATOM(rate_min);
+DECL_ATOM(rate_max);
 DECL_ATOM(period_size);
+DECL_ATOM(period_size_min);
+DECL_ATOM(period_size_max);
 DECL_ATOM(buffer_size);
+// hw-get-only
+DECL_ATOM(is_double);
+DECL_ATOM(is_half_duplex);
+DECL_ATOM(can_pause);
+DECL_ATOM(can_resume);
+DECL_ATOM(can_sync_start);
+DECL_ATOM(can_disable_period_wakeup);
+DECL_ATOM(fifo_size);
+// info
+DECL_ATOM(id);
+DECL_ATOM(driver);
+DECL_ATOM(name);
+DECL_ATOM(longname);
+DECL_ATOM(mixername);
+DECL_ATOM(components);
 
+// sw params
 DECL_ATOM(start_threshold);
+DECL_ATOM(avail_min);
 
 DECL_ATOM(underrun);
 DECL_ATOM(overrun);
@@ -152,9 +177,10 @@ DECL_ATOM(g723_40_1b);
     NIF("avail_",    1, nif_avail) \
     NIF("state_",    1, nif_state) \
     NIF("strerror",  1, nif_strerror) \
-    NIF("get_hw_params_", 1, nif_get_hw_params) \
+    NIF("get_hw_params_", 2, nif_get_hw_params) \
+    NIF("get_hw_params_", 3, nif_get_hw_params) \
     NIF("set_hw_params_", 2, nif_set_hw_params) \
-    NIF("get_sw_params_", 1, nif_get_sw_params) \
+    NIF("get_sw_params_", 2, nif_get_sw_params) \
     NIF("set_sw_params_", 2, nif_set_sw_params) \
     NIF("select_",        1, nif_select) \
     NIF("format_is_signed", 1, nif_format_is_signed) \
@@ -165,7 +191,213 @@ DECL_ATOM(g723_40_1b);
     NIF("format_physical_width", 1, nif_format_physical_width) \
     NIF("format_size", 2, nif_format_size) \
     NIF("format_silence", 1, nif_format_silence) \
-    NIF("make_silence", 3, nif_make_silence)
+    NIF("make_silence", 3, nif_make_silence) \
+    NIF("card_info", 2, nif_card_info) \
+    NIF("card_next", 1, nif_card_next)
+
+
+typedef struct _helem_t {
+    struct _helem_t* next;  // next in chain    
+    ERL_NIF_TERM* atm_ptr;  // the hash atom
+    unsigned int  enm;      // enumerated value
+    unsigned int  hval;     // hash value
+} helem_t;
+
+static unsigned int hash_atom(ERL_NIF_TERM term)
+{
+    return (term >> 6);
+}
+
+
+static void hash_helems(char* hname, helem_t** hvec, size_t hsize,
+			helem_t* elems)
+{
+    int i = 0;
+
+    DEBUGF("hash table %s size %u", hname, hsize);
+    memset(hvec, 0, hsize*sizeof(helem_t*));
+
+    while(elems[i].atm_ptr != NULL) {
+	unsigned int hval = hash_atom(*elems[i].atm_ptr);
+	unsigned int ix = hval % hsize;
+	if (hvec[i] != NULL) DEBUGF("hash conflict %d", i);
+	elems[i].next = hvec[ix];
+	elems[i].hval = hval;
+	hvec[ix] = &elems[i];
+	i++;
+    }
+}
+
+static int lookup_atom(helem_t** hvec, size_t hsize, ERL_NIF_TERM arg)
+{
+    unsigned int hval = hash_atom(arg);
+    unsigned int ix = hval % hsize;
+    helem_t* ptr = hvec[ix];
+    while(ptr) {
+	if (*ptr->atm_ptr == arg)
+	    return (int) ptr->enm;
+	ptr = ptr->next;
+    }
+    return -1;
+}
+
+#define HELEM(a, e) { .next = NULL, .atm_ptr = &(a), .enm = (e), .hval = 0}
+
+enum {
+    HW_FORMAT,
+    HW_RATE,
+    HW_RATE_MIN,
+    HW_RATE_MAX,    
+    HW_CHANNELS,
+    HW_CHANNELS_MIN,
+    HW_CHANNELS_MAX,
+    HW_PERIOD_SIZE,
+    HW_PERIOD_SIZE_MIN,
+    HW_PERIOD_SIZE_MAX,
+    HW_BUFFER_SIZE,
+    HW_IS_DOUBLE,
+    HW_IS_HALF_DUPLEX,
+    HW_CAN_PAUSE,
+    HW_CAN_RESUME,
+    HW_CAN_SYNC_START,
+    HW_CAN_DISABLE_PERIOD_WAKEUP,
+    HW_FIFO_SIZE,
+    HW_LAST
+};
+
+#define MAX_HW_PARAMS (2*HW_LAST)
+
+helem_t hw_elems[] =
+{
+    HELEM(ATOM(format), HW_FORMAT),
+    HELEM(ATOM(rate), HW_RATE),
+    HELEM(ATOM(rate_min), HW_RATE_MIN),
+    HELEM(ATOM(rate_max), HW_RATE_MAX),    
+    HELEM(ATOM(channels), HW_CHANNELS),
+    HELEM(ATOM(channels_min), HW_CHANNELS_MIN),
+    HELEM(ATOM(channels_max), HW_CHANNELS_MAX),
+    HELEM(ATOM(period_size), HW_PERIOD_SIZE),
+    HELEM(ATOM(period_size_min), HW_PERIOD_SIZE_MIN),
+    HELEM(ATOM(period_size_max), HW_PERIOD_SIZE_MAX),
+    HELEM(ATOM(buffer_size), HW_BUFFER_SIZE),
+    HELEM(ATOM(is_double), HW_IS_DOUBLE),
+    HELEM(ATOM(is_half_duplex), HW_IS_HALF_DUPLEX),
+    HELEM(ATOM(can_pause), HW_CAN_PAUSE),
+    HELEM(ATOM(can_resume), HW_CAN_RESUME),
+    HELEM(ATOM(can_sync_start), HW_CAN_SYNC_START),
+    HELEM(ATOM(can_disable_period_wakeup), HW_CAN_DISABLE_PERIOD_WAKEUP),
+    HELEM(ATOM(fifo_size), HW_FIFO_SIZE),
+    { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}
+};
+
+enum {
+    SW_START_THRESHOLD,
+    SW_AVAIL_MIN,
+    SW_LAST
+};
+
+#define MAX_SW_PARAMS (2*SW_LAST)
+
+helem_t sw_elems[] =
+{
+    HELEM(ATOM(start_threshold), SW_START_THRESHOLD),
+    HELEM(ATOM(avail_min), SW_AVAIL_MIN),
+    { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}
+};
+
+
+helem_t format_elems[] =
+{
+    HELEM(ATOM(s8), SND_PCM_FORMAT_S8),
+    HELEM(ATOM(u8), SND_PCM_FORMAT_U8),
+    HELEM(ATOM(s16_le), SND_PCM_FORMAT_S16_LE),
+    HELEM(ATOM(s16_be), SND_PCM_FORMAT_S16_BE),
+    HELEM(ATOM(u16_le), SND_PCM_FORMAT_U16_LE),
+    HELEM(ATOM(u16_be), SND_PCM_FORMAT_U16_BE),
+    HELEM(ATOM(s24_le), SND_PCM_FORMAT_S24_LE),
+    HELEM(ATOM(s24_be), SND_PCM_FORMAT_S24_BE),
+    HELEM(ATOM(u24_le), SND_PCM_FORMAT_U24_LE),
+    HELEM(ATOM(u24_be), SND_PCM_FORMAT_U24_BE),
+    HELEM(ATOM(s32_le), SND_PCM_FORMAT_S32_LE),
+    HELEM(ATOM(s32_be), SND_PCM_FORMAT_S32_BE),
+    HELEM(ATOM(u32_le), SND_PCM_FORMAT_U32_LE),
+    HELEM(ATOM(u32_be), SND_PCM_FORMAT_U32_BE),
+    HELEM(ATOM(float_le), SND_PCM_FORMAT_FLOAT_LE),
+    HELEM(ATOM(float_be), SND_PCM_FORMAT_FLOAT_BE),
+    HELEM(ATOM(float64_le), SND_PCM_FORMAT_FLOAT64_LE),
+    HELEM(ATOM(float64_be), SND_PCM_FORMAT_FLOAT64_BE),
+    HELEM(ATOM(iec958_subframe_le), SND_PCM_FORMAT_IEC958_SUBFRAME_LE),
+    HELEM(ATOM(iec958_subframe_be), SND_PCM_FORMAT_IEC958_SUBFRAME_BE),
+    HELEM(ATOM(mu_law), SND_PCM_FORMAT_MU_LAW),
+    HELEM(ATOM(a_law), SND_PCM_FORMAT_A_LAW),
+    HELEM(ATOM(ima_adpcm), SND_PCM_FORMAT_IMA_ADPCM),
+    HELEM(ATOM(mpeg), SND_PCM_FORMAT_MPEG),
+    HELEM(ATOM(gsm), SND_PCM_FORMAT_GSM),
+    HELEM(ATOM(s20_le), SND_PCM_FORMAT_S20_LE),
+    HELEM(ATOM(s20_be), SND_PCM_FORMAT_S20_BE),
+    HELEM(ATOM(u20_le), SND_PCM_FORMAT_U20_LE),
+    HELEM(ATOM(u20_be), SND_PCM_FORMAT_U20_BE),
+    HELEM(ATOM(special), SND_PCM_FORMAT_SPECIAL),
+    HELEM(ATOM(s24_3le), SND_PCM_FORMAT_S24_3LE),
+    HELEM(ATOM(s24_3be), SND_PCM_FORMAT_S24_3BE),
+    HELEM(ATOM(u24_3le), SND_PCM_FORMAT_U24_3LE),
+    HELEM(ATOM(u24_3be), SND_PCM_FORMAT_U24_3BE),
+    HELEM(ATOM(s20_3le), SND_PCM_FORMAT_S20_3LE),
+    HELEM(ATOM(s20_3be), SND_PCM_FORMAT_S20_3BE),
+    HELEM(ATOM(u20_3le), SND_PCM_FORMAT_U20_3LE),
+    HELEM(ATOM(u20_3be), SND_PCM_FORMAT_U20_3BE),
+    HELEM(ATOM(s18_3le), SND_PCM_FORMAT_S18_3LE),
+    HELEM(ATOM(s18_3be), SND_PCM_FORMAT_S18_3BE),
+    HELEM(ATOM(u18_3le), SND_PCM_FORMAT_U18_3LE),
+    HELEM(ATOM(u18_3be), SND_PCM_FORMAT_U18_3BE),
+    HELEM(ATOM(g723_24), SND_PCM_FORMAT_G723_24),
+    HELEM(ATOM(g723_24_1b), SND_PCM_FORMAT_G723_24_1B),
+    HELEM(ATOM(g723_40), SND_PCM_FORMAT_G723_40),
+    HELEM(ATOM(g723_40_1b), SND_PCM_FORMAT_G723_40_1B),
+    HELEM(ATOM(dsd_u8), SND_PCM_FORMAT_DSD_U8),
+    HELEM(ATOM(dsd_u16_le), SND_PCM_FORMAT_DSD_U16_LE),
+    HELEM(ATOM(dsd_u32_le), SND_PCM_FORMAT_DSD_U32_LE),
+    HELEM(ATOM(dsd_u16_be), SND_PCM_FORMAT_DSD_U16_BE),
+    HELEM(ATOM(dsd_u32_be), SND_PCM_FORMAT_DSD_U32_BE),
+    { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}    
+};
+
+
+enum {
+    INFO_ID,
+    INFO_DRIVER,
+    INFO_NAME,
+    INFO_LONGNAME,
+    INFO_MIXERNAME,
+    INFO_COMPONENTS,
+    INFO_LAST
+};
+
+#define MAX_INFO (2*INFO_LAST)
+
+helem_t info_elems[] =
+{
+    HELEM(ATOM(id), INFO_ID),
+    HELEM(ATOM(driver), INFO_DRIVER),
+    HELEM(ATOM(name), INFO_NAME),
+    HELEM(ATOM(longname), INFO_LONGNAME),
+    HELEM(ATOM(mixername), INFO_MIXERNAME),
+    HELEM(ATOM(components), INFO_COMPONENTS),
+    { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}
+};
+
+
+#define HW_HASH_SIZE     (2*(sizeof(hw_elems)/sizeof(helem_t))+1)
+#define SW_HASH_SIZE     (2*(sizeof(sw_elems)/sizeof(helem_t))+1)
+#define FORMAT_HASH_SIZE (2*(sizeof(format_elems)/sizeof(helem_t))+1)
+#define INFO_HASH_SIZE   (2*(sizeof(info_elems)/sizeof(helem_t))+1)
+
+typedef struct {
+    helem_t* hw_hash[HW_HASH_SIZE];
+    helem_t* sw_hash[SW_HASH_SIZE];
+    helem_t* format_hash[FORMAT_HASH_SIZE];
+    helem_t* info_hash[INFO_HASH_SIZE];
+} nif_ctx_t;
 
 #define MAX_NFDS 4  // 4 fd per pcm_handle?
 
@@ -351,60 +583,13 @@ static ERL_NIF_TERM make_format(ErlNifEnv* env, snd_pcm_format_t format)
 static int get_format(ErlNifEnv* env, ERL_NIF_TERM arg,
 		      snd_pcm_format_t* format_ptr)
 {
+    nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);
+    int val;
+
     if (enif_is_atom(env, arg)) {
-	if (arg == ATOM(s8)) *format_ptr = SND_PCM_FORMAT_S8;
-	else if (arg == ATOM(s8)) *format_ptr = SND_PCM_FORMAT_S8;
-	else if (arg == ATOM(u8)) *format_ptr = SND_PCM_FORMAT_U8;
-	else if (arg == ATOM(s16_le)) *format_ptr = SND_PCM_FORMAT_S16_LE;
-	else if (arg == ATOM(s16_be)) *format_ptr = SND_PCM_FORMAT_S16_BE;
-	else if (arg == ATOM(u16_le)) *format_ptr = SND_PCM_FORMAT_U16_LE;
-	else if (arg == ATOM(u16_be)) *format_ptr = SND_PCM_FORMAT_U16_BE;
-	else if (arg == ATOM(s24_le)) *format_ptr = SND_PCM_FORMAT_S24_LE;
-	else if (arg == ATOM(s24_be)) *format_ptr = SND_PCM_FORMAT_S24_BE;
-	else if (arg == ATOM(u24_le)) *format_ptr = SND_PCM_FORMAT_U24_LE;
-	else if (arg == ATOM(u24_be)) *format_ptr = SND_PCM_FORMAT_U24_BE;
-	else if (arg == ATOM(s32_le)) *format_ptr = SND_PCM_FORMAT_S32_LE;
-	else if (arg == ATOM(s32_be)) *format_ptr = SND_PCM_FORMAT_S32_BE;
-	else if (arg == ATOM(u32_le)) *format_ptr = SND_PCM_FORMAT_U32_LE;
-	else if (arg == ATOM(u32_be)) *format_ptr = SND_PCM_FORMAT_U32_BE;
-	else if (arg == ATOM(float_le)) *format_ptr = SND_PCM_FORMAT_FLOAT_LE;
-	else if (arg == ATOM(float_be)) *format_ptr = SND_PCM_FORMAT_FLOAT_BE;
-	else if (arg == ATOM(float64_le)) *format_ptr = SND_PCM_FORMAT_FLOAT64_LE;
-	else if (arg == ATOM(float64_be)) *format_ptr = SND_PCM_FORMAT_FLOAT64_BE;
-	else if (arg == ATOM(iec958_subframe_le)) *format_ptr = SND_PCM_FORMAT_IEC958_SUBFRAME_LE;
-	else if (arg == ATOM(iec958_subframe_be)) *format_ptr = SND_PCM_FORMAT_IEC958_SUBFRAME_BE;
-	else if (arg == ATOM(mu_law)) *format_ptr = SND_PCM_FORMAT_MU_LAW;
-	else if (arg == ATOM(a_law)) *format_ptr = SND_PCM_FORMAT_A_LAW;
-	else if (arg == ATOM(ima_adpcm)) *format_ptr = SND_PCM_FORMAT_IMA_ADPCM;
-	else if (arg == ATOM(mpeg)) *format_ptr = SND_PCM_FORMAT_MPEG;
-	else if (arg == ATOM(gsm)) *format_ptr = SND_PCM_FORMAT_GSM;
-	else if (arg == ATOM(s20_le)) *format_ptr = SND_PCM_FORMAT_S20_LE;
-	else if (arg == ATOM(s20_be)) *format_ptr = SND_PCM_FORMAT_S20_BE;
-	else if (arg == ATOM(u20_le)) *format_ptr = SND_PCM_FORMAT_U20_LE;
-	else if (arg == ATOM(u20_be)) *format_ptr = SND_PCM_FORMAT_U20_BE;
-	else if (arg == ATOM(special)) *format_ptr = SND_PCM_FORMAT_SPECIAL;
-	else if (arg == ATOM(s24_3le)) *format_ptr = SND_PCM_FORMAT_S24_3LE;
-	else if (arg == ATOM(s24_3be)) *format_ptr = SND_PCM_FORMAT_S24_3BE;
-	else if (arg == ATOM(u24_3le)) *format_ptr = SND_PCM_FORMAT_U24_3LE;
-	else if (arg == ATOM(u24_3be)) *format_ptr = SND_PCM_FORMAT_U24_3BE;
-	else if (arg == ATOM(s20_3le)) *format_ptr = SND_PCM_FORMAT_S20_3LE;
-	else if (arg == ATOM(s20_3be)) *format_ptr = SND_PCM_FORMAT_S20_3BE;
-	else if (arg == ATOM(u20_3le)) *format_ptr = SND_PCM_FORMAT_U20_3LE;
-	else if (arg == ATOM(u20_3be)) *format_ptr = SND_PCM_FORMAT_U20_3BE;
-	else if (arg == ATOM(s18_3le)) *format_ptr = SND_PCM_FORMAT_S18_3LE;
-	else if (arg == ATOM(s18_3be)) *format_ptr = SND_PCM_FORMAT_S18_3BE;
-	else if (arg == ATOM(u18_3le)) *format_ptr = SND_PCM_FORMAT_U18_3LE;
-	else if (arg == ATOM(u18_3be)) *format_ptr = SND_PCM_FORMAT_U18_3BE;
-	else if (arg == ATOM(g723_24)) *format_ptr = SND_PCM_FORMAT_G723_24;
-	else if (arg == ATOM(g723_24_1b)) *format_ptr = SND_PCM_FORMAT_G723_24_1B;
-	else if (arg == ATOM(g723_40)) *format_ptr = SND_PCM_FORMAT_G723_40;
-	else if (arg == ATOM(g723_40_1b)) *format_ptr = SND_PCM_FORMAT_G723_40_1B;
-	else if (arg == ATOM(dsd_u8)) *format_ptr = SND_PCM_FORMAT_DSD_U8;
-	else if (arg == ATOM(dsd_u16_le)) *format_ptr = SND_PCM_FORMAT_DSD_U16_LE;
-	else if (arg == ATOM(dsd_u32_le)) *format_ptr = SND_PCM_FORMAT_DSD_U32_LE;
-	else if (arg == ATOM(dsd_u16_be)) *format_ptr = SND_PCM_FORMAT_DSD_U16_BE;
-	else if (arg == ATOM(dsd_u32_be)) *format_ptr = SND_PCM_FORMAT_DSD_U32_BE;
-	else return 0;
+	if ((val = lookup_atom(ctx->format_hash, FORMAT_HASH_SIZE, arg)) < 0)
+	    return 0;
+	*format_ptr = val;
 	return 1;
     }
     else if (enif_is_number(env, arg)) {
@@ -419,315 +604,468 @@ static int get_format(ErlNifEnv* env, ERL_NIF_TERM arg,
     return 0;
 }
 
-
-ERL_NIF_TERM get_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
-                               ERL_NIF_TERM *hw_params_map) {
+//
+// get_hw_params: given list of params return key value list
+//  params is on form [Key::atom() | {Key::atom(),_Value::value}
+//
+static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+			 ERL_NIF_TERM list,
+			 ERL_NIF_TERM *result,
+			 int any) {
     int err;
-
     snd_pcm_hw_params_t *hw_params;
+    ERL_NIF_TERM kv[MAX_HW_PARAMS];
+    unsigned int i;
+    nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);    
+    
     if ((err = snd_pcm_hw_params_malloc(&hw_params)) < 0) {
-        return enif_make_int(env, err);
+	*result = enif_make_badarg(env); // fixme system limit?
+	return err;
     }
 
-    if ((err = snd_pcm_hw_params_current(pcm_handle, hw_params)) < 0) {
-        snd_pcm_hw_params_free(hw_params);
-        return enif_make_int(env, err);
+    if (any)
+	err = snd_pcm_hw_params_any(pcm_handle, hw_params);
+    else
+	err = snd_pcm_hw_params_current(pcm_handle, hw_params);	
+
+    if (err < 0)
+	goto error;
+
+    ERL_NIF_TERM head, tail;
+    i = 0;
+    while(enif_get_list_cell(env, list, &head, &tail) && (i < MAX_HW_PARAMS)) {
+	const ERL_NIF_TERM* pair;
+	int arity;	
+	if (enif_is_tuple(env, head) &&
+	    enif_get_tuple(env, head, &arity, &pair) && (arity == 2)) {
+	    head = pair[0];
+	}
+	DEBUGF("get_hw_params: %T", head);
+
+	switch(lookup_atom(ctx->hw_hash, HW_HASH_SIZE, head)) {
+	case HW_FORMAT: {
+	    snd_pcm_format_t format;
+	    err = snd_pcm_hw_params_get_format(hw_params, &format);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head, make_format(env, format));
+	    break;
+	}
+	case HW_CHANNELS: {
+	    unsigned int channels;
+	    err = snd_pcm_hw_params_get_channels(hw_params, &channels);
+	    if (err < 0) goto error;	    
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, channels));
+	    break;
+	}
+	case HW_CHANNELS_MIN: {
+	    unsigned int channels;
+	    err = snd_pcm_hw_params_get_channels_min(hw_params, &channels);
+	    if (err < 0) goto error;	    
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, channels));
+	    break;
+	}
+	case HW_CHANNELS_MAX: {
+	    unsigned int channels;
+	    err = snd_pcm_hw_params_get_channels_min(hw_params, &channels);
+	    if (err < 0) goto error;	    
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, channels));
+	    break;
+	}	    	    
+	case HW_RATE: {
+	    int dir;
+	    unsigned int rate;
+	    err = snd_pcm_hw_params_get_rate(hw_params, &rate, &dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, rate));
+	    break;
+	}
+	case HW_RATE_MIN: {	    
+	    int dir;
+	    unsigned int rate;
+	    err = snd_pcm_hw_params_get_rate_min(hw_params, &rate, &dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, rate));
+	    break;	    
+	}
+	case HW_RATE_MAX: {
+	    int dir;
+	    unsigned int rate;
+	    err = snd_pcm_hw_params_get_rate_max(hw_params, &rate, &dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, rate));
+	    break;
+	}
+	case HW_PERIOD_SIZE: {
+	    int dir;	    
+	    snd_pcm_uframes_t period_size;
+	    err = snd_pcm_hw_params_get_period_size(hw_params,
+						    &period_size,&dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, period_size));
+	    break;
+	}
+	case HW_PERIOD_SIZE_MIN: {
+	    int dir;	    
+	    snd_pcm_uframes_t period_size;
+	    err = snd_pcm_hw_params_get_period_size_min(hw_params,
+						    &period_size,&dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, period_size));
+	    break;
+	}
+	case HW_PERIOD_SIZE_MAX: {
+	    int dir;	    
+	    snd_pcm_uframes_t period_size;
+	    err = snd_pcm_hw_params_get_period_size_max(hw_params,
+						    &period_size,&dir);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, period_size));
+	    break;
+	}	    
+	case HW_BUFFER_SIZE: {
+	    snd_pcm_uframes_t buffer_size;
+	    err = snd_pcm_hw_params_get_buffer_size(hw_params, &buffer_size);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, buffer_size));
+	    break;
+	}
+	case HW_IS_DOUBLE: {
+	    int r;
+	    r = snd_pcm_hw_params_is_double(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_IS_HALF_DUPLEX: {
+	    int r;
+	    r = snd_pcm_hw_params_is_half_duplex(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_CAN_PAUSE: {
+	    int r;
+	    r = snd_pcm_hw_params_can_pause(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_CAN_RESUME: {
+	    int r;
+	    r = snd_pcm_hw_params_can_resume(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_CAN_SYNC_START: {
+	    int r;
+	    r = snd_pcm_hw_params_can_sync_start(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_CAN_DISABLE_PERIOD_WAKEUP: {
+	    int r;
+	    r = snd_pcm_hw_params_can_disable_period_wakeup(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       make_boolean(env, r));
+	    break;
+	}
+	case HW_FIFO_SIZE: {
+	    int r;
+	    r = snd_pcm_hw_params_get_fifo_size(hw_params);
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_int(env, r));
+	    break;
+	}
+	default:
+	    DEBUGF("unknown setting%s", "");
+	    goto badarg;
+	}
+	list = tail;
     }
-
-    snd_pcm_format_t format;
-    snd_pcm_hw_params_get_format(hw_params, &format);
-    unsigned int channels;
-    snd_pcm_hw_params_get_channels(hw_params, &channels);
-    unsigned int sample_rate;
-    int dir;
-    snd_pcm_hw_params_get_rate(hw_params, &sample_rate, &dir);
-    snd_pcm_uframes_t period_size;
-    snd_pcm_hw_params_get_period_size(hw_params, &period_size, &dir);
-    snd_pcm_uframes_t buffer_size;
-    snd_pcm_hw_params_get_buffer_size(hw_params, &buffer_size);
-
-    ERL_NIF_TERM hw_params_keys[5] =
-        {
-         ATOM(format),
-         ATOM(channels),
-         ATOM(sample_rate),
-         ATOM(period_size),
-         ATOM(buffer_size)
-        };
-
-    ERL_NIF_TERM hw_params_values[5] =
-        {
-	 make_format(env, format),
-         enif_make_uint(env, channels),
-         enif_make_uint(env, sample_rate),
-         enif_make_uint(env, period_size),
-         enif_make_uint(env, buffer_size)
-        };
-
-    enif_make_map_from_arrays(env, hw_params_keys, hw_params_values, 5,
-                              hw_params_map);
-
+    if (!enif_is_empty_list(env, list))
+	goto badarg;
+    if (i == MAX_HW_PARAMS)
+	goto badarg;
+    *result = enif_make_list_from_array(env, kv, i);
+    return 1;
+badarg:
+    snd_pcm_hw_params_free(hw_params);
+    *result = enif_make_badarg(env);
     return 0;
+error:
+    snd_pcm_hw_params_free(hw_params);
+    *result = enif_make_int(env, err);
+    return err;
 }
 
-ERL_NIF_TERM set_hw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
-                               ERL_NIF_TERM hw_params_map) {
-    int err;
 
+static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+			 ERL_NIF_TERM arg,
+			 ERL_NIF_TERM* ret) {
+    int err;
     snd_pcm_hw_params_t *hw_params;
+    nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);
+    
     if ((err = snd_pcm_hw_params_malloc(&hw_params)) < 0) {
-        return enif_make_int(env, err);
+	*ret = enif_make_int(env, err);
+	return -1;
     }
 
     if ((err = snd_pcm_hw_params_any(pcm_handle, hw_params)) < 0) {
         snd_pcm_hw_params_free(hw_params);
-        return enif_make_int(env, err);
+	*ret = enif_make_int(env, err);
+	return -1;	
     }
 
     if ((err = snd_pcm_hw_params_set_access(
                    pcm_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) <
         0) {
         snd_pcm_hw_params_free(hw_params);
-        return enif_make_int(env, err);
+	*ret = enif_make_int(env, err);
+	return -1;
     }
 
-    size_t size;
-    if (enif_get_map_size(env, hw_params_map, &size)) {
-        if (size > 0) {
-            ErlNifMapIterator iter;
-            if (enif_map_iterator_create(env, hw_params_map, &iter,
-                                         ERL_NIF_MAP_ITERATOR_FIRST)) {
-                ERL_NIF_TERM key, value, reason = 0;
-                bool badarg = false;
-                while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
-                    if (key == ATOM(format)) {			
-                        snd_pcm_format_t format;
-			DEBUGF("set_hw_params_map: format%s", "");
-                        if (get_format(env, value, &format)) {
-			    DEBUGF("format=%d", format);
-                            if ((err = snd_pcm_hw_params_set_format(
-                                           pcm_handle, hw_params,
-                                           format)) < 0) {
-                                reason = enif_make_tuple4(
-                                             env, ATOM(bad_param), ATOM(format),
-                                             value, enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else if (key == ATOM(channels)) {
-                        unsigned int channels;
-			DEBUGF("set_hw_params_map: channels%s", "");
-                        if (enif_get_uint(env, value, &channels)) {
-			    DEBUGF("channels=%d", channels);
-                            if ((err = snd_pcm_hw_params_set_channels(
-                                           pcm_handle, hw_params,
-                                           channels)) < 0) {
-                                reason = enif_make_tuple4(
-                                             env, ATOM(bad_param),
-                                             ATOM(channels), value,
-                                             enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else if (key == ATOM(sample_rate)) {
-                        unsigned int sample_rate;
-                        int dir;
-			DEBUGF("set_hw_params_map: sample_rate%s", "");
-                        if (enif_get_uint(env, value, &sample_rate)) {
-			    DEBUGF("sample_rate=%u", sample_rate);
-                            if ((err = snd_pcm_hw_params_set_rate_near(
-                                           pcm_handle, hw_params, &sample_rate, &dir)) < 0) {
-                                reason = enif_make_tuple4(
-                                             env, ATOM(bad_param),
-					     ATOM(sample_rate),
-                                             value, enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else if (key == ATOM(period_size)) {
-                        snd_pcm_uframes_t period_size;
-                        int dir;
-			DEBUGF("set_hw_params_map: period_size%s", "");
-                        if (enif_get_ulong(env, value, &period_size)) {
-			    DEBUGF("period_size=%lu", period_size);
-                            if ((err = snd_pcm_hw_params_set_period_size_near(
-                                           pcm_handle, hw_params,
-                                           &period_size, &dir)) < 0) {
-                                reason = enif_make_tuple4(
-                                            env, ATOM(bad_param),
-                                            ATOM(period_size), value,
-                                            enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else if (key == ATOM(buffer_size)) {
-                        snd_pcm_uframes_t buffer_size;
-			DEBUGF("set_hw_params_map: buffer_size%s", "");
-                        if (enif_get_ulong(env, value, &buffer_size)) {
-			    DEBUGF("buffer_size=%lu", buffer_size);
-                            if ((err = snd_pcm_hw_params_set_buffer_size_near(
-                                           pcm_handle, hw_params,
-                                           &buffer_size)) < 0) {
-                                reason = enif_make_tuple4(
-                                             env, ATOM(bad_param),
-                                             ATOM(buffer_size), value,
-                                             enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else {
-                        badarg = true;
-                        break;
-                    }
-                    enif_map_iterator_next(env, &iter);
-                }
-                enif_map_iterator_destroy(env, &iter);
+    ERL_NIF_TERM list = arg;
+    ERL_NIF_TERM head, tail;
+    const ERL_NIF_TERM* pair;
+    int arity;
+    while(enif_get_list_cell(env, list, &head, &tail) &&
+	  enif_get_tuple(env, head, &arity, &pair) && (arity == 2)) {
 
-                if (badarg) {
-                    snd_pcm_hw_params_free(hw_params);
-                    return enif_make_badarg(env);
-                } else if (reason != 0) {
-                    snd_pcm_hw_params_free(hw_params);
-                    return reason;
-                } else {
-                    if ((err = snd_pcm_hw_params(
-                                   pcm_handle, hw_params)) < 0) {
-                        snd_pcm_hw_params_free(hw_params);
-                        return enif_make_int(env, err);
-                    }
+	DEBUGF("set_hw_params: %T = %T", pair[0], pair[1]);
 
-                    snd_pcm_hw_params_free(hw_params);
-                    return 0;
-                }
-            } else {
-                snd_pcm_hw_params_free(hw_params);
-                return enif_make_badarg(env);
-            }
-        }
-    } else {
-        snd_pcm_hw_params_free(hw_params);
-        return enif_make_badarg(env);
+	switch(lookup_atom(ctx->hw_hash, HW_HASH_SIZE, pair[0])) {
+	case HW_FORMAT: {
+	    snd_pcm_format_t format;
+	    if (!get_format(env, pair[1], &format)) goto badarg;
+	    DEBUGF("format=%d", format);
+	    err = snd_pcm_hw_params_set_format(pcm_handle, hw_params,
+					       format);
+	    if (err < 0) goto error;
+	    break;
+	}
+	case HW_CHANNELS: {
+	    unsigned int channels;
+	    if (!enif_get_uint(env, pair[1], &channels)) goto badarg;
+	    DEBUGF("channels=%u", channels);
+	    err = snd_pcm_hw_params_set_channels(pcm_handle, hw_params,
+						 channels);
+	    if (err < 0) goto error;
+	    break;
+	}
+	case HW_RATE: {
+	    unsigned int rate;
+	    int dir;
+	    if (!enif_get_uint(env, pair[1], &rate)) goto badarg;
+	    DEBUGF("rate=%u", rate);
+	    err = snd_pcm_hw_params_set_rate_near(pcm_handle,hw_params,
+						  &rate, &dir);
+	    if (err < 0) goto error;
+	    break;	    
+	}
+	case HW_PERIOD_SIZE: {
+	    snd_pcm_uframes_t period_size;
+	    int dir;
+	    if (!enif_get_ulong(env, pair[1], &period_size)) goto badarg;
+	    DEBUGF("period_size=%lu", period_size);
+	    err = snd_pcm_hw_params_set_period_size_near(pcm_handle, hw_params,
+							 &period_size, &dir);
+	    if (err < 0) goto error;
+	    break;
+	}
+	case HW_BUFFER_SIZE: {
+	    snd_pcm_uframes_t buffer_size;
+	    if (!enif_get_ulong(env, pair[1], &buffer_size)) goto badarg;
+	    DEBUGF("buffer_size=%lu", buffer_size);
+	    err = snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hw_params,
+							 &buffer_size);
+	    if (err < 0) goto error;
+	    break;
+	}
+	default:
+	    DEBUGF("unknown setting%s", "");
+	    goto badarg;
+	}
+	list = tail;
     }
+    if (!enif_is_empty_list(env, list))
+	goto badarg;
 
+    err = snd_pcm_hw_params(pcm_handle, hw_params);
+    if (err < 0) goto badarg;
+
+    snd_pcm_hw_params_free(hw_params);
+    *ret = ATOM(ok);
+    return 1;
+
+badarg:
+    snd_pcm_hw_params_free(hw_params);
+    *ret = enif_make_badarg(env);
+    return 0;
+
+error:
+    snd_pcm_hw_params_free(hw_params);
+    *ret = enif_make_tuple4(env, ATOM(bad_param), pair[0], pair[1],
+			    enif_make_int(env, err));
     return 0;
 }
 
-ERL_NIF_TERM get_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
-                               ERL_NIF_TERM *sw_params_map) {
+static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+			 ERL_NIF_TERM list,
+			 ERL_NIF_TERM *result) {
+
     int err;
-
-    snd_pcm_sw_params_t *sw_params;
-    if ((err = snd_pcm_sw_params_malloc(&sw_params)) < 0) {
-        return enif_make_int(env, err);
+    snd_pcm_sw_params_t *params;
+    ERL_NIF_TERM kv[MAX_HW_PARAMS];
+    unsigned int i;    
+    nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);
+    
+    if ((err = snd_pcm_sw_params_malloc(&params)) < 0) {
+	*result = enif_make_badarg(env); // fixme system limit?
+	return err;
     }
 
-    if ((err = snd_pcm_sw_params_current(pcm_handle, sw_params)) < 0) {
-        snd_pcm_sw_params_free(sw_params);
-        return enif_make_int(env, err);
+    if ((err = snd_pcm_sw_params_current(pcm_handle, params)) < 0)
+	goto error;
+
+    ERL_NIF_TERM head, tail;
+    i = 0;
+    while(enif_get_list_cell(env, list, &head, &tail) && (i < MAX_HW_PARAMS)) {
+	const ERL_NIF_TERM* pair;
+	int arity;
+	// allow {key,value} and ignore value 
+	if (enif_is_tuple(env, head) &&
+	    enif_get_tuple(env, head, &arity, &pair) && (arity == 2)) {
+	    head = pair[0];
+	}
+	DEBUGF("get_sw_params: %T", head);
+
+	switch(lookup_atom(ctx->sw_hash, SW_HASH_SIZE, head)) {	
+	case SW_START_THRESHOLD: {
+	    snd_pcm_uframes_t start_threshold;
+	    err = snd_pcm_sw_params_get_start_threshold(params,
+							&start_threshold);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, start_threshold));
+	    break;
+	}
+	case SW_AVAIL_MIN: {
+	    snd_pcm_uframes_t avail_min;
+	    err = snd_pcm_sw_params_get_avail_min(params,
+						  &avail_min);
+	    if (err < 0) goto error;
+	    kv[i++] = enif_make_tuple2(env, head,
+				       enif_make_uint(env, avail_min));
+	    break;
+	}    
+	default:
+	    DEBUGF("unknown setting%s", "");
+	    goto badarg;
+	}
+	list = tail;
     }
-
-    snd_pcm_uframes_t start_threshold;
-    snd_pcm_sw_params_get_start_threshold(sw_params, &start_threshold);
-
-    ERL_NIF_TERM sw_params_keys[1] = {ATOM(start_threshold)};
-    ERL_NIF_TERM sw_params_values[1] = {enif_make_uint(env, start_threshold)};
-
-    enif_make_map_from_arrays(env, sw_params_keys, sw_params_values, 1,
-                              sw_params_map);
+    if (!enif_is_empty_list(env, list))
+	goto badarg;
+    if (i == MAX_HW_PARAMS)
+	goto badarg;
+    *result = enif_make_list_from_array(env, kv, i);
+    return 1;
+badarg:
+    snd_pcm_sw_params_free(params);
+    *result = enif_make_badarg(env);
     return 0;
+error:
+    snd_pcm_sw_params_free(params);
+    *result = enif_make_int(env, err);
+    return err;    
 }
 
-ERL_NIF_TERM set_sw_params_map(ErlNifEnv* env, snd_pcm_t *pcm_handle,
-                               ERL_NIF_TERM sw_params_map) {
+static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+			 ERL_NIF_TERM arg,
+			 ERL_NIF_TERM* ret) {
     int err;
-
-    snd_pcm_sw_params_t *sw_params;
-    if ((err = snd_pcm_sw_params_malloc(&sw_params)) < 0) {
-        return enif_make_int(env, err);
+    snd_pcm_sw_params_t *params;
+    nif_ctx_t* ctx = (nif_ctx_t*) enif_priv_data(env);
+    
+    if ((err = snd_pcm_sw_params_malloc(&params)) < 0) {
+	*ret = enif_make_int(env, err);
+	return -1;
     }
 
-    if ((err = snd_pcm_sw_params_current(pcm_handle, sw_params)) < 0) {
-        snd_pcm_sw_params_free(sw_params);
-        return enif_make_int(env, err);
+    if ((err = snd_pcm_sw_params_current(pcm_handle, params)) < 0) {
+        snd_pcm_sw_params_free(params);
+	*ret = enif_make_int(env, err);
+	return -1;		
     }
 
-    size_t size;
-    if (enif_get_map_size(env, sw_params_map, &size)) {
-        if (size > 0) {
-            ErlNifMapIterator iter;
-            if (enif_map_iterator_create(env, sw_params_map, &iter,
-                                         ERL_NIF_MAP_ITERATOR_FIRST)) {
-                ERL_NIF_TERM key, value, reason = 0;
-                bool badarg = false;
-                while (enif_map_iterator_get_pair(env, &iter, &key, &value)) {
-                    if (key == ATOM(start_threshold)) {
-                        snd_pcm_uframes_t start_threshold;
-                        if (enif_get_ulong(env, value, &start_threshold)) {
-                            if ((err = snd_pcm_sw_params_set_start_threshold(
-                                           pcm_handle, sw_params,
-                                           start_threshold)) < 0) {
-                                reason = enif_make_tuple4(
-                                             env, ATOM(bad_param),
-                                             ATOM(start_threshold), value,
-                                             enif_make_int(env, err));
-                                break;
-                            }
-                        } else {
-                            badarg = true;
-                            break;
-                        }
-                    } else {
-                        badarg = true;
-                        break;
-                    }
-                    enif_map_iterator_next(env, &iter);
-                }
-                enif_map_iterator_destroy(env, &iter);
+    ERL_NIF_TERM list = arg;
+    ERL_NIF_TERM head, tail;
+    const ERL_NIF_TERM* pair;
+    int arity;
+    while(enif_get_list_cell(env, list, &head, &tail) &&
+	  enif_get_tuple(env, head, &arity, &pair) && (arity == 2)) {
 
-                if (badarg) {
-                    snd_pcm_sw_params_free(sw_params);
-                    return enif_make_badarg(env);
-                } else if (reason != 0) {
-                    snd_pcm_sw_params_free(sw_params);
-                    return reason;
-                } else {
-                    if ((err = snd_pcm_sw_params(
-                                   pcm_handle, sw_params)) < 0) {
-                        snd_pcm_sw_params_free(sw_params);
-                        return enif_make_int(env, err);
-                    }
+	DEBUGF("set_sw_params: %T = %T", pair[0], pair[1]);
 
-                    snd_pcm_sw_params_free(sw_params);
-                    return 0;
-                }
-            } else {
-                snd_pcm_sw_params_free(sw_params);
-                return enif_make_badarg(env);
-            }
-        }
-    } else {
-        snd_pcm_sw_params_free(sw_params);
-        return enif_make_badarg(env);
+	switch(lookup_atom(ctx->sw_hash, SW_HASH_SIZE, pair[0])) {
+	case SW_START_THRESHOLD: {
+	    snd_pcm_uframes_t start_threshold;
+	    if (!enif_get_ulong(env, pair[1], &start_threshold)) goto badarg;
+	    DEBUGF("start_threshold=%u", start_threshold);
+	    err = snd_pcm_sw_params_set_start_threshold(pcm_handle,params,
+							start_threshold);
+	    if (err < 0) goto error;
+	    break;
+	}
+	case SW_AVAIL_MIN: {
+	    snd_pcm_uframes_t avail_min;
+	    if (!enif_get_ulong(env, pair[1], &avail_min)) goto badarg;
+	    DEBUGF("avail_min=%u", avail_min);
+	    err = snd_pcm_sw_params_set_avail_min(pcm_handle,params,
+						  avail_min);
+	    if (err < 0) goto error;
+	    break;	    
+	}    	    
+	default:
+	    DEBUGF("unknown setting%s", "");
+	    goto badarg;
+	}
+	list = tail;
     }
+    if (!enif_is_empty_list(env, list))
+	goto badarg;
+    
+    err = snd_pcm_sw_params(pcm_handle, params);
+    if (err < 0) goto badarg;
 
+    snd_pcm_sw_params_free(params);
+    *ret = ATOM(ok);
+    return 1;    
+    
+badarg:
+    snd_pcm_sw_params_free(params);
+    *ret = enif_make_badarg(env);
+    return 0;
+
+error:
+    snd_pcm_sw_params_free(params);
+    *ret = enif_make_tuple4(env, ATOM(bad_param), pair[0], pair[1],
+			    enif_make_int(env, err));
     return 0;
 }
-
 
 /*
  * strerror
@@ -864,19 +1202,35 @@ static ERL_NIF_TERM nif_get_hw_params(ErlNifEnv* env, int argc,
 				      const ERL_NIF_TERM argv[]) {
 
     handle_t *handle;
+    ERL_NIF_TERM value;
+    int r;
+    int any = 0;
 
+    if (argc >= 3) {
+	if (argv[2] == ATOM(any))
+	    any = 1;
+	else if (argv[2] == ATOM(current))
+	    any = 0;
+	else
+	    return enif_make_badarg(env);
+    }
     switch(get_handle(env, argv[0], &handle)) {
     case -1: return enif_make_badarg(env);
     case 0:  return make_bad_handle(env);
     default: break;
     }
     
-    ERL_NIF_TERM hw_params_map, reason;
-    if ((reason = get_hw_params_map(env, handle->pcm_handle,
-                                    &hw_params_map)) < 0) {
-        return make_herror(env, handle, reason);
+    r = get_hw_params(env, handle->pcm_handle, argv[1], &value, any);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-    return make_ok(env, handle, hw_params_map);
+    return make_ok(env, handle, value);
 }
 
 /*
@@ -886,25 +1240,37 @@ static ERL_NIF_TERM nif_get_hw_params(ErlNifEnv* env, int argc,
 static ERL_NIF_TERM nif_set_hw_params(ErlNifEnv* env, int argc,
                                    const ERL_NIF_TERM argv[]) {
     handle_t *handle;
-
+    int r;
+    ERL_NIF_TERM value;
+    
     switch(get_handle(env, argv[0], &handle)) {
     case -1: return enif_make_badarg(env);
     case 0:  return make_bad_handle(env);
     default: break;
     }
     
-    ERL_NIF_TERM reason;
-    if ((reason = set_hw_params_map(env, handle->pcm_handle, argv[1])) < 0) {
-        return make_herror(env, handle, reason);
+    r = set_hw_params(env, handle->pcm_handle, argv[1], &value);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-
-    ERL_NIF_TERM hw_params_map;
-    if ((reason = get_hw_params_map(env, handle->pcm_handle,
-                                    &hw_params_map)) != 0) {
-        return make_herror(env, handle, reason);
+	    
+    r = get_hw_params(env, handle->pcm_handle, argv[1], &value, 0);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-
-    return make_ok(env, handle, hw_params_map);
+    return make_ok(env, handle, value);
 }
 
 /*
@@ -913,21 +1279,28 @@ static ERL_NIF_TERM nif_set_hw_params(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM nif_get_sw_params(ErlNifEnv* env, int argc,
 				      const ERL_NIF_TERM argv[]) {
-    handle_t *handle;
 
+    handle_t *handle;
+    ERL_NIF_TERM value;
+    int r;
+    
     switch(get_handle(env, argv[0], &handle)) {
     case -1: return enif_make_badarg(env);
     case 0:  return make_bad_handle(env);
     default: break;
     }
     
-    ERL_NIF_TERM sw_params_map, reason;
-    if ((reason = get_sw_params_map(env, handle->pcm_handle,
-                                    &sw_params_map)) != 0) {
-        return make_herror(env, handle, reason);
+    r = get_sw_params(env, handle->pcm_handle, argv[1], &value);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-
-    return make_ok(env, handle, sw_params_map);
+    return make_ok(env, handle, value);
 }
 
 /*
@@ -936,26 +1309,39 @@ static ERL_NIF_TERM nif_get_sw_params(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM nif_set_sw_params(ErlNifEnv* env, int argc,
 				      const ERL_NIF_TERM argv[]) {
-    handle_t *handle;
 
+    handle_t *handle;
+    int r;
+    ERL_NIF_TERM value;
+    
     switch(get_handle(env, argv[0], &handle)) {
     case -1: return enif_make_badarg(env);
     case 0:  return make_bad_handle(env);
     default: break;
     }
     
-    ERL_NIF_TERM reason;
-    if ((reason = set_sw_params_map(env, handle->pcm_handle, argv[1])) < 0) {
-        return make_herror(env, handle, reason);
+    r = set_sw_params(env, handle->pcm_handle, argv[1], &value);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-
-    ERL_NIF_TERM sw_params_map;
-    if ((reason = get_sw_params_map(env, handle->pcm_handle,
-                                    &sw_params_map)) != 0) {
-        return make_herror(env, handle, reason);
+	    
+    r = get_sw_params(env, handle->pcm_handle, argv[1], &value);
+    if (r < 0)
+	return make_herror(env, handle, value);
+    if (r == 0) {
+	if (enif_is_exception(env, value)) {
+	    done_handle(env, handle);
+	    return value;
+	}
+	return make_herror(env, handle, value);
     }
-
-    return make_ok(env, handle, sw_params_map);
+    return make_ok(env, handle, value);
 }
 
 /*
@@ -998,8 +1384,7 @@ static ERL_NIF_TERM nif_read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 	    return make_herror(env, handle, ATOM(epipe));
 	else if (read_frames == -ESTRPIPE)
 	    return make_herror(env, handle, ATOM(estrpipe));
-	return make_herror(env, handle,
-			  enif_make_int(env, read_frames));
+	return make_herror(env, handle, enif_make_int(env, read_frames));
     }
     ERL_NIF_TERM hdr;
     hdr = enif_make_int(env, read_frames); // add sample type etc here!
@@ -1437,6 +1822,107 @@ static ERL_NIF_TERM nif_make_silence(ErlNifEnv* env, int argc,
     return result;
 }
 
+static ERL_NIF_TERM nif_card_info(ErlNifEnv* env, int argc,
+				  const ERL_NIF_TERM argv[]) {
+    int err;
+    int   card;
+    char  ctl_name[80];
+    ERL_NIF_TERM kv[MAX_INFO];
+    snd_ctl_t* ctl;    
+    snd_ctl_card_info_t* info;
+    const char* str;
+    ERL_NIF_TERM list;
+    ERL_NIF_TERM key, tail;
+    ERL_NIF_TERM value;
+    nif_ctx_t* ctx;
+    int i;
+
+    if (enif_get_int(env, argv[0], &card) < 0)
+	return enif_make_badarg(env);
+    sprintf(ctl_name, "hw:%d", card);
+    if ((err = snd_ctl_open(&ctl, ctl_name, 0)) < 0)
+	return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+
+    snd_ctl_card_info_malloc(&info);
+    snd_ctl_card_info(ctl, info);
+    
+    ctx = (nif_ctx_t*) enif_priv_data(env);
+    i = 0;
+    list = argv[1];
+    while(enif_get_list_cell(env, list, &key, &tail) && (i < MAX_INFO)) {
+	switch(lookup_atom(ctx->info_hash, INFO_HASH_SIZE, key)) {
+	case INFO_ID: {
+	    str = snd_ctl_card_info_get_id(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);
+	    break;
+	}
+	case INFO_DRIVER: {
+	    str = snd_ctl_card_info_get_driver(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);	    
+	    break;
+	}
+	case INFO_NAME: {
+	    str = snd_ctl_card_info_get_name(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);	    
+	    break;
+	}
+	case INFO_LONGNAME: {
+	    str = snd_ctl_card_info_get_longname(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);	    
+	    break;
+	}
+	case INFO_MIXERNAME: {
+	    str = snd_ctl_card_info_get_mixername(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);	    
+	    break;
+	}
+	case INFO_COMPONENTS: {
+	    str = snd_ctl_card_info_get_components(info);
+	    value = enif_make_string(env, str, ERL_NIF_LATIN1);
+	    kv[i++] = enif_make_tuple2(env, key, value);	    
+	    break;
+	}
+	default:
+	    DEBUGF("unknown setting %T", key);
+	    goto badarg;
+	}
+	list = tail;	    
+    }
+    if (!enif_is_empty_list(env, list))
+	goto badarg;
+    if (i == MAX_INFO)
+	goto badarg;
+    snd_ctl_card_info_free(info);
+    snd_ctl_close(ctl);    
+    return enif_make_tuple2(env, ATOM(ok),
+			    enif_make_list_from_array(env, kv, i));
+
+badarg:
+    snd_ctl_card_info_free(info);
+    snd_ctl_close(ctl);    
+    return enif_make_badarg(env);
+    
+}
+static ERL_NIF_TERM nif_card_next(ErlNifEnv* env, int argc,
+				  const ERL_NIF_TERM argv[]) {
+    UNUSED(env);
+    int   card;
+    int   err;
+    
+    if (enif_get_int(env, argv[0], &card) < 0)
+	return enif_make_badarg(env);
+    if ((err = snd_card_next(&card)) < 0)
+	return enif_make_tuple2(env, ATOM(error), enif_make_int(env, err));
+    if (card < 0)
+	return ATOM(false);
+    return enif_make_int(env, card);
+}
+
 /*
  * dtor
  */
@@ -1533,6 +2019,8 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(false);    
     LOAD_ATOM(ok);
     LOAD_ATOM(error);
+    LOAD_ATOM(current);
+    LOAD_ATOM(any);    
 
     // open mode
     LOAD_ATOM(playback);
@@ -1541,17 +2029,42 @@ static int load_atoms(ErlNifEnv* env)
     // hw-parameters
     LOAD_ATOM(format);
     LOAD_ATOM(channels);
-    LOAD_ATOM(sample_rate);
+    LOAD_ATOM(channels_min);
+    LOAD_ATOM(channels_max);
+    LOAD_ATOM(rate);
+    LOAD_ATOM(rate_min);
+    LOAD_ATOM(rate_max);    
     LOAD_ATOM(period_size);
+    LOAD_ATOM(period_size_min);
+    LOAD_ATOM(period_size_max);
     LOAD_ATOM(buffer_size);
+    // get-hw-params
+    LOAD_ATOM(is_double);
+    LOAD_ATOM(is_half_duplex);
+    LOAD_ATOM(can_pause);
+    LOAD_ATOM(can_resume);
+    LOAD_ATOM(can_sync_start);
+    LOAD_ATOM(can_disable_period_wakeup);
+    LOAD_ATOM(fifo_size);
+
     // sw-parameters
     LOAD_ATOM(start_threshold);
+    LOAD_ATOM(avail_min);
     
     LOAD_ATOM(underrun);
     LOAD_ATOM(overrun);
     LOAD_ATOM(suspend_event);
     LOAD_ATOM(would_block);
     LOAD_ATOM(system_call);
+
+    // info
+    LOAD_ATOM(id);
+    LOAD_ATOM(driver);
+    LOAD_ATOM(name);
+    LOAD_ATOM(longname);
+    LOAD_ATOM(mixername);
+    LOAD_ATOM(components);
+    
 
     // posix errors
     LOAD_ATOM(eagain);
@@ -1639,10 +2152,14 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     UNUSED(load_info); 
     ErlNifResourceFlags tried;
     ErlNifResourceTypeInit cb;
+    nif_ctx_t* ctx;
     
     cb.dtor = (ErlNifResourceDtor*) pcm_dtor;
     cb.stop = (ErlNifResourceStop*) pcm_stop;
     cb.down = (ErlNifResourceDown*) pcm_down;
+
+    if ((ctx = (nif_ctx_t*) enif_alloc(sizeof(nif_ctx_t))) == NULL)
+	return -1;
     
     if ((handle_resource_type =
          enif_open_resource_type_x(env, "alsa_nif", &cb,
@@ -1653,6 +2170,12 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     if (load_atoms(env) < 0)
 	return -1;
 
+    hash_helems("hw", ctx->hw_hash, HW_HASH_SIZE, hw_elems);
+    hash_helems("sw", ctx->sw_hash, SW_HASH_SIZE, sw_elems);
+    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);
+    hash_helems("info", ctx->info_hash, INFO_HASH_SIZE, info_elems);
+    
+    *priv_data = ctx;    
     return 0;
 }
 
@@ -1663,7 +2186,8 @@ static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
     UNUSED(load_info);
     ErlNifResourceFlags tried;
     ErlNifResourceTypeInit cb;
-    
+    nif_ctx_t* ctx = (nif_ctx_t*) *old_priv_data;
+
     cb.dtor = (ErlNifResourceDtor*) pcm_dtor;
     cb.stop = (ErlNifResourceStop*) pcm_stop;
     cb.down = (ErlNifResourceDown*) pcm_down;
@@ -1678,6 +2202,12 @@ static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
     }
     if (load_atoms(env) < 0)
 	return -1;
+
+    hash_helems("hw", ctx->hw_hash, HW_HASH_SIZE, hw_elems);
+    hash_helems("sw", ctx->sw_hash, SW_HASH_SIZE, sw_elems);
+    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);
+    hash_helems("info", ctx->info_hash, INFO_HASH_SIZE, info_elems);
+    
     *priv_data = *old_priv_data;
     return 0;
 }
@@ -1687,6 +2217,11 @@ static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
  */
 
 static void unload(ErlNifEnv* env, void* priv_data) {
+    UNUSED(env);
+    nif_ctx_t* ctx = (nif_ctx_t*) priv_data;
+
+    DEBUGF("unload%s", "");
+    enif_free(ctx);    
 }
 
 /*

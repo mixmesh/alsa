@@ -25,11 +25,16 @@
 	 avail_/1,
 	 state_/1,
 	 strerror/1,
-	 get_hw_params_/1,
+	 hw_params/0,
+	 get_hw_params/1, get_hw_params_range/1,
+	 get_hw_params_/2, get_hw_params_/3,
 	 set_hw_params_/2,
-	 get_sw_params_/1,
+	 sw_params/0,
+	 get_sw_params_/1, get_sw_params_/2,
 	 set_sw_params_/2, 
-	 select_/1
+	 select_/1,
+	 card_info/1, card_info/2,
+	 card_next/1
 	 ]).
 -export([
 	 format_is_signed/1,
@@ -42,21 +47,71 @@
 	 format_silence/1,
 	 make_silence/3
 	]).
+-export([info/0]).             % info elements
 -export([formats/0]).          % declare atoms and formats available
 -export([preloaded_atoms_/0]). % internal
 
 
 -include("../include/alsa.hrl").
 
+-type unsigned() :: non_neg_integer().
 -type handle() :: reference().
 -type pcm_name() :: string().
 -type format() :: atom() | integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
--type hw_params() :: #{format => format(),
-                       channels => integer(),
-                       sample_rate => integer(),
-                       period_size => integer(),
-                       buffer_size => integer()}.
--type sw_params() :: #{start_threshold => integer()}.
+-type hw_get_param_key() ::
+	is_double | is_half_duplex |
+	can_pause | can_resume | can_sync_start |
+	can_disable_period_wakeup | fifo_size.	
+-type hw_param_key() ::
+	hw_get_param_key() |
+	format |
+	rate | rate_min | rate_max |
+	channels | channels_min | channels_max |
+	period_size | period_size_min | period_size_max |
+	buffer_size.
+
+-type hw_param_key_value() ::
+	{format, format()} |
+	{rate, unsigned()} |
+	{rate_min, unsigned()} |
+	{rate_max, unsigned()} |
+	{channels,unsigned()} |
+	{channels_min,unsigned()} |
+	{channels_max,unsigned()} |
+	{period_size,unsigned()} |
+	{period_size_min,unsigned()} |
+	{period_size_max,unsigned()} |
+	{buffer_size,unsigned()} |
+	%% get-hw
+	{is_double,boolean()} |
+	{is_half_duplex,boolean()} |
+	{can_pause,boolean()} |
+	{can_resume,boolean()} |
+	{can_sync_start,boolean()} |
+	{can_disable_period_wakeup,boolean()} |
+	{fifo_size,unsigned()}.
+
+-type hw_params() :: [hw_param_key_value()].
+
+-type sw_param_key() :: 
+	start_threshold |
+	avail_min.
+
+-type sw_param_key_value() ::
+	{start_threshold, unsigned()} |
+	{avail_min, unsigned()}.
+-type sw_params() :: [sw_param_key_value()].
+
+-type info_key() ::  id | driver | name | longname | mixername | components.
+-type info_key_value() ::
+	{id, string()} |
+	{driver, string()} |
+	{name, string()} |
+	{longname, string()} |
+	{mixername, string()} |
+	{components, string()}.
+
+
 -type alsa_reason() :: integer().
 -type bad_param_reason() :: {bad_param, atom(), integer(), alsa_reason()}.
 -type frames() :: integer().
@@ -88,13 +143,11 @@ preloaded_atoms_() ->
     [
      %% general 
      undefined, true, false, ok, error,
+     any, current,
 
      %% open mode
      playback, capture,
-     %% hw-params
-     format, channels, sample_rate, period_size, buffer_size,
-     %% sw-params
-     start_threshold,
+     
      %% high level errors
      underrun, overrun, suspend_event, would_block, system_call,
      %% posix errors used as atoms
@@ -188,13 +241,58 @@ close_(_Handle) ->
     ?nif_stub.
 
 %%
+%% Exported: hw_params
+%%
+-spec hw_params() -> [hw_param_key()].
+
+hw_params() ->
+    [format, 
+     channels, channels_min, channels_max, 
+     rate, rate_min, rate_max,
+     period_size, period_size_min, period_size_max,
+     buffer_size,
+     is_double, is_half_duplex,
+     can_pause, can_resume, can_sync_start,
+     can_disable_period_wakeup, fifo_size
+    ].
+
+hw_range_params() ->
+    [channels_min, channels_max, 
+     rate_min, rate_max,
+     period_size_min, period_size_max,
+     is_double, is_half_duplex,
+     can_pause, can_resume, can_sync_start,
+     can_disable_period_wakeup, fifo_size].
+
+info() ->
+    [id, driver, name,
+     longname, mixername, components
+    ].
+
+%%
 %% Exported: get_hw_params
 %%
 
--spec get_hw_params_(handle()) ->
+-spec get_hw_params(handle()) ->
           {ok, hw_params()} | {error, alsa_reason() | no_such_handle}.
 
-get_hw_params_(_Handle) ->
+get_hw_params(Handle) ->
+    get_hw_params_(Handle, hw_params(), current).
+
+-spec get_hw_params_range(handle()) ->
+          {ok, hw_params()} | {error, alsa_reason() | no_such_handle}.
+
+get_hw_params_range(Handle) ->
+    get_hw_params_(Handle, hw_range_params(), any).
+
+-spec get_hw_params_(handle(), Params::[hw_param_key()]) ->
+          {ok, hw_params()} | {error, alsa_reason() | no_such_handle}.
+get_hw_params_(_Handle, _Params) ->
+    ?nif_stub.
+
+-spec get_hw_params_(handle(), Params::[hw_param_key()], any|current) ->
+          {ok, hw_params()} | {error, alsa_reason() | no_such_handle}.
+get_hw_params_(_Handle, _Params, _AnyOrCurrent) ->
     ?nif_stub.
 
 %%
@@ -209,13 +307,31 @@ set_hw_params_(_Handle, _HwParams) ->
     ?nif_stub.
 
 %%
+%% Exported: sw_params
+%%
+-spec sw_params() -> [sw_param_key()].
+
+sw_params() ->
+    [start_threshold, avail_min].
+
+%%
 %% Exported: get_sw_params
 %%
 
 -spec get_sw_params_(handle()) ->
           {ok, sw_params()} | {error, alsa_reason() | no_such_handle}.
 
-get_sw_params_(_Handle) ->
+get_sw_params_(Handle) ->
+    get_sw_params_(Handle, sw_params()).
+
+%%
+%% Exported: get_sw_params
+%%
+
+-spec get_sw_params_(handle(), Params::[sw_param_key_value()]) ->
+          {ok, sw_params()} | {error, alsa_reason() | no_such_handle}.
+
+get_sw_params_(_Handle, _Params) ->
     ?nif_stub.
 
 %%
@@ -274,6 +390,7 @@ read(Handle, Frames, Acc) ->
 	{error, AlsaError} when is_integer(AlsaError) ->
 	    {error, strerror(AlsaError)};
 	{ok, {ReadFrames,Samples}} ->
+	    io:format("read_: frames=~w\n", [ReadFrames]),
 	    if Frames =:= ReadFrames ->
 		    if Acc =:= [] ->
 			    {ok, Samples};
@@ -542,4 +659,23 @@ format_silence(_Format) ->
 	  binary().
 
 make_silence(_Format, _Channels, _Samples) ->
+    ?nif_stub.
+
+%%
+%% Exported: card_info
+%%
+
+-spec card_info(Card::integer()) -> [info_key_value()].
+card_info(Card) ->
+    card_info(Card, info()).
+
+-spec card_info(Card::integer(), Elems::[info_key()]) -> 
+	  [info_key_value()].
+
+card_info(_Card, _Elems) ->
+    ?nif_stub.
+
+-spec card_next(Card::integer()) -> false | integer().
+
+card_next(_Card) ->
     ?nif_stub.

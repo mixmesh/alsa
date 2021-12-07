@@ -13,7 +13,7 @@
 -define(DEFAULT_PAN, 0.5).  %%  %% pan 0.0=left .. 1.0 = right
 
 file(FilePath) ->
-    file(FilePath, #{}).
+    file(FilePath, []).
 
 file(FilePath, Params) ->
     case file:open(FilePath, [read, raw, binary, read_ahead]) of
@@ -28,42 +28,44 @@ file(FilePath, Params) ->
     end.
 
 %% Play samples from file use [ram] option to send non-file samples...
-fd(Fd, Params0) ->
+fd(Fd, Params0) when is_map(Params0) ->
+    fd(Fd, maps:to_list(Params0));
+fd(Fd, Params0) when is_list(Params0) ->
     io:format("alsa_playback:fd params0 = ~p\n", [Params0]),
     PeriodSizeInFrames = 
-	maps:get(period_size, Params0, ?PERIOD_SIZE_IN_FRAMES),
+	proplists:get_value(period_size, Params0, ?PERIOD_SIZE_IN_FRAMES),
     NumBufferPeriods =
-	maps:get(buffer_periods, Params0, ?BUFFER_PERIODS),
+	proplists:get_value(buffer_periods, Params0, ?BUFFER_PERIODS),
     BufferSizeInFrames = PeriodSizeInFrames * NumBufferPeriods,
     Params = case alsa_wav:read_header(Fd) of
 		 {ok, Header} ->
 		     io:format("wav header: ~w\n", [Header]),
-		     maps:merge(Params0, Header);
+		     Header ++ Params0;
 		 _ -> 
 		     %% probably raw file
 		     file:position(Fd, 0),
 		     Params0
 	     end,
     io:format("alsa_playback:fd params = ~p\n", [Params]),
-    Format = maps:get(format, Params, ?DEFAULT_FORMAT),
-    Channels0 = maps:get(channels, Params, ?DEFAULT_CHANNELS),
+    Format = proplists:get_value(format, Params, ?DEFAULT_FORMAT),
+    Channels0 = proplists:get_value(channels, Params, ?DEFAULT_CHANNELS),
     Channels = if Channels0 =:= 1 -> 2;
 		  true -> Channels0
 	       end,
-    SampleRate = maps:get(sample_rate, Params, ?DEFAULT_SAMPLE_RATE),
-    Device = maps:get(device, Params, ?DEFAULT_DEVICE),
-    Pan = maps:get(pan, Params, ?DEFAULT_PAN),
+    Rate = proplists:get_value(rate, Params, ?DEFAULT_SAMPLE_RATE),
+    Device = proplists:get_value(device, Params, ?DEFAULT_DEVICE),
+    Pan = proplists:get_value(pan, Params, ?DEFAULT_PAN),
     WantedHwParams =
-	#{format => Format,
-	  channels => Channels,
-	  sample_rate => SampleRate,
-	  period_size => PeriodSizeInFrames,
-	  buffer_size => BufferSizeInFrames
-	 },
+	[{format,Format},
+	 {channels,Channels},
+	 {rate,Rate},
+	 {period_size,PeriodSizeInFrames},
+	 {buffer_size,BufferSizeInFrames}
+	],
     io:format("alsa_playback:fd wanted_hw_params = ~p\n", [WantedHwParams]),
     WantedSwParams =
-	#{start_threshold =>
-	      PeriodSizeInFrames * (NumBufferPeriods-1)},
+	[{start_threshold,
+	  PeriodSizeInFrames * (NumBufferPeriods-1)}],
     case alsa:open(Device, playback, WantedHwParams,
 		   WantedSwParams) of
 	{ok, Handle, ActualHwParams, ActualSwParams} ->
@@ -71,9 +73,10 @@ fd(Fd, Params0) ->
 		      [ActualHwParams]),
 	    io:format("alsa_playback:fd actual_sw_params = ~p\n", 
 		      [ActualSwParams]),
-	    Format1 = maps:get(format, ActualHwParams),
-	    PeriodSizeInFrames1 = maps:get(period_size, ActualHwParams),
-	    Channels1 = maps:get(channels, ActualHwParams),
+	    Format1 = proplists:get_value(format, ActualHwParams),
+	    PeriodSizeInFrames1 = proplists:get_value(period_size,
+						      ActualHwParams),
+	    Channels1 = proplists:get_value(channels, ActualHwParams),
 	    Size1 = alsa:format_size(Format1, Channels1),
 	    PeriodSizeInBytes = PeriodSizeInFrames1*Size1,
 	    Transform =

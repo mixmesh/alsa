@@ -15,8 +15,8 @@
 
 -record(param,
 	{
-	 sample_type = s16_le :: alsa_type(),
-	 sample_rate = 44100  :: number(),
+	 format = s16_le      :: alsa_type(),
+	 rate = 44100         :: number(),
 	 wave_form = square   :: square | triangle | sine,
 	 frequency = 440      :: number(),     %% hertz
 	 amplitude = 0.5      :: float01(),
@@ -42,8 +42,8 @@ play_(Opts) when is_map(Opts) ->
 
 wave_init(Opts) ->
     Default    = #param{},
-    Type       = ?GETOPT(sample_type),
-    Rate0      = ?GETOPT(sample_rate),
+    Format     = ?GETOPT(format),
+    Rate0      = ?GETOPT(rate),
     Wave       = ?GETOPT(wave_form),
     Freq       = ?GETOPT(frequency),
     Amp        = ?GETOPT(amplitude),
@@ -54,14 +54,14 @@ wave_init(Opts) ->
     BufferFactor = ?GETOPT(buffer_factor),
     PeriodSize0 = (Rate0 * (Period/1000)),
     WantedHwParams =
-	#{format   => Type,
-	  channels => Channels,
-	  rate     => Rate0,
-	  period_size => trunc(PeriodSize0),
-	  buffer_size => trunc(PeriodSize0*BufferFactor)},
+	[{format, Format},
+	 {channels,Channels},
+	 {rate,Rate0},
+	 {period_size,trunc(PeriodSize0)},
+	 {buffer_size,trunc(PeriodSize0*BufferFactor)}],
     WantedSwParams =
-	#{start_threshold =>
-	      trunc(PeriodSize0*(BufferFactor-1))},
+	[{start_threshold,
+	      trunc(PeriodSize0*(BufferFactor-1))}],
     case alsa:open(Device, playback, WantedHwParams, WantedSwParams) of
 	{ok, H, ActualHwParams, ActualSwParams} ->
 	    io:format("Params: ~p\n", [{ActualHwParams, ActualSwParams}]),
@@ -77,8 +77,8 @@ wave_init(Opts) ->
 	    io:format("W = ~p\n", [W]),
 
 	    P = #param {
-		   sample_type = Type,
-		   sample_rate = Rate,
+		   format = Format,
+		   rate = Rate,
 		   wave_form = Wave,
 		   frequency = Freq,
 		   amplitude = Amp,
@@ -88,30 +88,30 @@ wave_init(Opts) ->
 		   period = Period,
 		   buffer_factor = BufferFactor
 		  },
-	    play_(H,TW,W,T,Dt,SW,Wave,Amp,Type,Channels);
+	    play_(H,TW,W,T,Dt,SW,Wave,Amp,Format,Channels);
 	{error, Reason} ->
 	    {error, alsa:strerror(Reason)}
     end.
 
-play_(H,TW,W,T,Dt,SW,Wave,Amp,Type,Channels) ->
+play_(H,TW,W,T,Dt,SW,Wave,Amp,Format,Channels) ->
     if TW =< 0 ->
 	    stop(H),
 	    ok;
        true ->
 	    {T1,Samples01} = generate_period(Wave,SW,W,Amp,T,Dt),
 	    %% io:format("samples ~p\n", [Samples01]),
-	    Bin = native_samples(Samples01,Type,Channels),
+	    Bin = native_samples(Samples01,Format,Channels),
 	    %%io:format("write ~w samples\n", [byte_size(Bin) div (2*Channels)]),
 	    case alsa:write(H, Bin) of
 		{ok, N} when is_integer(N), N >= 0 ->
 		    io:format("Wrote ~w frames\n", [N]),
-		    play_(H,TW-N,W,T1,Dt,SW,Wave,Amp,Type,Channels);
+		    play_(H,TW-N,W,T1,Dt,SW,Wave,Amp,Format,Channels);
 		{ok, underrun} ->
 		    io:format("Recovered from underrun\n"),
-		    play_(H,TW,W,T1,Dt,SW,Wave,Amp,Type,Channels);
+		    play_(H,TW,W,T1,Dt,SW,Wave,Amp,Format,Channels);
 		{ok, suspend_event} ->
 		    io:format("Recovered from suspend event\n"),
-		    play_(H,TW,W,T1,Dt,SW,Wave,Amp,Type,Channels);
+		    play_(H,TW,W,T1,Dt,SW,Wave,Amp,Format,Channels);
 		{error, Reason} ->
 		    io:format("write failed ~p\n", [Reason]),
 		    stop(H),
