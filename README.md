@@ -8,9 +8,9 @@ the right place.
 The API can be found in
 [alsa.erl](https://github.com/mixmesh/alsa/blob/main/src/alsa.erl) and
 the examples in
-[playback.erl](https://github.com/mixmesh/alsa/blob/main/src/playback.erl)
+[playback.erl](https://github.com/mixmesh/alsa/blob/main/src/alsa_playback.erl)
 and
-[capture.erl](https://github.com/mixmesh/alsa/blob/main/src/capture.erl)
+[capture.erl](https://github.com/mixmesh/alsa/blob/main/src/alsa_capture.erl)
 is sort of self explanatory. No documentation needed. :-)
 
 The API is not a complete Erlang adaption of the [ALSA C
