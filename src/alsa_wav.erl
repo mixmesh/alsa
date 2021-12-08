@@ -117,7 +117,7 @@ read_header_(Fd, HdrLen) ->
     end.
 
 write_header(Fd, Header) ->
-    write_header(Fd, 0, Header).
+    write_header(Fd, 28, Header).
 
 
 write_tag(Fd, Tag) when byte_size(Tag) =:= 4 ->
