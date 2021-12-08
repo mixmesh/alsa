@@ -41,6 +41,8 @@
 	 format_is_unsigned/1,
 	 format_is_little/1,
 	 format_is_big/1,
+	 format_is_linear/1,
+	 format_is_float/1,
 	 format_width/1,
 	 format_physical_width/1,
 	 format_size/2,
@@ -613,12 +615,29 @@ format_is_big(_Format) ->
     ?nif_stub.
 
 %%
+%% Exported: format_is_linear
+%%
+
+-spec format_is_linear(Format::atom()) -> boolean().
+
+format_is_linear(_Format) ->
+    ?nif_stub.
+%%
 %% Exported: format_width
 %%
 
 -spec format_width(Format::atom()) -> integer().
 
 format_width(_Format) ->
+    ?nif_stub.
+
+%%
+%% Exported: format_is_float
+%%
+
+-spec format_is_float(Format::atom()) -> boolean().
+
+format_is_float(_Format) ->
     ?nif_stub.
 
 %%

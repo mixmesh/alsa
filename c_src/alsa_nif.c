@@ -192,6 +192,8 @@ DECL_ATOM(g723_40_1b);
     NIF("format_is_unsigned", 1, nif_format_is_unsigned) \
     NIF("format_is_little", 1, nif_format_is_little) \
     NIF("format_is_big", 1, nif_format_is_big) \
+    NIF("format_is_linear", 1, nif_format_is_linear) \
+    NIF("format_is_float", 1, nif_format_is_float) \
     NIF("format_width", 1, nif_format_width) \
     NIF("format_physical_width", 1, nif_format_physical_width) \
     NIF("format_size", 2, nif_format_size) \
@@ -1762,6 +1764,30 @@ static ERL_NIF_TERM nif_format_is_big(ErlNifEnv* env, int argc,
     if ((r = snd_pcm_format_big_endian(format)) < 0)
 	return make_error(env, enif_make_int(env, r));
     return make_boolean(env, r);    
+}
+
+static ERL_NIF_TERM nif_format_is_linear(ErlNifEnv* env, int argc,
+					 const ERL_NIF_TERM argv[]) {
+    UNUSED(argc);
+    snd_pcm_format_t format;
+    int r;
+    if (!get_format(env, argv[0], &format))
+	return enif_make_badarg(env);
+    if ((r = snd_pcm_format_linear(format)) < 0)
+	return make_error(env, enif_make_int(env, r));
+    return make_boolean(env, r);
+}
+
+static ERL_NIF_TERM nif_format_is_float(ErlNifEnv* env, int argc,
+					const ERL_NIF_TERM argv[]) {
+    UNUSED(argc);
+    snd_pcm_format_t format;
+    int r;
+    if (!get_format(env, argv[0], &format))
+	return enif_make_badarg(env);
+    if ((r = snd_pcm_format_float(format)) < 0)
+	return make_error(env, enif_make_int(env, r));
+    return make_boolean(env, r);
 }
 
 static ERL_NIF_TERM nif_format_width(ErlNifEnv* env, int argc,
