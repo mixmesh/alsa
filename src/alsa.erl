@@ -370,19 +370,19 @@ read(Handle, NumFrames, Acc) ->
 	    receive
 		{select,Handle,undefined,_Ready} ->
 		    %% io:format("read continue\n", []),
-		    read(Handle, Frames, Acc)
+		    read(Handle, NumFrames, Acc)
 	    end;
 	{error, epipe} ->
 	    case recover_(Handle, epipe) of
 		ok ->
-		    read(Handle, Frames, Acc);
+		    read(Handle, NumFrames, Acc);
 		_ ->
 		    {error, underrun}
 	    end;
 	{error, estrpipe} ->
 	    case recover_(Handle, estrpipe) of
 		ok ->
-		    read(Handle, Frames, Acc);
+		    read(Handle, NumFrames, Acc);
 		_ ->
 		    {error, suspsend_event}
 	    end;
