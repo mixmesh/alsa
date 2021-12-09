@@ -12,7 +12,7 @@
 // #define ERRORF(f,a...)
 
 #define UNUSED(a) ((void) a)
-
+#define MAX_READ_BUFFER_SIZE 65536
 // #define NIF_TRACE
 
 #define ATOM(name) atm_##name
@@ -202,7 +202,6 @@ DECL_ATOM(g723_40_1b);
     NIF("card_info", 2, nif_card_info) \
     NIF("card_next", 1, nif_card_next)
 
-
 typedef struct _helem_t {
     struct _helem_t* next;  // next in chain    
     ERL_NIF_TERM* atm_ptr;  // the hash atom
@@ -214,7 +213,6 @@ static unsigned int hash_atom(ERL_NIF_TERM term)
 {
     return (term >> 6);
 }
-
 
 static void hash_helems(char* hname, helem_t** hvec, size_t hsize,
 			helem_t* elems)
@@ -415,7 +413,7 @@ typedef struct {
     ErlNifMutex*  access_mtx;
     int           access_count;
     int           is_open;
-    snd_pcm_t*    pcm_handle;
+    snd_pcm_t*    pcm;
     int           nfds;           // number of fds used in select
     struct pollfd fds[MAX_NFDS];  // >=0 when in select
 } handle_t;
@@ -485,7 +483,7 @@ static void done_handle(ErlNifEnv* env, handle_t* handle) {
 	    }
 	}
 	else {
-	    snd_pcm_close(handle->pcm_handle);
+	    snd_pcm_close(handle->pcm);
 	}
     }
 }
@@ -614,7 +612,7 @@ static int get_format(ErlNifEnv* env, ERL_NIF_TERM arg,
 // get_hw_params: given list of params return key value list
 //  params is on form [Key::atom() | {Key::atom(),_Value::value}
 //
-static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 			 ERL_NIF_TERM list,
 			 ERL_NIF_TERM *result,
 			 int any) {
@@ -630,9 +628,9 @@ static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     }
 
     if (any)
-	err = snd_pcm_hw_params_any(pcm_handle, hw_params);
+	err = snd_pcm_hw_params_any(pcm, hw_params);
     else
-	err = snd_pcm_hw_params_current(pcm_handle, hw_params);	
+	err = snd_pcm_hw_params_current(pcm, hw_params);	
 
     if (err < 0)
 	goto error;
@@ -664,7 +662,7 @@ static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    // snd_pcm_hw_params_get_format_mask(hw_params, mask);
 	    // if (snd_pcm_format_mask_test(mask, format) == 0) {
 	    for (format = SND_PCM_FORMAT_LAST; format >= 0; format--) {
-		if (snd_pcm_hw_params_test_format(pcm_handle, hw_params,
+		if (snd_pcm_hw_params_test_format(pcm, hw_params,
 						  format) == 0) {
 		    format_list = enif_make_list_cell(env,
 						      make_format(env, format),
@@ -835,7 +833,7 @@ error:
 }
 
 
-static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 			 ERL_NIF_TERM arg,
 			 ERL_NIF_TERM* ret) {
     int err;
@@ -847,14 +845,14 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	return -1;
     }
 
-    if ((err = snd_pcm_hw_params_any(pcm_handle, hw_params)) < 0) {
+    if ((err = snd_pcm_hw_params_any(pcm, hw_params)) < 0) {
         snd_pcm_hw_params_free(hw_params);
 	*ret = enif_make_int(env, err);
 	return -1;	
     }
 
     if ((err = snd_pcm_hw_params_set_access(
-                   pcm_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) <
+                   pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) <
         0) {
         snd_pcm_hw_params_free(hw_params);
 	*ret = enif_make_int(env, err);
@@ -875,7 +873,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    snd_pcm_format_t format;
 	    if (!get_format(env, pair[1], &format)) goto badarg;
 	    DEBUGF("format=%d", format);
-	    err = snd_pcm_hw_params_set_format(pcm_handle, hw_params,
+	    err = snd_pcm_hw_params_set_format(pcm, hw_params,
 					       format);
 	    if (err < 0) goto error;
 	    break;
@@ -884,7 +882,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    unsigned int channels;
 	    if (!enif_get_uint(env, pair[1], &channels)) goto badarg;
 	    DEBUGF("channels=%u", channels);
-	    err = snd_pcm_hw_params_set_channels(pcm_handle, hw_params,
+	    err = snd_pcm_hw_params_set_channels(pcm, hw_params,
 						 channels);
 	    if (err < 0) goto error;
 	    break;
@@ -894,7 +892,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    int dir;
 	    if (!enif_get_uint(env, pair[1], &rate)) goto badarg;
 	    DEBUGF("rate=%u", rate);
-	    err = snd_pcm_hw_params_set_rate_near(pcm_handle,hw_params,
+	    err = snd_pcm_hw_params_set_rate_near(pcm,hw_params,
 						  &rate, &dir);
 	    if (err < 0) goto error;
 	    break;	    
@@ -904,7 +902,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    int dir;
 	    if (!enif_get_ulong(env, pair[1], &period_size)) goto badarg;
 	    DEBUGF("period_size=%lu", period_size);
-	    err = snd_pcm_hw_params_set_period_size_near(pcm_handle, hw_params,
+	    err = snd_pcm_hw_params_set_period_size_near(pcm, hw_params,
 							 &period_size, &dir);
 	    if (err < 0) goto error;
 	    break;
@@ -913,7 +911,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    snd_pcm_uframes_t buffer_size;
 	    if (!enif_get_ulong(env, pair[1], &buffer_size)) goto badarg;
 	    DEBUGF("buffer_size=%lu", buffer_size);
-	    err = snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hw_params,
+	    err = snd_pcm_hw_params_set_buffer_size_near(pcm, hw_params,
 							 &buffer_size);
 	    if (err < 0) goto error;
 	    break;
@@ -927,7 +925,7 @@ static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     if (!enif_is_empty_list(env, list))
 	goto badarg;
 
-    err = snd_pcm_hw_params(pcm_handle, hw_params);
+    err = snd_pcm_hw_params(pcm, hw_params);
     if (err < 0) goto badarg;
 
     snd_pcm_hw_params_free(hw_params);
@@ -946,7 +944,7 @@ error:
     return 0;
 }
 
-static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 			 ERL_NIF_TERM list,
 			 ERL_NIF_TERM *result) {
 
@@ -961,7 +959,7 @@ static int get_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	return err;
     }
 
-    if ((err = snd_pcm_sw_params_current(pcm_handle, params)) < 0)
+    if ((err = snd_pcm_sw_params_current(pcm, params)) < 0)
 	goto error;
 
     ERL_NIF_TERM head, tail;
@@ -1017,7 +1015,7 @@ error:
     return err;    
 }
 
-static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
+static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 			 ERL_NIF_TERM arg,
 			 ERL_NIF_TERM* ret) {
     int err;
@@ -1029,7 +1027,7 @@ static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	return -1;
     }
 
-    if ((err = snd_pcm_sw_params_current(pcm_handle, params)) < 0) {
+    if ((err = snd_pcm_sw_params_current(pcm, params)) < 0) {
         snd_pcm_sw_params_free(params);
 	*ret = enif_make_int(env, err);
 	return -1;		
@@ -1049,7 +1047,7 @@ static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    snd_pcm_uframes_t start_threshold;
 	    if (!enif_get_ulong(env, pair[1], &start_threshold)) goto badarg;
 	    DEBUGF("start_threshold=%u", start_threshold);
-	    err = snd_pcm_sw_params_set_start_threshold(pcm_handle,params,
+	    err = snd_pcm_sw_params_set_start_threshold(pcm,params,
 							start_threshold);
 	    if (err < 0) goto error;
 	    break;
@@ -1058,7 +1056,7 @@ static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
 	    snd_pcm_uframes_t avail_min;
 	    if (!enif_get_ulong(env, pair[1], &avail_min)) goto badarg;
 	    DEBUGF("avail_min=%u", avail_min);
-	    err = snd_pcm_sw_params_set_avail_min(pcm_handle,params,
+	    err = snd_pcm_sw_params_set_avail_min(pcm,params,
 						  avail_min);
 	    if (err < 0) goto error;
 	    break;	    
@@ -1072,7 +1070,7 @@ static int set_sw_params(ErlNifEnv* env, snd_pcm_t *pcm_handle,
     if (!enif_is_empty_list(env, list))
 	goto badarg;
     
-    err = snd_pcm_sw_params(pcm_handle, params);
+    err = snd_pcm_sw_params(pcm, params);
     if (err < 0) goto badarg;
 
     snd_pcm_sw_params_free(params);
@@ -1179,8 +1177,8 @@ static ERL_NIF_TERM nif_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
         return enif_make_badarg(env);
     }
 
-    snd_pcm_t *pcm_handle;
-    if ((err = snd_pcm_open(&pcm_handle,
+    snd_pcm_t *pcm;
+    if ((err = snd_pcm_open(&pcm,
 			    pcm_name,
 			    stream,
 			    SND_PCM_NONBLOCK
@@ -1191,7 +1189,7 @@ static ERL_NIF_TERM nif_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     handle_t *handle =
         enif_alloc_resource(handle_resource_type, sizeof(handle_t));
     memset(handle, 0, sizeof(handle_t));
-    handle->pcm_handle = pcm_handle;
+    handle->pcm = pcm;
     handle->access_mtx = enif_mutex_create("pcm_access");
     handle->is_open = 1;
     ERL_NIF_TERM handle_resource = enif_make_resource(env, handle);
@@ -1244,7 +1242,7 @@ static ERL_NIF_TERM nif_get_hw_params(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    r = get_hw_params(env, handle->pcm_handle, argv[1], &value, any);
+    r = get_hw_params(env, handle->pcm, argv[1], &value, any);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1273,7 +1271,7 @@ static ERL_NIF_TERM nif_set_hw_params(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    r = set_hw_params(env, handle->pcm_handle, argv[1], &value);
+    r = set_hw_params(env, handle->pcm, argv[1], &value);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1284,7 +1282,7 @@ static ERL_NIF_TERM nif_set_hw_params(ErlNifEnv* env, int argc,
 	return make_herror(env, handle, value);
     }
 	    
-    r = get_hw_params(env, handle->pcm_handle, argv[1], &value, 0);
+    r = get_hw_params(env, handle->pcm, argv[1], &value, 0);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1314,7 +1312,7 @@ static ERL_NIF_TERM nif_get_sw_params(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    r = get_sw_params(env, handle->pcm_handle, argv[1], &value);
+    r = get_sw_params(env, handle->pcm, argv[1], &value);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1344,7 +1342,7 @@ static ERL_NIF_TERM nif_set_sw_params(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    r = set_sw_params(env, handle->pcm_handle, argv[1], &value);
+    r = set_sw_params(env, handle->pcm, argv[1], &value);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1355,7 +1353,7 @@ static ERL_NIF_TERM nif_set_sw_params(ErlNifEnv* env, int argc,
 	return make_herror(env, handle, value);
     }
 	    
-    r = get_sw_params(env, handle->pcm_handle, argv[1], &value);
+    r = get_sw_params(env, handle->pcm, argv[1], &value);
     if (r < 0)
 	return make_herror(env, handle, value);
     if (r == 0) {
@@ -1373,10 +1371,13 @@ static ERL_NIF_TERM nif_set_sw_params(ErlNifEnv* env, int argc,
  */
 
 static ERL_NIF_TERM nif_read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-
-    snd_pcm_uframes_t frames;
+    snd_pcm_uframes_t nframes;
+    ssize_t nbytes;
+    unsigned char buf[MAX_READ_BUFFER_SIZE];
+    unsigned char* ptr;
+    ERL_NIF_TERM data;
     
-    if (!enif_get_ulong(env, argv[1], &frames)) {
+    if (!enif_get_ulong(env, argv[1], &nframes)) {
         return enif_make_badarg(env);
     }
 
@@ -1388,32 +1389,29 @@ static ERL_NIF_TERM nif_read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     default: break;
     }
 
-    // read only frames ready? is that enough to get alsa ticking?
-    ssize_t binlen = snd_pcm_frames_to_bytes(handle->pcm_handle, frames);
-    ErlNifBinary bin;
-    // FIXME: make binary pool
-    if (!enif_alloc_binary(binlen, &bin)) {
-	done_handle(env, handle);
-        return enif_make_badarg(env);
+    nbytes = snd_pcm_frames_to_bytes(handle->pcm, nframes);
+    if ((nbytes < 0) || (nbytes >= MAX_READ_BUFFER_SIZE)) {
+	nbytes = MAX_READ_BUFFER_SIZE;
+	nframes = snd_pcm_bytes_to_frames(handle->pcm, nbytes);
     }
 
-    snd_pcm_sframes_t read_frames =
-        snd_pcm_readi(handle->pcm_handle, bin.data, frames);
-    if (read_frames < 0) {
-	enif_release_binary(&bin);
-
-	if (read_frames == -EAGAIN)
+    snd_pcm_sframes_t rframes = snd_pcm_readi(handle->pcm, buf, nframes);
+    if (rframes < 0) {
+	if (rframes == -EAGAIN)
 	    return make_herror(env, handle, ATOM(eagain));
-	else if (read_frames == -EPIPE)
+	else if (rframes == -EPIPE)
 	    return make_herror(env, handle, ATOM(epipe));
-	else if (read_frames == -ESTRPIPE)
+	else if (rframes == -ESTRPIPE)
 	    return make_herror(env, handle, ATOM(estrpipe));
-	return make_herror(env, handle, enif_make_int(env, read_frames));
+	return make_herror(env, handle, enif_make_int(env, rframes));
     }
-    ERL_NIF_TERM hdr;
-    hdr = enif_make_int(env, read_frames); // add sample type etc here!
+
+    // read only frames ready? is that enough to get alsa ticking?
+    nbytes = snd_pcm_frames_to_bytes(handle->pcm, rframes);
+    ptr = enif_make_new_binary(env, (size_t) nbytes, &data);
+    memcpy(ptr, buf, nbytes);
     return make_ok(env, handle,
-		     enif_make_tuple2(env, hdr, enif_make_binary(env, &bin)));
+		   enif_make_tuple2(env, enif_make_int(env, rframes), data));
 }
 
 /*
@@ -1435,12 +1433,12 @@ static ERL_NIF_TERM nif_write(ErlNifEnv* env, int argc,
     }
     
     snd_pcm_uframes_t frames =
-	snd_pcm_bytes_to_frames(handle->pcm_handle, bin.size);
+	snd_pcm_bytes_to_frames(handle->pcm, bin.size);
     if (frames == 0)
 	return make_ok(env, handle, enif_make_int(env, 0));
 
     snd_pcm_sframes_t written_frames =
-	snd_pcm_writei(handle->pcm_handle, bin.data, frames);
+	snd_pcm_writei(handle->pcm, bin.data, frames);
 
     if (written_frames < 0) {
 	if (written_frames == -EAGAIN)
@@ -1455,7 +1453,7 @@ static ERL_NIF_TERM nif_write(ErlNifEnv* env, int argc,
 			  enif_make_int(env, written_frames));
     }
     ssize_t nbytes =
-	snd_pcm_frames_to_bytes(handle->pcm_handle, written_frames);
+	snd_pcm_frames_to_bytes(handle->pcm, written_frames);
     return make_ok(env, handle, enif_make_int(env, nbytes));
 }
 
@@ -1485,7 +1483,7 @@ static ERL_NIF_TERM nif_recover(ErlNifEnv* env, int argc,
     }
     else
 	return enif_make_badarg(env);
-    if (snd_pcm_recover(handle->pcm_handle, err, 1) < 0)
+    if (snd_pcm_recover(handle->pcm, err, 1) < 0)
 	return enif_make_tuple2(env, ATOM(error), reason);
     return make_ok1(env, handle);
 }
@@ -1501,9 +1499,9 @@ static ERL_NIF_TERM nif_drain(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    if ((err = snd_pcm_drain(handle->pcm_handle)) < 0) {
+    if ((err = snd_pcm_drain(handle->pcm)) < 0) {
 	if (err == -EAGAIN) {
-	    snd_pcm_sframes_t remain = snd_pcm_avail(handle->pcm_handle);
+	    snd_pcm_sframes_t remain = snd_pcm_avail(handle->pcm);
 	    if (remain == -EBADFD) // not running?
 		return make_ok1(env, handle);
 	    else if (remain < 0)
@@ -1528,7 +1526,7 @@ static ERL_NIF_TERM nif_drop(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    if ((err = snd_pcm_drop(handle->pcm_handle)) < 0)
+    if ((err = snd_pcm_drop(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);        
 }
@@ -1544,7 +1542,7 @@ static ERL_NIF_TERM nif_prepare(ErlNifEnv* env, int argc,
     default: break;
     }
 
-    if ((err = snd_pcm_prepare(handle->pcm_handle)) < 0)
+    if ((err = snd_pcm_prepare(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);
 }
@@ -1561,7 +1559,7 @@ static ERL_NIF_TERM nif_start(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    if ((err = snd_pcm_start(handle->pcm_handle)) < 0)
+    if ((err = snd_pcm_start(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);        
 }
@@ -1577,7 +1575,7 @@ static ERL_NIF_TERM nif_reset(ErlNifEnv* env, int argc,
     default: break;
     }
 
-    if ((err = snd_pcm_reset(handle->pcm_handle)) < 0)
+    if ((err = snd_pcm_reset(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);
 }
@@ -1601,7 +1599,7 @@ static ERL_NIF_TERM nif_pause(ErlNifEnv* env, int argc,
     default: break;
     }
 
-    if ((err = snd_pcm_pause(handle->pcm_handle, enable)) < 0)
+    if ((err = snd_pcm_pause(handle->pcm, enable)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);
 }
@@ -1617,7 +1615,7 @@ static ERL_NIF_TERM nif_resume(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    if ((err = snd_pcm_resume(handle->pcm_handle)) < 0)
+    if ((err = snd_pcm_resume(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_int(env, err));
     return make_ok1(env, handle);
 }
@@ -1634,7 +1632,7 @@ static ERL_NIF_TERM nif_avail(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    if ((frames = snd_pcm_avail(handle->pcm_handle)) < 0)
+    if ((frames = snd_pcm_avail(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_long(env, frames));
     return make_ok(env, handle, enif_make_long(env, frames));
 }
@@ -1649,7 +1647,7 @@ static ERL_NIF_TERM nif_state(ErlNifEnv* env, int argc,
     default: break;
     }
     
-    switch (snd_pcm_state(handle->pcm_handle)) {
+    switch (snd_pcm_state(handle->pcm)) {
     case SND_PCM_STATE_OPEN:
 	return make_ok(env, handle, ATOM(open));
     case SND_PCM_STATE_SETUP:
@@ -1690,7 +1688,7 @@ static ERL_NIF_TERM nif_select(ErlNifEnv* env, int argc,
     // FIXME: mutex
     // if (handle->nfds > 0)
     //  return make_herror(env, handle, ATOM(select_already));
-    nfds = snd_pcm_poll_descriptors_count(handle->pcm_handle);
+    nfds = snd_pcm_poll_descriptors_count(handle->pcm);
     if (nfds > MAX_NFDS) {
 	ERRORF("poll_descriptor_count > MAX_NFDS (%d>%d)", nfds, MAX_NFDS);
 	nfds = MAX_NFDS;
@@ -1702,7 +1700,7 @@ static ERL_NIF_TERM nif_select(ErlNifEnv* env, int argc,
 	int i;
 
 	handle->nfds = nfds;
-	snd_pcm_poll_descriptors(handle->pcm_handle, handle->fds, nfds);
+	snd_pcm_poll_descriptors(handle->pcm, handle->fds, nfds);
 
 	enif_self(env, &pid);
 	for (i = 0; i < nfds; i++) {
@@ -2006,7 +2004,7 @@ static void pcm_stop(ErlNifEnv* env, handle_t* handle,
 	    handle->nfds--;
 	    if ((handle->nfds == 0) && (!handle->is_open)) {
 		DEBUGF("pcm_stop: close pcm%s", "");
-		snd_pcm_close(handle->pcm_handle);
+		snd_pcm_close(handle->pcm);
 	    }
 	    return;
 	}

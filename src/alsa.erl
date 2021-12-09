@@ -360,11 +360,11 @@ strerror(_Reason) ->
           {ok, binary() | overrrun | suspend_event} |
           {error, alsa_reason() | no_such_handle | overrun | suspend_event}.
 
-read(Handle, Frames) ->
-    read(Handle, Frames, []).
+read(Handle, NumFrames) ->
+    read(Handle, NumFrames, []).
 
-read(Handle, Frames, Acc) ->
-    case read_(Handle, Frames) of
+read(Handle, NumFrames, Acc) ->
+    case read_(Handle, NumFrames) of
 	{error, eagain} ->
 	    ok = select_(Handle),
 	    receive
@@ -390,14 +390,14 @@ read(Handle, Frames, Acc) ->
 	    {error, strerror(AlsaError)};
 	{ok, {ReadFrames,Samples}} ->
 	    %% io:format("read_: frames=~w\n", [ReadFrames]),
-	    if Frames =:= ReadFrames ->
+	    if NumFrames =:= ReadFrames ->
 		    if Acc =:= [] ->
 			    {ok, Samples};
 		       true ->
 			    {ok,iolist_to_binary(lists:reverse([Samples|Acc]))}
 		    end;
 	       true ->
-		    read(Handle, Frames-ReadFrames, [Samples|Acc])
+		    read(Handle, NumFrames-ReadFrames, [Samples|Acc])
 	    end
     end.
 
