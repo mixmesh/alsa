@@ -10,23 +10,6 @@
 
 -include("../include/alsa.hrl").
 
--type float01() :: float(). %% in range 0 .. 1.
--type alsa_type() :: s16_le | s16_be.
-
--record(param,
-	{
-	 format = s16_le      :: alsa_type(),
-	 rate = 44100         :: number(),
-	 wave_form = square   :: square | triangle | sine,
-	 frequency = 440      :: number(),     %% hertz
-	 amplitude = 0.5      :: float01(),
-	 time = 3             :: number(),     %% time in seconds
-	 channels = 2         :: 1..255,
-	 device = "hw:0,0"    :: string(),
-	 period = 50          :: integer(),    %% samples per ms
-	 buffer_factor = 8    :: number()      %% number of periods to buffer
-	}).
-	 
 play() ->	 
     play(#{}).
 
@@ -38,56 +21,25 @@ play(Opts) when is_map(Opts) ->
 play_(Opts) when is_map(Opts) ->
     wave_init(Opts).
 
--define(GETOPT(Name), maps:get(Name, Opts, Default#param.Name)).
-
-wave_init(Opts) ->
-    Default    = #param{},
-    Format     = ?GETOPT(format),
-    Rate0      = ?GETOPT(rate),
-    Wave       = ?GETOPT(wave_form),
-    Freq       = ?GETOPT(frequency),
-    Amp        = ?GETOPT(amplitude),
-    Time       = ?GETOPT(time),
-    Channels   = ?GETOPT(channels),
-    Device     = ?GETOPT(device),
-    Period     = ?GETOPT(period),
-    BufferFactor = ?GETOPT(buffer_factor),
-    PeriodSize0 = (Rate0 * (Period/1000)),
-    WantedHwParams =
-	[{format, Format},
-	 {channels,Channels},
-	 {rate,Rate0},
-	 {period_size,trunc(PeriodSize0)},
-	 {buffer_size,trunc(PeriodSize0*BufferFactor)}],
-    WantedSwParams =
-	[{start_threshold,
-	      trunc(PeriodSize0*(BufferFactor-1))}],
-    case alsa:open(Device, playback, WantedHwParams, WantedSwParams) of
-	{ok, H, ActualHwParams, ActualSwParams} ->
-	    io:format("Params: ~p\n", [{ActualHwParams, ActualSwParams}]),
-	    _PeriodSize = maps:get(period_size, ActualHwParams),
-	    Rate = maps:get(rate, ActualHwParams),
-	    SW = Rate/Freq,     %% samples per wave (period)
-	    TW = (Time*Rate),   %% total number of samples in s
+wave_init(Options) ->
+    case alsa_playback:open(Options) of
+	{ok, H, Params} ->
+	    io:format("Params: ~p\n", [Params]),
+	    Wave = maps:get(wave_form, Options, sine),
+	    Amp  = maps:get(amplitude, Options, 0.5),
+	    Frequency = maps:get(frequency, Options, 440),
+	    Time = maps:get(time, Options, 5.0),
+	    Rate = maps:get(rate, Params),
+	    Format = maps:get(format, Params),
+	    Channels = maps:get(channels, Params),
+	    SW = Rate/Frequency,    %% samples per wave (period)
+	    TW = (Time*Rate),      %% total number of samples in s
 	    T = 0.0,
 	    Dt = 1/SW,
 	    W  = 2*math:pi(),
 	    io:format("SW = samples/wave ~p\n", [SW]),
 	    io:format("TW = #samples ~p\n", [TW]),
 	    io:format("W = ~p\n", [W]),
-
-	    P = #param {
-		   format = Format,
-		   rate = Rate,
-		   wave_form = Wave,
-		   frequency = Freq,
-		   amplitude = Amp,
-		   time    = Time,
-		   channels = Channels,
-		   device = Device,
-		   period = Period,
-		   buffer_factor = BufferFactor
-		  },
 	    play_(H,TW,W,T,Dt,SW,Wave,Amp,Format,Channels);
 	{error, Reason} ->
 	    {error, alsa:strerror(Reason)}
@@ -99,12 +51,9 @@ play_(H,TW,W,T,Dt,SW,Wave,Amp,Format,Channels) ->
 	    ok;
        true ->
 	    {T1,Samples01} = generate_period(Wave,SW,W,Amp,T,Dt),
-	    %% io:format("samples ~p\n", [Samples01]),
 	    Bin = native_samples(Samples01,Format,Channels),
-	    %%io:format("write ~w samples\n", [byte_size(Bin) div (2*Channels)]),
 	    case alsa:write(H, Bin) of
 		{ok, N} when is_integer(N), N >= 0 ->
-		    io:format("Wrote ~w frames\n", [N]),
 		    play_(H,TW-N,W,T1,Dt,SW,Wave,Amp,Format,Channels);
 		{ok, underrun} ->
 		    io:format("Recovered from underrun\n"),
