@@ -140,9 +140,10 @@ open(Options) ->
 	       {period_size, PeriodSize0}],
     ?dbg("request params: ~w\n", [Params0]),
     {ok, H} = alsa:open_(Device, playback),
-    {ok,Range} = alsa:get_hw_params_range(H),    
+    {ok,Range} = alsa:get_hw_params_range(H),
     ?dbg("range: ~w\n", [Range]),
 
+    %% fixme: check non-matching format and rate and resample!
     {ok,Params1} = alsa_util:adjust_params(Params0, Range),
     ?dbg("adjusted params: ~w\n", [Params1]),
     Channels1 = proplists:get_value(channels, Params1),

@@ -92,10 +92,46 @@ reformat_frame(Frame, SrcFormat, DstFormat, DstChannels) ->
     DstSamples = map_channels(SrcSamples, DstChannels),
     encode_frame(DstSamples, DstFormat).
 
-map_channels([X], 2) -> X1=trunc(X*0.5), [X1,X1];
-map_channels([X1,X2], 1) -> max(X1,X2);
-map_channels(Samples, _DstChannels) ->
-    Samples.
+map_channels(Xs=[_FC], 1) -> Xs;                               %% mono
+map_channels(Xs=[_FL,_FR], 2) -> Xs;                           %% stereo
+map_channels(Xs=[_FL,_FR,_LFE], 3) -> Xs;                      %% 2.1
+map_channels(Xs=[_FL,_FR,_RR,_RL], 4) -> Xs;                   %% 4.0
+map_channels(Xs=[_FL,_FR,_LFE,_RR,_RL], 5) -> Xs;              %% 4.1
+map_channels(Xs=[_FL,_FR,_FC,__LFE,_RR,_RL], 6) -> Xs;        %% 5.1
+map_channels(Xs=[_FL,_FR,_FC,_LFE,_RL,_RR,_SL,_SR], 8) -> Xs;   %% 7.1
+
+map_channels([FL,FR], 1) ->  [max(FL,FR)];
+map_channels([FL,FR,_LFE], 1) ->  [max(FL,FR)];
+map_channels([FL,FR,_RR,_RL], 1) ->  [max(FL,FR)];
+map_channels([FL,FR,_LFE,_RR,_RL], 1) -> [max(FL,FR)];
+map_channels([_FL,_FR,FC,__LFE,_RR,_RL], 1) -> [FC];
+map_channels([_FL,_FR,FC,_LFE,_RL,_RR,_SL,_SR], 1) -> [FC];
+
+map_channels([FC], 2) -> X=trunc(FC*0.5), [X,X];            %% mono->stereo
+map_channels([FL,FR,_LFE], 2) -> [FR,FL];
+map_channels([FL,FR,_FC,__LFE,_RR,_RL], 2) -> [FR,FL];
+map_channels([FL,FR,_FC,_LFE,_RL,_RR,_SL,_SR], 2) -> [FR,FL];
+
+map_channels([FC], 3) -> X=trunc(FC*0.5), [X,X,0];
+map_channels([FL,FR], 3) -> [FR,FL,0];
+map_channels([FL,FR,_FC,LFE,_RR,_RL], 3) -> [FR,FL,LFE];
+map_channels([FL,FR,_FC,LFE,_RL,_RR,_SL,_SR], 3) -> [FR,FL,LFE];
+
+map_channels([FC], 4) -> X=trunc(FC*0.5), [X,X,X,X];
+map_channels([FL,FR], 4) -> [FR,FL,FL,FR];
+map_channels([FL,FR,_FC,_LFE,RR,RL], 4) -> [FR,FL,RR,RL];
+map_channels([FL,FR,_FC,_LFE,RL,RR,_SL,_SR], 4) -> [FR,FL,RR,RL];
+
+map_channels([FC], 5) -> X=trunc(FC*0.5), [X,X,0,X,X];
+map_channels([FL,FR], 5) -> [FR,FL,0,FL,FR];
+map_channels([FL,FR,_FC,LFE,RR,RL], 5) -> [FR,FL,LFE,RR,RL];
+map_channels([FL,FR,_FC,LFE,RL,RR,_SL,_SR], 5) -> [FR,FL,LFE,RR,RL];
+
+map_channels([FC], 6) -> X=trunc(FC*0.5), [X,X,X,0,X,X];
+map_channels([FL,FR], 6) -> X=max(FL,FR),[FR,FL,X,0,FL,FR];
+map_channels([FL,FR,LFE,RR,RL], 6) -> FC=max(FL,FR), [FL,FR,FC,LFE,RR,RL];
+map_channels([FL,FR,FC,LFE,RL,RR,_SL,_SR], 6) -> [FL,FR,FC,LFE,RL,RR].
+
 
 
 -define(i8(X), ((X) bsl 24)).
@@ -325,6 +361,61 @@ mu_law_encode(X0) ->
     (bnot (Sign bor (Exponent bsl 4) bor Mantissa) band 16#ff).
 
 
+
+%% add timeout? probably not...
+async_wait_ready(H) ->
+    alsa:select_(H),
+    receive
+	{select,H,undefined,_Ready} ->
+	    ok
+    end.
+
+adjust_params(Params, Range) ->
+    adjust_params(Params, Range, []).
+adjust_params([{channels,Channels}|Params], Range, Acc) ->
+    Min = proplists:get_value(channels_min, Range),
+    Max = proplists:get_value(channels_max, Range),
+    adjust_params(Params, Range, 
+		  [{channels,adjust_value(Channels,Min,Max)}|Acc]);
+adjust_params([{rate,Rate}|Params], Range, Acc) ->
+    Min = proplists:get_value(rate_min, Range),
+    Max = proplists:get_value(rate_max, Range),
+    adjust_params(Params, Range, [{rate, adjust_value(Rate, Min, Max)}|Acc]);
+adjust_params([{period_size,PeriodSize}|Params], Range, Acc) ->
+    Min = proplists:get_value(period_size_min, Range),
+    Max = proplists:get_value(period_size_max, Range),
+    adjust_params(Params, Range, 
+		  [{period_size, adjust_value(PeriodSize,Min,Max)}|Acc]);
+adjust_params([{format,Format}|Params], Range, Acc) ->
+    FormatList = proplists:get_value(formats, Range),
+    case lists:member(Format, FormatList) of
+	true ->
+	    adjust_params(Params, Range, [{format, Format}|Acc]);
+	false ->
+	    ?warning("requested format ~s not present\n", [Format]),
+	    Width = alsa:format_width(Format),
+	    PhysWidth = alsa:format_physical_width(Format),
+	    Linear = alsa:format_linear(Format),
+	    %% look for format with same width (physical width)
+	    case [F || F <- alsa:formats(),
+		       PhysWidth =:= alsa:format_physical_width(F),
+		       Width     =:= alsa:format_width(F),
+		       Linear    =:= alsa:format_linear(F)] of
+		[F|_] ->
+		    ?info("selected format ~s instead\n", [F]),
+		    adjust_params(Params, Range, [{format,F}|Acc])
+	    end
+    end;
+adjust_params([], _Range, Acc) ->
+    {ok, lists:reverse(Acc)}.
+
+adjust_value(Value, Min, _Max) when Value < Min -> Min;
+adjust_value(Value, _Min, Max) when Value > Max -> Max;
+adjust_value(Value, _Min, _Max) -> Value.
+
+%%
+%% Testing
+%%
 test_mu_law() ->
     lists:foreach(
       fun(I) ->
@@ -382,54 +473,3 @@ test() ->
     test_float64(),
     test_integer(),
     ok.
-
-%% add timeout? probably not...
-async_wait_ready(H) ->
-    alsa:select_(H),
-    receive
-	{select,H,undefined,_Ready} ->
-	    ok
-    end.
-
-adjust_params(Params, Range) ->
-    adjust_params(Params, Range, []).
-adjust_params([{channels,Channels}|Params], Range, Acc) ->
-    Min = proplists:get_value(channels_min, Range),
-    Max = proplists:get_value(channels_max, Range),
-    adjust_params(Params, Range, 
-		  [{channels,adjust_value(Channels,Min,Max)}|Acc]);
-adjust_params([{rate,Rate}|Params], Range, Acc) ->
-    Min = proplists:get_value(rate_min, Range),
-    Max = proplists:get_value(rate_max, Range),
-    adjust_params(Params, Range, [{rate, adjust_value(Rate, Min, Max)}|Acc]);
-adjust_params([{period_size,PeriodSize}|Params], Range, Acc) ->
-    Min = proplists:get_value(period_size_min, Range),
-    Max = proplists:get_value(period_size_max, Range),
-    adjust_params(Params, Range, 
-		  [{period_size, adjust_value(PeriodSize,Min,Max)}|Acc]);
-adjust_params([{format,Format}|Params], Range, Acc) ->
-    FormatList = proplists:get_value(formats, Range),
-    case lists:member(Format, FormatList) of
-	true ->
-	    adjust_params(Params, Range, [{format, Format}|Acc]);
-	false ->
-	    ?warning("requested format ~s not present\n", [Format]),
-	    Width = alsa:format_width(Format),
-	    PhysWidth = alsa:format_pysical_width(Format),
-	    Linear = alsa:format_linear(Format),
-	    %% look for format with same width (physical width)
-	    case [F || F <- alsa:formats(),
-		       PhysWidth =:= alsa:format_physical_width(F),
-		       Width     =:= alsa:format_width(F),
-		       Linear    =:= alsa:format_linear(F)] of
-		[F|_] ->
-		    ?info("selected format ~s instead\n", [F]),
-		    adjust_params(Params, Range, [{format,F}|Acc])
-	    end
-    end;
-adjust_params([], _Range, Acc) ->
-    {ok, lists:reverse(Acc)}.
-
-adjust_value(Value, Min, _Max) when Value < Min -> Min;
-adjust_value(Value, _Min, Max) when Value > Max -> Max;
-adjust_value(Value, _Min, _Max) -> Value.
