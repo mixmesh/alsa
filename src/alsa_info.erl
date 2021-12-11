@@ -13,14 +13,6 @@ device(Device) ->
     device(Device, capture).
 device(Device, Stream) ->
     {ok, H} = alsa:open_(Device, Stream),
-    Info = alsa:get_hw_params_(H, 
-			       [rate_min, rate_max,
-				channels_min, channels_max,
-				period_size_min, period_size_max,
-				buffer_size]),
+    Info = alsa:get_hw_params_range(H),
     alsa:close_(H),
     Info.
-
-
-
-    

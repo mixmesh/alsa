@@ -7,15 +7,14 @@
 
 -module(alsa_wav).
 
--compile(export_all).
-
 -include("../include/alsa.hrl").
 -include("alsa_wav.hrl").
 
--export([to_snd/2]).
--export([from_snd/1]).
+-export([read_header/1, write_header/2]).
+-export([encode_header/1]).
+-export([read_file_header/1]).
+-export([to_snd/2, from_snd/1]).
 -export([poke_file_length/1]).  %% fixme: extended header?
-
 
 to_snd(AudioFormat, BitsPerChannel) ->	
     case AudioFormat of
@@ -79,6 +78,9 @@ read_file_header(Filename) ->
 	    Error
     end.
 
+-spec read_header(Fd::file:io_device()) ->
+	  {ok, map()} | {error, term()}.
+
 read_header(Fd) ->	
     case read_taglen(Fd) of
 	{ok,?WAV_ID_RIFF,_FileLength} ->
@@ -95,7 +97,8 @@ read_header(Fd) ->
 						      [DataLength]),
 					    {ok,Header};
 					_ ->
-					    {error, missing_data}
+					    {ok,Header}
+					    %%{error, missing_data}
 				    end;
 				Err = {error,_} -> Err
 			    end;
@@ -116,8 +119,8 @@ read_header_(Fd, HdrLen) ->
 	Error -> Error
     end.
 
-write_header(Fd, Header) ->
-    write_header(Fd, 28, Header).
+write_header(Fd, Params) when is_map(Params) ->
+    write_header(Fd, 28, Params).
 
 
 write_tag(Fd, Tag) when byte_size(Tag) =:= 4 ->
@@ -132,14 +135,14 @@ write_taglen(Fd, Tag, Len) when byte_size(Tag) =:= 4, is_integer(Len), Len>=0 ->
 	Err = {error,_} -> Err
     end.
 
-write_header(Fd, FileLength, Header) ->
+write_header(Fd, FileLength, Params) when is_map(Params) ->
     case write_taglen(Fd, ?WAV_ID_RIFF, FileLength) of
 	ok ->
 	    case write_tag(Fd, ?WAV_ID_WAVE) of
 		ok ->
 		    case write_taglen(Fd, ?WAV_ID_FMT, 2+2+4+4+2+2) of
 			ok ->
-			    case write_header_(Fd, Header) of
+			    case write_header_(Fd, Params) of
 				ok ->
 				    case write_taglen(Fd, ?WAV_ID_DATA,
 						      FileLength-24) of
@@ -155,8 +158,8 @@ write_header(Fd, FileLength, Header) ->
 	Error -> Error
     end.
 		
-write_header_(Fd, Header) ->
-    case file:write(Fd, encode_header(Header)) of
+write_header_(Fd, Params) when is_map(Params)  ->
+    case file:write(Fd, encode_header(Params)) of
 	ok -> ok;
 	Err = {error,_} -> Err
     end.
@@ -179,10 +182,10 @@ poke_file_length(Fd) ->
     
 
     
-encode_header(Params) ->
-    Format = proplists:get_value(format, Params),
-    NumChannels = proplists:get_value(channels, Params),
-    Rate = proplists:get_value(rate, Params),
+encode_header(Params) when is_map(Params) ->
+    Format = maps:get(format, Params),
+    NumChannels = maps:get(channels, Params),
+    Rate = maps:get(rate, Params),
     {AudioFormat, BitsPerChannel} = from_snd(Format),
     ByteRate = Rate*(((NumChannels*BitsPerChannel)+7) div 8),
     FrameSize = (BitsPerChannel*NumChannels+7) div 8,
@@ -211,28 +214,27 @@ decode_header(Bin) ->
 			  _/binary>> ->
 			    SndFormat = to_snd(AudioFormat1, BitsPerChannel),
 			    {ok,
-			     [{format,SndFormat},
-			      {audio_format,AudioFormat1},
-			      {channels,NumChannels},
-			      {bits_per_channel, BitsPerChannel},
-			      {valid_bit_per_channel,ValidBitsPerChannel},
-			      {channel_mask,ChannelMask},
-			      {rate, Rate},
-			      {frame_size,FrameSize},
-			      {byte_rate,ByteRate}]};
+			     #{format=>SndFormat,
+			       audio_format=>AudioFormat1,
+			       channels=>NumChannels,
+			       bits_per_channel=>BitsPerChannel,
+			       valid_bit_per_channel=>ValidBitsPerChannel,
+			       channel_mask=>ChannelMask,
+			       rate=>Rate,
+			       frame_size=>FrameSize,
+			       byte_rate=>ByteRate}};
 			_ ->
 			    {error, too_short}
 		    end;
 	       true ->
 		    SndFormat = to_snd(AudioFormat, BitsPerChannel),
-		    {ok, [{format,SndFormat},
-			  {audio_format,AudioFormat},
-			  {channels,NumChannels},
-			  {bits_per_channel,BitsPerChannel},
-			  {rate,Rate},
-			  {frame_size,FrameSize},
-			  {byte_rate,ByteRate}
-			 ]}
+		    {ok, #{format=>SndFormat,
+			   audio_format=>AudioFormat,
+			   channels=>NumChannels,
+			   bits_per_channel=>BitsPerChannel,
+			   rate=>Rate,
+			   frame_size=>FrameSize,
+			   byte_rate=>ByteRate }}
 	    end;
 	<<_/binary>> ->
 	    {error, header_too_short}

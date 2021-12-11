@@ -3,6 +3,7 @@
 -export([open/1]).
 
 -include("../include/alsa.hrl").
+-include("../include/alsa_log.hrl").
 
 -define(DEFAULT_DEVICE,         "default").
 -define(DEFAULT_CHANNELS,       1).
@@ -12,15 +13,6 @@
 -define(DEFAULT_FORMAT,         s16_le).
 
 -define(DEFAULT_DURATION, 5). %% in seconds
-
-%%-define(dbg(F,A), ok).
--define(dbg(F,A), io:format((F),(A))).
--define(error(F), io:format((F))).
--define(error(F,A), io:format((F),(A))).
--define(warning(F), io:format((F))).
--define(warning(F,A), io:format((F),(A))).
--define(info(F), io:format((F))).
--define(info(F,A), io:format((F),(A))).
 
 file(FilePath) ->
     file_(FilePath, #{duration=>?DEFAULT_DURATION}).
@@ -42,7 +34,7 @@ file_(FilePath, Options) when is_map(Options) ->
     DurationInSeconds =	maps:get(duration,Options,?DEFAULT_DURATION),
     case file:open(FilePath, [write, raw, binary]) of
         {ok, Fd} ->
-	    {ok, AlsaHandle, Params} = open(Options),
+	    {ok, Handle, Params} = open(Options),
 	    ProceedUntil = erlang:monotonic_time(second) + DurationInSeconds,
 	    #{ format := Format,
 	       channels := Channels,
@@ -50,16 +42,16 @@ file_(FilePath, Options) when is_map(Options) ->
 	       buffer_size := BufferSize
 	     } = Params,
 	    ok = alsa_wav:write_header(Fd,
-				       [{format,Format},
-					{channels,Channels},
-					{rate,Rate}]),
-	    try capture(AlsaHandle, Fd, BufferSize, ProceedUntil) of
+				       #{format=>Format,
+					 channels=>Channels,
+					 rate=>Rate}),
+	    try capture(Handle, Fd, BufferSize, ProceedUntil) of
 		ok ->
 		    alsa_wav:poke_file_length(Fd);
 		Error ->
 		    Error
 	    after
-		alsa:close(AlsaHandle),
+		alsa:close(Handle),
 		file:close(Fd)
 	    end;
 	{error, Reason} ->
@@ -111,7 +103,7 @@ open(Options) ->
     {ok, H} = alsa:open_(Device, capture),
     {ok,Range} = alsa:get_hw_params_range(H),
     ?dbg("range: ~w\n", [Range]),
-    {ok,Params1} = adjust_params(Params0, Range),
+    {ok,Params1} = alsa_util:adjust_params(Params0, Range),
     ?dbg("adjusted params: ~w\n", [Params1]),
     Channels1 = proplists:get_value(channels, Params1),
     Rate1 = proplists:get_value(rate, Params1),
@@ -119,7 +111,7 @@ open(Options) ->
     PeriodSize1_ = trunc(Rate1*(Latency/1000)),
     %% then adjust it again
     {ok,[{period_size,PeriodSize1}]} =
-	adjust_params([{period_size,PeriodSize1_}], Range),
+	alsa_util:adjust_params([{period_size,PeriodSize1_}], Range),
     Format1 = proplists:get_value(format, Params1),
     BufferSize = ?DEFAULT_BUFFER_PERIODS*PeriodSize1,
     HwParams0 = [
@@ -152,46 +144,3 @@ open(Options) ->
 	      period_size=>PeriodSize2,
 	      buffer_size=>BufferSize2,
 	      avail_min=>AvailMin}}.
-
-adjust_params(Params, Range) ->
-    adjust_params(Params, Range, []).
-adjust_params([{channels,Channels}|Params], Range, Acc) ->
-    Min = proplists:get_value(channels_min, Range),
-    Max = proplists:get_value(channels_max, Range),
-    adjust_params(Params, Range, 
-		  [{channels,adjust_value(Channels,Min,Max)}|Acc]);
-adjust_params([{rate,Rate}|Params], Range, Acc) ->
-    Min = proplists:get_value(rate_min, Range),
-    Max = proplists:get_value(rate_max, Range),
-    adjust_params(Params, Range, [{rate, adjust_value(Rate, Min, Max)}|Acc]);
-adjust_params([{period_size,PeriodSize}|Params], Range, Acc) ->
-    Min = proplists:get_value(period_size_min, Range),
-    Max = proplists:get_value(period_size_max, Range),
-    adjust_params(Params, Range, 
-		  [{period_size, adjust_value(PeriodSize,Min,Max)}|Acc]);
-adjust_params([{format,Format}|Params], Range, Acc) ->
-    FormatList = proplists:get_value(formats, Range),
-    case lists:member(Format, FormatList) of
-	true ->
-	    adjust_params(Params, Range, [{format, Format}|Acc]);
-	false ->
-	    ?warning("requested format ~s not present\n", [Format]),
-	    Width = alsa:format_width(Format),
-	    PhysWidth = alsa:format_pysical_width(Format),
-	    Linear = alsa:format_linear(Format),
-	    %% look for format with same width (physical width)
-	    case [F || F <- alsa:formats(),
-		       PhysWidth =:= alsa:format_physical_width(F),
-		       Width     =:= alsa:format_width(F),
-		       Linear    =:= alsa:format_linear(F)] of
-		[F|_] ->
-		    ?info("selected format ~s instead\n", [F]),
-		    adjust_params(Params, Range, [{format,F}|Acc])
-	    end
-    end;
-adjust_params([], _Range, Acc) ->
-    {ok, lists:reverse(Acc)}.
-
-adjust_value(Value, Min, _Max) when Value < Min -> Min;
-adjust_value(Value, _Min, Max) when Value > Max -> Max;
-adjust_value(Value, _Min, _Max) -> Value.

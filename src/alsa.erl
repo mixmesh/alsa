@@ -59,7 +59,31 @@
 -type unsigned() :: non_neg_integer().
 -type handle() :: reference().
 -type pcm_name() :: string().
--type format() :: atom() | integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
+-type format() :: 
+	s8 |                    %% :: [-16#80, 16#80]
+	u8 |                    %% :: [16#0,   16#FF]
+	s16_le | s16_be |       %% :: [-16#8000, 16#8000]      
+	u16_le | u16_be |       %% :: [16#0000, 16#FFFF]
+	s24_le | s24_be |       %% :: [-16#8000, 16#8000]      
+	u24_le | u24_be |       %% :: [16#000000, 16#FFFFFF]
+	s32_le | s32_be |       %% :: [-16#80000000, 16#80000000]      
+	u32_le | u32_be |       %% :: [16#80000000, 16#FFFFFFFF]      
+	float_le | float_be |   %% :: [-1.0, 1.0]
+	float64_le | float64_be |  %% :: [-1.0, 1.0]
+	iec958_subframe_le | iec958_subframe_be |
+	mu_law | a_law |        %% :: [-16#8000, 16#8000]
+	ima_adpcm | 
+	g723_24 | g723_40 |
+	dsd_u8 | dsd_u16_le | dsd_u32_le |
+	dsd_u16_be | dsd_u32_be |
+	mpeg | gsm |
+	s20_le | s20_be | u20_le | u20_be |
+	special |
+	s24_3le | s24_3be | u24_3le | u24_3be |
+	s20_3le | s20_3be | u20_3le | u20_3be |
+	s18_3le | s18_3be | u18_3le | u18_3be |
+	g723_24_1b | g723_40_1b |
+	integer(). % SND_PCM_FORMAT_... in include/alsa.hrl
 -type hw_get_param_key() ::
 	is_double | is_half_duplex |
 	can_pause | can_resume | can_sync_start |
