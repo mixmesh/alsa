@@ -13,12 +13,24 @@
 -define(DEFAULT_BUFFER_PERIODS, 3).
 -define(DEFAULT_FORMAT,         s16_le).
 
+-type playback_options() ::
+	# { device => string(),
+	    format => alsa:format(),
+	    latency => non_neg_integer(),  %% ms
+	    channels => non_neg_integer(),  %% 1..N
+	    rate =>  non_neg_integer(),  %% 1..N
+	    pan => float(),  %% 0..1
+	    buffer_periods => non_neg_integer(),
+	    buffer_periods_delta => integer()
+	  }.
 %% mono_to_stereo parameter
 -define(DEFAULT_PAN, 0.5).  %%  %% pan 0.0=left .. 1.0 = right
 
+-spec file(Filename::string()) -> ok.
 file(FilePath) ->
     file(FilePath, #{}).
 
+-spec file(Filename::string(), Options::playback_options()) -> ok.
 file(FilePath, Options) when is_map(Options) ->
     case file:open(FilePath, [read, raw, binary, read_ahead]) of
         {ok, Fd} ->
@@ -94,7 +106,6 @@ read_header(Fd, Options) ->
 	    end
     end.
 
-
 playback(Handle, Fd, PeriodSizeInBytes, Transform) ->
     %% fixme: start reading samples before generating silence, the first time!
     %% I suspect the glitches come because of delay in reading from file
@@ -134,6 +145,8 @@ open(Options) ->
     Rate0     = maps:get(rate, Options, ?DEFAULT_RATE),
     PeriodSize0 = trunc(Rate0*(Latency/1000)),
     Pan       = maps:get(pan, Options, ?DEFAULT_PAN),
+    BufferPeriods = maps:get(buffer_periods, Options, ?DEFAULT_BUFFER_PERIODS) +
+	maps:get(buffer_periods_delta, Options, 0),
     Params0 = [{channels, Channels0},
 	       {rate, Rate0},
 	       {format, Format0},
@@ -155,7 +168,7 @@ open(Options) ->
     {ok,[{period_size,PeriodSize1}]} =
 	alsa_util:adjust_params([{period_size,PeriodSize1_}], Range),
     Format1 = proplists:get_value(format, Params1),
-    BufferSize = ?DEFAULT_BUFFER_PERIODS*PeriodSize1,
+    BufferSize = max(BufferPeriods*PeriodSize1, PeriodSize1),
     HwParams0 = [
 		 {channels,Channels1},
 		 {rate,Rate1-1},  %% make final rate look better!

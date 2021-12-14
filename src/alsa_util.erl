@@ -17,10 +17,14 @@
 -export([encode_frame/2, decode_frame/2]).
 -export([a_law_encode/1, a_law_decode/1]).
 -export([mu_law_encode/1, mu_law_decode/1]).
+-export([mix_float/1, mix_float/2, mix_float/3]).
+-export([midi_name_to_note/1]).
+-export([midi_note_to_frequency/1]).
 %% testing
 -export([test/0]).
 -export([test_a_law/0, test_mu_law/0]).
 -export([test_float/0, test_float64/0, test_integer/0]).
+-export([test_mix/0]).
 
 -include("../include/alsa_log.hrl").
 
@@ -414,6 +418,209 @@ adjust_value(Value, _Min, Max) when Value > Max -> Max;
 adjust_value(Value, _Min, _Max) -> Value.
 
 %%
+mix_float([A,B|Cs]) ->
+    mix_float([mix_float(A,B) | mix_float(Cs)]);
+mix_float([A]) ->
+    A;
+mix_float([]) ->
+    [].
+
+%% mix channels
+-spec mix_float(A::float01(), B::float01()) -> float01().
+mix_float(A, B) when A>0, B>0 ->
+    A + B - A*B;
+mix_float(A, B) when A<0, B<0 ->
+    A + B + A*B;
+mix_float(A, B) ->
+    A + B.
+
+%% mix channels
+-spec mix_float(A::float01(), B::float01(), C::float01()) -> float01().
+
+mix_float(A, B, C) ->
+    if A > 0 ->
+	    if B > 0 ->
+		    if C > 0 -> %% a>0, b>0, c>0
+			    BC = B*C,
+			    ABC = A*BC,
+			    B_C = B + C,
+			    A + B_C - A*(B_C) - BC + ABC;
+		       true -> %% a>0, b>0, c <= 0
+			    mix_float(A,B+C)
+		    end;
+	       true ->  %% a>0, b=<0
+		    mix_float(A+B, C)
+	    end;
+       true ->  %% a =< 0
+	    if B < 0 ->
+		    if C < 0 ->
+			    BC = B*C,
+			    ABC = A*BC,
+			    B_C = B + C,
+			    A + B_C + A*(B_C) + BC + ABC;
+		       true ->
+			    %% a=<0, b<0, c>=0
+			    mix_float(A,B+C)
+		    end;
+	       true -> %% a=<0, b>=0
+		    mix_float(A+B, C)
+	    end
+    end.
+
+midi_name_to_note([C,$#,N]) when N >= $0, N =< $9 ->
+    case C of
+	$C -> 1;
+	$D -> 3;
+	$E -> 5;
+	$G -> 8;
+	$A -> 10
+    end + 12*((N - $0)+1);
+midi_name_to_note([C,N]) ->
+    case C of
+	$C -> 0;
+	$D -> 2;
+	$E -> 4;
+	$F -> 5;
+	$G -> 7;
+	$A -> 9;
+	$B -> 11
+    end + 12*((N - $0)+1).
+
+midi_note_to_frequency(N) ->	    
+    element(N+1,
+{
+	8.18,
+	8.66,
+	9.18,
+	9.72,
+	10.30,
+	10.91,
+	11.56,
+	12.25,
+	12.98,
+	13.75,
+	14.57,
+	15.43,
+	16.35,
+	17.32,
+	18.35,
+	19.45,
+	20.60,
+	21.83,
+	23.12,
+	24.50,
+	25.96,
+	27.50,
+	29.14,
+	30.87,
+	32.70,
+	34.65,
+	36.71,
+	38.89,
+	41.20,
+	43.65,
+	46.25,
+	49.00,
+	51.91,
+	55.00,
+	58.27,
+	61.74,
+	65.41,
+	69.30,
+	73.42,
+	77.78,
+	82.41,
+	87.31,
+	92.50,
+	98.00,
+	103.83,
+	110.00,
+	116.54,
+	123.47,
+	130.81,
+	138.59,
+	146.83,
+	155.56,
+	164.81,
+	174.61,
+	185.00,
+	196.00,
+	207.65,
+	220.00,
+	233.08,
+	246.94,
+ 	261.63,
+	277.18,
+	293.66,
+	311.13,
+	329.63,
+	349.23,
+	369.99,
+	392.00,
+	415.30,
+ 	440.00,
+	466.16,
+	493.88,
+	523.25,
+	554.37,
+	587.33,
+	622.25,
+	659.26,
+	698.46,
+	739.99,
+	783.99,
+	830.61,
+	880.00,
+	932.33,
+	987.77,
+	1046.50,
+	1108.73,
+	1174.66,
+	1244.51,
+	1318.51,
+	1396.91,
+	1479.98,
+	1567.98,
+	1661.22,
+	1760.00,
+	1864.66,
+	1975.53,
+	2093.00,
+	2217.46,
+	2349.32,
+	2489.02,
+	2637.02,
+	2793.83,
+	2959.96,
+	3135.96,
+	3322.44,
+	3520.00,
+	3729.31,
+	3951.07,
+	4186.01,
+ 	4434.92,
+	4698.64,
+ 	4978.03,
+	5274.04,
+	5587.65,
+ 	5919.91,
+	6271.93,
+ 	6644.88,
+	7040.00,
+	7458.62,
+	7902.13,
+	8372.02,
+ 	8869.84,
+	9397.27,
+ 	9956.06,
+	10548.08,
+	11175.30,
+ 	11839.82,
+	12543.85
+}).
+
+    
+%%
 %% Testing
 %%
 test_mu_law() ->
@@ -465,6 +672,24 @@ test_integer() ->
 	    s16_le,s16_be,
 	    s24_le,s24_be,
 	    s32_le,s32_be]).
+
+test_mix() ->
+    true = abs(mix_float(0.9, 0.9) - 0.99) < 0.0001,
+    true = abs(mix_float(-0.9, 0.9)) < 0.0001,
+    true = abs(mix_float(0.9, -0.9)) < 0.0001,
+    true = abs(mix_float(-0.9, -0.9) - (-0.99)) < 0.0001,
+
+    true = abs(mix_float(0.9, 0.9, 0.9) - 0.999) < 0.0001,
+    true = abs(mix_float(0.9, -0.9, 0.9) - 0.9) < 0.0001,
+    true = abs(mix_float(0.9, 0.9, -0.9) - 0.9) < 0.0001,
+    true = abs(mix_float(0.9, -0.9, -0.9) - (-0.9)) < 0.0001,
+
+    true = abs(mix_float(-0.9, 0.9, 0.9) - 0.9) < 0.0001,
+    true = abs(mix_float(-0.9, -0.9, 0.9) - (-0.9)) < 0.0001,
+    true = abs(mix_float(-0.9, 0.9, -0.9) - (-0.9)) < 0.0001,
+    true = abs(mix_float(-0.9, -0.9, -0.9) - (-0.999)) < 0.0001,
+
+    ok.
     
 test() ->
     test_mu_law(),

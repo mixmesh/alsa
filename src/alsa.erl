@@ -47,7 +47,8 @@
 	 format_physical_width/1,
 	 format_size/2,
 	 format_silence/1,
-	 make_silence/3
+	 make_silence/3,
+	 bytes_to_frames/2
 	]).
 -export([info/0]).             % info elements
 -export([formats/0]).          % declare atoms and formats available
@@ -142,7 +143,6 @@
 -type bad_param_reason() :: {bad_param, atom(), integer(), alsa_reason()}.
 -type frames() :: integer().
 -type samples() :: binary().
--type samples_header() :: frames().  %% add sample type etc here!
 
 -type bytes() :: integer().
 -type alsa_state() ::
@@ -425,9 +425,12 @@ read(Handle, NumFrames, Acc) ->
 	    end
     end.
 
+%%
+%% Exported: write return number of frames! and samples read
+%%
 
 -spec read_(handle(), frames()) ->
-          {ok, {samples_header(),samples()}} |
+          {ok, {frames(),samples()}} |
 	  {ok, overrrun} | 
 	  {ok, suspend_event} |
           {error, alsa_reason() | no_such_handle | overrun | suspend_event}.
@@ -436,7 +439,7 @@ read_(_Handle, _Frames) ->
     ?nif_stub.
 
 %%
-%% Exported: write
+%% Exported: write return number of bytes! written
 %%
 
 -spec write_(handle(), binary()) ->
@@ -692,6 +695,15 @@ format_silence(_Format) ->
     ?nif_stub.
 
 %%
+%% Exported: bytes_to_frames
+%%
+
+-spec bytes_to_frames(handle(), bytes()) -> frames().
+
+bytes_to_frames(_Handle, _Bytes) ->
+    ?nif_stub.
+
+%%
 %% Exported: make_silence
 %%
 
@@ -700,6 +712,8 @@ format_silence(_Format) ->
 
 make_silence(_Format, _Channels, _Samples) ->
     ?nif_stub.
+
+
 
 %%
 %% Exported: card_info
