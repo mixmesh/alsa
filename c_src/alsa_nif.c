@@ -199,6 +199,7 @@ DECL_ATOM(g723_40_1b);
     NIF("format_size", 2, nif_format_size) \
     NIF("format_silence", 1, nif_format_silence) \
     NIF("make_silence", 3, nif_make_silence) \
+    NIF("bytes_to_frames", 2, nif_bytes_to_frames) \
     NIF("card_info", 2, nif_card_info) \
     NIF("card_next", 1, nif_card_next)
 
@@ -1866,6 +1867,24 @@ static ERL_NIF_TERM nif_make_silence(ErlNifEnv* env, int argc,
     if ((r = snd_pcm_format_set_silence(format, dst, channels*samples)) < 0)
 	return make_error(env, enif_make_int(env, r));
     return result;
+}
+
+static ERL_NIF_TERM nif_bytes_to_frames(ErlNifEnv* env, int argc,
+					const ERL_NIF_TERM argv[]) {
+    handle_t *handle;
+    unsigned long bytes;
+    
+    if (!enif_get_ulong(env, argv[1], &bytes))
+	return enif_make_badarg(env);
+
+    switch(get_handle(env, argv[0], &handle)) {
+    case -1: return enif_make_badarg(env);
+    case 0:  return make_bad_handle(env);
+    default: break;
+    }
+    
+    snd_pcm_uframes_t frames = snd_pcm_bytes_to_frames(handle->pcm, bytes);
+    return make_ok(env, handle, enif_make_ulong(env, frames));
 }
 
 static ERL_NIF_TERM nif_card_info(ErlNifEnv* env, int argc,
