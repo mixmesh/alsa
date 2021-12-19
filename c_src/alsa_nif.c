@@ -2,10 +2,6 @@
 #include <erl_nif.h>
 #include <alsa/asoundlib.h>
 
-#ifdef  __GNUC__
-#define alloca(size)   __builtin_alloca (size)
-#endif
-
 // #define DEBUGF(f,a...) enif_fprintf(stderr, f "\r\n", a)
 #define DEBUGF(f,a...)
 #define ERRORF(f,a...) enif_fprintf(stderr, f "\r\n", a)
@@ -408,7 +404,7 @@ typedef struct {
 
 #define MAX_NFDS 4  // 4 fd per pcm_handle?
 
-ErlNifResourceType *handle_resource_type;
+ErlNifResourceType *alsa_r;
 
 typedef struct {
     ErlNifMutex*  access_mtx;
@@ -439,7 +435,7 @@ NIF_LIST
 #define NIF(name,arity,func) NIF_FUNC(name, arity, func),
 #endif
 
-ErlNifFunc nif_funcs[] =
+static ErlNifFunc nif_funcs[] =
 {
     NIF_LIST
 };
@@ -453,7 +449,7 @@ static int get_handle(ErlNifEnv* env, ERL_NIF_TERM arg,
 
     if (!enif_is_ref(env, arg))
 	return -1;  // badarg
-    if (!enif_get_resource(env, arg, handle_resource_type,(void **)&handle))
+    if (!enif_get_resource(env, arg, alsa_r, (void **)&handle))
 	return 0;   // no a valid reource handle / remove / closed
     enif_mutex_lock(handle->access_mtx);
     if ((r = handle->is_open))
@@ -495,7 +491,7 @@ static ERL_NIF_TERM make_boolean(ErlNifEnv* env, int x)
 }
 
 // Value must be return from NIF
-static ERL_NIF_TERM make_ok(ErlNifEnv* env, handle_t* handle, ERL_NIF_TERM value) {
+static ERL_NIF_TERM make_result(ErlNifEnv* env, handle_t* handle, ERL_NIF_TERM value) {
     done_handle(env, handle);
     return enif_make_tuple2(env, ATOM(ok), value);
 }
@@ -656,12 +652,8 @@ static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 	    break;
 	}
 	case HW_FORMATS: {
-	    // snd_pcm_format_mask_t* mask;
 	    snd_pcm_format_t format;
 	    ERL_NIF_TERM format_list = enif_make_list(env, 0);
-	    // snd_pcm_format_mask_alloca(&mask);
-	    // snd_pcm_hw_params_get_format_mask(hw_params, mask);
-	    // if (snd_pcm_format_mask_test(mask, format) == 0) {
 	    for (format = SND_PCM_FORMAT_LAST; format >= 0; format--) {
 		if (snd_pcm_hw_params_test_format(pcm, hw_params,
 						  format) == 0) {
@@ -1188,14 +1180,13 @@ static ERL_NIF_TERM nif_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     }
 
     handle_t *handle =
-        enif_alloc_resource(handle_resource_type, sizeof(handle_t));
+        enif_alloc_resource(alsa_r, sizeof(handle_t));
     memset(handle, 0, sizeof(handle_t));
     handle->pcm = pcm;
     handle->access_mtx = enif_mutex_create("pcm_access");
     handle->is_open = 1;
     ERL_NIF_TERM handle_resource = enif_make_resource(env, handle);
     enif_release_resource(handle);
-
     return enif_make_tuple2(env, ATOM(ok), handle_resource);
 }
 
@@ -1253,7 +1244,7 @@ static ERL_NIF_TERM nif_get_hw_params(ErlNifEnv* env, int argc,
 	}
 	return make_herror(env, handle, value);
     }
-    return make_ok(env, handle, value);
+    return make_result(env, handle, value);
 }
 
 /*
@@ -1293,7 +1284,7 @@ static ERL_NIF_TERM nif_set_hw_params(ErlNifEnv* env, int argc,
 	}
 	return make_herror(env, handle, value);
     }
-    return make_ok(env, handle, value);
+    return make_result(env, handle, value);
 }
 
 /*
@@ -1323,7 +1314,7 @@ static ERL_NIF_TERM nif_get_sw_params(ErlNifEnv* env, int argc,
 	}
 	return make_herror(env, handle, value);
     }
-    return make_ok(env, handle, value);
+    return make_result(env, handle, value);
 }
 
 /*
@@ -1364,7 +1355,7 @@ static ERL_NIF_TERM nif_set_sw_params(ErlNifEnv* env, int argc,
 	}
 	return make_herror(env, handle, value);
     }
-    return make_ok(env, handle, value);
+    return make_result(env, handle, value);
 }
 
 /*
@@ -1411,7 +1402,7 @@ static ERL_NIF_TERM nif_read(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     nbytes = snd_pcm_frames_to_bytes(handle->pcm, rframes);
     ptr = enif_make_new_binary(env, (size_t) nbytes, &data);
     memcpy(ptr, buf, nbytes);
-    return make_ok(env, handle,
+    return make_result(env, handle,
 		   enif_make_tuple2(env, enif_make_int(env, rframes), data));
 }
 
@@ -1424,7 +1415,7 @@ static ERL_NIF_TERM nif_write(ErlNifEnv* env, int argc,
     handle_t *handle;
     ErlNifBinary bin;
     
-    if (!enif_inspect_binary(env, argv[1], &bin))
+    if (!enif_inspect_iolist_as_binary(env, argv[1], &bin))
 	return enif_make_badarg(env);
 
     switch(get_handle(env, argv[0], &handle)) {
@@ -1436,7 +1427,7 @@ static ERL_NIF_TERM nif_write(ErlNifEnv* env, int argc,
     snd_pcm_uframes_t frames =
 	snd_pcm_bytes_to_frames(handle->pcm, bin.size);
     if (frames == 0)
-	return make_ok(env, handle, enif_make_int(env, 0));
+	return make_result(env, handle, enif_make_int(env, 0));
 
     snd_pcm_sframes_t written_frames =
 	snd_pcm_writei(handle->pcm, bin.data, frames);
@@ -1455,7 +1446,7 @@ static ERL_NIF_TERM nif_write(ErlNifEnv* env, int argc,
     }
     ssize_t nbytes =
 	snd_pcm_frames_to_bytes(handle->pcm, written_frames);
-    return make_ok(env, handle, enif_make_int(env, nbytes));
+    return make_result(env, handle, enif_make_int(env, nbytes));
 }
 
 static ERL_NIF_TERM nif_recover(ErlNifEnv* env, int argc,
@@ -1635,7 +1626,7 @@ static ERL_NIF_TERM nif_avail(ErlNifEnv* env, int argc,
     
     if ((frames = snd_pcm_avail(handle->pcm)) < 0)
         return make_herror(env, handle, enif_make_long(env, frames));
-    return make_ok(env, handle, enif_make_long(env, frames));
+    return make_result(env, handle, enif_make_long(env, frames));
 }
 
 static ERL_NIF_TERM nif_state(ErlNifEnv* env, int argc,
@@ -1650,27 +1641,27 @@ static ERL_NIF_TERM nif_state(ErlNifEnv* env, int argc,
     
     switch (snd_pcm_state(handle->pcm)) {
     case SND_PCM_STATE_OPEN:
-	return make_ok(env, handle, ATOM(open));
+	return make_result(env, handle, ATOM(open));
     case SND_PCM_STATE_SETUP:
-	return make_ok(env, handle, ATOM(setup));	
+	return make_result(env, handle, ATOM(setup));	
     case SND_PCM_STATE_PREPARED:
-		return make_ok(env, handle, ATOM(prepared));
+		return make_result(env, handle, ATOM(prepared));
     case SND_PCM_STATE_RUNNING:
-	return make_ok(env, handle, ATOM(running));
+	return make_result(env, handle, ATOM(running));
     case SND_PCM_STATE_XRUN:
-	return make_ok(env, handle, ATOM(xrun));
+	return make_result(env, handle, ATOM(xrun));
     case SND_PCM_STATE_DRAINING:
-	return make_ok(env, handle, ATOM(draining));
+	return make_result(env, handle, ATOM(draining));
     case SND_PCM_STATE_PAUSED:
-	return make_ok(env, handle, ATOM(paused));	
+	return make_result(env, handle, ATOM(paused));	
     case SND_PCM_STATE_SUSPENDED:
-	return make_ok(env, handle, ATOM(suspended));	
+	return make_result(env, handle, ATOM(suspended));	
     case SND_PCM_STATE_DISCONNECTED:
-	return make_ok(env, handle, ATOM(disconnected));	
+	return make_result(env, handle, ATOM(disconnected));	
     case SND_PCM_STATE_PRIVATE1:
-	return make_ok(env, handle, ATOM(private1));
+	return make_result(env, handle, ATOM(private1));
     default:
-	return make_ok(env, handle, ATOM(undefined));
+	return make_result(env, handle, ATOM(undefined));
     }
 }
 
@@ -1884,7 +1875,7 @@ static ERL_NIF_TERM nif_bytes_to_frames(ErlNifEnv* env, int argc,
     }
     
     snd_pcm_uframes_t frames = snd_pcm_bytes_to_frames(handle->pcm, bytes);
-    return make_ok(env, handle, enif_make_ulong(env, frames));
+    return make_result(env, handle, enif_make_ulong(env, frames));
 }
 
 static ERL_NIF_TERM nif_card_info(ErlNifEnv* env, int argc,
@@ -2227,8 +2218,8 @@ static int load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
     if ((ctx = (nif_ctx_t*) enif_alloc(sizeof(nif_ctx_t))) == NULL)
 	return -1;
     
-    if ((handle_resource_type =
-         enif_open_resource_type_x(env, "alsa_nif", &cb,
+    if ((alsa_r =
+         enif_open_resource_type_x(env, "alsa", &cb,
 				   ERL_NIF_RT_CREATE,
 				   &tried)) == NULL) {
         return -1;
@@ -2260,7 +2251,7 @@ static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
 
     DEBUGF("upgrade%s", "");
 
-    if ((handle_resource_type =
+    if ((alsa_r =
 	 enif_open_resource_type_x(env, "alsa_nif", &cb,
 				   ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER,
 				   &tried)) == NULL) {
