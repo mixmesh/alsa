@@ -43,14 +43,18 @@ init() ->
            filename:join(code:priv_dir(alsa), alsa_sbc_nif), none).
 
 -spec new(Type::sbc | msbc) -> {ok,handle()} | {error, reason()}.
+%% sbc defaults: #{rate=>44100, mode=>stereo, subbands=>8,
+%%                 block_length=>16, endian=native}
+%% msbc defaults: #{rate=>16000, mode=>mono, subbands=>8,
+%%                 block_length=>15!, endian=native}
+
+
 new(_Type) ->
     ?nif_stub.
 
 -spec new(Type::a2dp, Conf::a2dp_conf()) ->
 	  {ok,handle()} | {error, reason()}.
-new(a2dp, Conf) when is_list(Conf) ->
-    new(a2dp, maps:from_list(Conf));
-new(a2dp, Conf) when is_map(Conf) ->
+new(a2dp, Conf) ->
     new_(a2dp,make_a2dp_conf(Conf)).
 -spec new_(Type::a2dp, Conf::a2dp_conf()) ->
 	  {ok,handle()} | {error, reason()}.    
@@ -65,7 +69,7 @@ reinit(_Handle, _Type) ->
 -spec reinit(Handle::handle(), 
 	     Type::a2dp, Conf::a2dp_conf()) ->
 	  {ok,handle()} | {error, reason()}.
-reinit(Handle, a2dp, Conf) ->
+reinit(Handle, a2dp, Conf) when is_map(Conf) ->
     reinit_(Handle, a2pdp, make_a2dp_conf(Conf)).
 
 -spec reinit_(Handle::handle(), 
@@ -114,37 +118,70 @@ get_info(_Handle) ->
 	  ok.
 finish(_Handle) ->
     ?nif_stub.
-    
+
+
+-define(A2DP_SAMPLING_FREQ_16000,	(1 bsl 3)).
+-define(A2DP_SAMPLING_FREQ_32000,	(1 bsl 2)).
+-define(A2DP_SAMPLING_FREQ_44100,	(1 bsl 1)).
+-define(A2DP_SAMPLING_FREQ_48000,	(1 bsl 0)).
+
+-define(A2DP_CHANNEL_MODE_MONO,		(1 bsl 3)).
+-define(A2DP_CHANNEL_MODE_DUAL_CHANNEL,	(1 bsl 2)).
+-define(A2DP_CHANNEL_MODE_STEREO,	(1 bsl 1)).
+-define(A2DP_CHANNEL_MODE_JOINT_STEREO,	(1 bsl 0)).
+
+-define(A2DP_BLOCK_LENGTH_4,		(1 bsl 3)).
+-define(A2DP_BLOCK_LENGTH_8,		(1 bsl 2)).
+-define(A2DP_BLOCK_LENGTH_12,		(1 bsl 1)).
+-define(A2DP_BLOCK_LENGTH_16,		(1 bsl 0)).
+
+-define(A2DP_SUBBANDS_4,		(1 bsl 1)).
+-define(A2DP_SUBBANDS_8,		(1 bsl 0)).
+
+-define(A2DP_ALLOCATION_SNR,		(1 bsl 1)).
+-define(A2DP_ALLOCATION_LOUDNESS,	(1 bsl 0)).
+
+
+make_a2dp_conf(Conf) when is_list(Conf) ->
+    make_a2dp_conf(maps:from_list(Conf));
 make_a2dp_conf(Conf) ->
-    F0 = case maps:get(rate, Conf, 16#20) of
-	     16000 -> 16#80;
-	     32000 -> 16#40;
-	     44100 -> 16#20;
-	     48000 -> 16#10
-	 end,
-    M0 = case maps:get(channel_mode, Conf, 16#02) of
-	     mono -> 16#08;
-	     dual -> 16#04;
-	     stereo -> 16#02;
-	     joint_stereo -> 16#01
-	 end,
-    B1 = case maps:get(block_length, Conf, 16#10) of
-	     4 -> 16#80;
-	     8 -> 16#40;
-	     12 -> 16#20;
-	     16 -> 16#10
-	 end,
-    SB1 = case maps:get(subbands, Conf, 8) of
-	      4 -> 16#08;
-	      8 -> 16#04
-	  end,
-    AM1 = case maps:get(allocation_method, Conf) of
-	      snr -> 16#02;
-	      loudness -> 16#01
-	  end,
-    M2  = maps:get(minimum_bitpool_value, Conf, 0),
-    M3  = maps:get(maximum_bitpool_value, Conf, 0),
-    <<(F0+M0), (B1+SB1+AM1), M2, M3>>.
+    Frequency =
+	case maps:get(rate, Conf, 44100) of
+	    16000 -> ?A2DP_SAMPLING_FREQ_16000;
+	    32000 -> ?A2DP_SAMPLING_FREQ_32000;
+	    44100 -> ?A2DP_SAMPLING_FREQ_44100;
+	    48000 -> ?A2DP_SAMPLING_FREQ_48000
+	end,
+    ChannelMode =
+	case maps:get(channel_mode, Conf, stereo) of
+	    mono         -> ?A2DP_CHANNEL_MODE_MONO;
+	    dual         -> ?A2DP_CHANNEL_MODE_DUAL_CHANNEL;
+	    stereo       -> ?A2DP_CHANNEL_MODE_STEREO;
+	    joint_stereo -> ?A2DP_CHANNEL_MODE_JOINT_STEREO
+	end,
+    BlockLength =
+	case maps:get(block_length, Conf, 16) of
+	    4  -> ?A2DP_BLOCK_LENGTH_4;
+	    8  -> ?A2DP_BLOCK_LENGTH_8;
+	    12 -> ?A2DP_BLOCK_LENGTH_12;
+	    16 -> ?A2DP_BLOCK_LENGTH_16
+	end,
+    SubBands = 
+	case maps:get(subbands, Conf, 8) of
+	    4 -> ?A2DP_SUBBANDS_4;
+	    8 -> ?A2DP_SUBBANDS_8
+	end,
+    AllocationMethod =
+	case maps:get(allocation_method, Conf, snr) of
+	    snr      -> ?A2DP_ALLOCATION_SNR;
+	    loudness -> ?A2DP_ALLOCATION_LOUDNESS
+	end,
+    MinBitPool = maps:get(minimum_bitpool_value, Conf, 0),
+    MaxBitPool = maps:get(maximum_bitpool_value, Conf, 0),
+    <<Frequency:4, ChannelMode:4,
+      BlockLength:4, SubBands:2, AllocationMethod:2,
+      MinBitPool:8, MaxBitPool:8>>.
+
     
 %%
 %% Simple encode/decode test

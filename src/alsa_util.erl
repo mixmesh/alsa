@@ -64,11 +64,11 @@ resample_(Src, X, Dx, FrameSize, Acc) ->
     <<Frame:FrameSize/binary, Src1/binary>> = Src,
     if X < 1 ->
 	    %% skip one frame
-	    resample_(X+Dx, Dx, FrameSize, Src1, Acc);
+	    resample_(Src1, X+Dx, Dx, FrameSize, Acc);
        true ->
 	    case trunc(X) of
-		1 -> resample_((X-1)+Dx, Dx, FrameSize, Src1, [Frame|Acc]);
-		N -> resample_((X-N)+Dx, Dx, FrameSize, Src1, 
+		1 -> resample_(Src1, (X-1)+Dx, Dx, FrameSize, [Frame|Acc]);
+		N -> resample_(Src1, (X-N)+Dx, Dx, FrameSize, 
 			       [lists:duplicate(N,Frame)|Acc])
 	    end
     end.

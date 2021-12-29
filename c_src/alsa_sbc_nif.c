@@ -13,8 +13,8 @@
 
 #define MAX_OUTPUT_SIZE 8192 // 5126 for dual channel 16 blocks, 8 subband 
 
-#define DEBUG
-#define NIF_TRACE
+//#define DEBUG
+//#define NIF_TRACE
 
 #define UNUSED(a) ((void) a)
 
@@ -23,6 +23,7 @@
 #else
 #define DEBUGF(f,a...)
 #endif
+#define INFOF(f,a...) enif_fprintf(stderr, f "\r\n", a)
 #define ERRORF(f,a...) enif_fprintf(stderr, f "\r\n", a)
 #define BADARG(env) enif_fprintf(stderr, "%s: badarg line=%d\r\n", __FILE__, __LINE__), enif_make_badarg((env))
 
@@ -173,6 +174,7 @@ static int get_a2dp_config(ErlNifEnv* env, ERL_NIF_TERM arg, uint8_t* conf)
 
     if (!enif_inspect_binary(env, arg, &bin) || (bin.size != 4))
 	return 0;
+    INFOF("a2dp_config: %T", arg);
     conf[0] = bin.data[0];
     conf[1] = bin.data[1];
     conf[2] = bin.data[2];
@@ -237,15 +239,15 @@ static ERL_NIF_TERM nif_new(ErlNifEnv* env, int argc,
     memset(hp, 0, sizeof(handle_t));
     switch(type) {
     case SBC:
-	if (sbc_init(&hp->sbc, flags) < 0) goto error;
+	if ((err=sbc_init(&hp->sbc, flags)) < 0) goto error;
 	break;
     case MSBC:
-	if (sbc_init_msbc(&hp->sbc, flags) < 0) goto error;
+	if ((err=sbc_init_msbc(&hp->sbc, flags)) < 0) goto error;
 	break;
     case A2DP:
-	if (sbc_init_a2dp(&hp->sbc, flags,
-			  (void*) a2dp_config,
-			  sizeof(a2dp_config)) < 0) goto error;
+	if ((err=sbc_init_a2dp(&hp->sbc, flags,
+			       (void*) a2dp_config,
+			       sizeof(a2dp_config))) < 0) goto error;
 	break;
     }
     hp->type = type;
@@ -254,9 +256,9 @@ static ERL_NIF_TERM nif_new(ErlNifEnv* env, int argc,
     enif_release_resource(hp);
     return enif_make_tuple2(env, ATOM(ok), ht);
 error:
-    err = errno;
+    // err = errno;
     enif_release_resource(hp);
-    return make_error(env, err);    
+    return make_error(env, -err);    
 }
 
 static ERL_NIF_TERM nif_reinit(ErlNifEnv* env, int argc,
@@ -266,6 +268,7 @@ static ERL_NIF_TERM nif_reinit(ErlNifEnv* env, int argc,
     sbc_type_t type;
     uint8_t a2dp_config[4];
     unsigned long flags = 0;
+    int err;
     
     switch(get_handle(env, argv[0], &hp)) {
     case -1: return enif_make_badarg(env);
@@ -287,21 +290,21 @@ static ERL_NIF_TERM nif_reinit(ErlNifEnv* env, int argc,
 
     switch(type) {
     case SBC:
-	if (sbc_reinit(&hp->sbc, flags) < 0) goto error;
+	if ((err=sbc_reinit(&hp->sbc, flags)) < 0) goto error;
 	break;
     case MSBC:
-	if (sbc_reinit_msbc(&hp->sbc, flags) < 0) goto error;
+	if ((err=sbc_reinit_msbc(&hp->sbc, flags)) < 0) goto error;
 	break;
     case A2DP:
-	if (sbc_reinit_a2dp(&hp->sbc, flags,
-			    (void*) a2dp_config,
-			    sizeof(a2dp_config)) < 0) goto error;
+	if ((err=sbc_reinit_a2dp(&hp->sbc, flags,
+				 (void*) a2dp_config,
+				 sizeof(a2dp_config))) < 0) goto error;
 	break;
     }
     hp->type = type;
     return ATOM(ok);
 error:
-    return make_error(env, errno);    
+    return make_error(env, -err);    
 }
 
 // Encode audio pcm data from binary and return a (reversed) list of frames
