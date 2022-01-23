@@ -20,7 +20,7 @@
 	 drop_/1,
 	 recover_/2,
 	 reset_/1,
-	 pause_/1,
+	 pause_/2,
 	 resume_/1,
 	 avail_/1,
 	 state_/1,
@@ -568,9 +568,9 @@ reset_(_Handle) ->
 %%
 %% Exported: pause_
 %%
--spec pause_(handle()) -> ok | {error, alsa_reason()}.
+-spec pause_(handle(), Enable::boolean()) -> ok | {error, alsa_reason()}.
 
-pause_(_Handle) ->
+pause_(_Handle, _Enable) ->
     ?nif_stub.
 
 %%

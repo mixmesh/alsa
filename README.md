@@ -1,5 +1,10 @@
 # alsa
 
+## require
+
+	sudo apt install libasound-dev
+	sudo apt install libsbc-dev
+
 An Erlang binding to the Advanced Linux Sound Architecture
 ([ALSA](https://www.alsa-project.org/wiki/Main_Page)), i.e. if you feel
 the need to build ALSA based applications in Erlang you have come to

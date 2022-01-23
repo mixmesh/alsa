@@ -173,7 +173,7 @@ DECL_ATOM(g723_40_1b);
     NIF("drop_", 1,  nif_drop) \
     NIF("recover_",  2, nif_recover) \
     NIF("reset_",    1, nif_reset) \
-    NIF("pause_",    1, nif_pause) \
+    NIF("pause_",    2, nif_pause) \
     NIF("resume_",   1, nif_resume) \
     NIF("avail_",    1, nif_avail) \
     NIF("state_",    1, nif_state) \

@@ -83,7 +83,7 @@ read_header(Fd) ->
 		{ok, _} -> {error, not_au};
 		Err = {error,_} -> Err
 	    end;
-	{ok,_,_} -> {error, not_au};
+	{ok,_} -> {error, not_au};
 	Err = {error,_} -> Err
     end.
 
