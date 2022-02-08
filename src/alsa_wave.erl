@@ -65,10 +65,20 @@ play(Opts) when is_map(Opts) ->
 demo() ->
     play(#{ rate => 16000, 
 	    envelope => #{ sustain => 0.1, release => 0.2, 
-			   peek_level => 0.2, sustain_level => 0.8}, 
+			   peek_level => 0.9, sustain_level => 0.7}, 
 	    waves => [ [{sine, ["C4"]}], 
 		       [{sine, ["E4"]}], 
 		       [{sine, ["G4"]}] ] }).
+
+demo2() ->
+    play(#{ rate => 16000, 
+	    envelope => #{ sustain => 0.1, release => 0.2, 
+			   peek_level => 0.9, sustain_level => 0.7}, 
+	    waves => [ [{sine, ["C4"]}, {sine, ["E5"]}], 
+		       [{sine, ["E4"]}], 
+		       [{sine, ["G4"]}] ] }).
+
+
 
 init_(Options0) ->
     Options = maps:merge(Options0, #{ latency =>  100}),
