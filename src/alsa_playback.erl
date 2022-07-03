@@ -185,8 +185,8 @@ open(Options) ->
     PeriodSize2 = proplists:get_value(period_size, HwParams1),
     BufferSize2 = proplists:get_value(buffer_size, HwParams1),
     StartThreshold = PeriodSize2,
-    {ok, SwParams1} = alsa:set_sw_params_(H,[{start_threshold,StartThreshold}]),
-    ?dbg("sw: ~w\n", [SwParams1]),
+    {ok, _SwParams1} = alsa:set_sw_params_(H,[{start_threshold,StartThreshold}]),
+    ?dbg("sw: ~w\n", [_SwParams1]),
     {ok, H, #{device => Device,
 	      latency => Latency,  %% ms
 	      channels => Channels2,

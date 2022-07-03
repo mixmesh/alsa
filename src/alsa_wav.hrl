@@ -14,6 +14,7 @@
 -define(WAV_ID_WAVE, <<"WAVE">>).
 -define(WAV_ID_FMT , <<"fmt ">>).
 -define(WAV_ID_DATA, <<"data">>).
+-define(WAV_ID_LIST, <<"LIST">>).
 
 -define(WAVE_FORMAT_PCM,        16#0001).
 -define(WAVE_FORMAT_IEEE_FLOAT, 16#0003).

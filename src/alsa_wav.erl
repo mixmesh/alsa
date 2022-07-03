@@ -16,6 +16,9 @@
 -export([to_snd/2, from_snd/1]).
 -export([poke_file_length/1]).  %% fixme: extended header?
 
+-define(dbg(F,A), ok).
+%% -define(dbg(F,A), io:format((F), (A))).
+
 to_snd(AudioFormat, BitsPerChannel) ->	
     case AudioFormat of
 	?WAVE_FORMAT_PCM ->
@@ -84,31 +87,43 @@ read_file_header(Filename) ->
 read_header(Fd) ->	
     case read_taglen(Fd) of
 	{ok,?WAV_ID_RIFF,_FileLength} ->
-	    io:format("FileLength = ~w\n", [_FileLength + 8]),
+	    ?dbg("FileLength = ~w\n", [_FileLength + 8]),
 	    case read_tag(Fd) of
 		{ok, ?WAV_ID_WAVE} ->
-		    case read_taglen(Fd) of
-			{ok,?WAV_ID_FMT, HdrLen} ->
-			    case read_header_(Fd, (HdrLen+1) band -2) of
-				{ok,Header} ->
-				    case read_taglen(Fd) of
-					{ok, ?WAV_ID_DATA, DataLength} ->
-					    io:format("DataLength = ~w\n",
-						      [DataLength]),
-					    {ok,Header};
-					_ ->
-					    {ok,Header}
-					    %%{error, missing_data}
-				    end;
-				Err = {error,_} -> Err
-			    end;
-			{ok,_,_} -> {error, not_wav};
-			Err = {error,_} -> Err
-		    end;
-		{ok, _} -> {error, not_wav};
+		    ?dbg("Tag ~p found\n", [?WAV_ID_WAVE]),
+		    read_header_fmt(Fd);
+		{ok, _Tag} ->
+		    ?dbg("error: Tag ~p found\n", [_Tag]),
+		    {error, not_wav};
 		Err = {error,_} -> Err
 	    end;
 	{ok,_,_} -> {error, not_wav};
+	Err = {error,_} -> Err
+    end.
+
+read_header_fmt(Fd) ->
+    case read_taglen(Fd) of
+	{ok,?WAV_ID_FMT, HdrLen} ->
+	    ?dbg("Tag ~p len=~p\n", [?WAV_ID_FMT, HdrLen]),
+	    case read_header_(Fd, (HdrLen+1) band -2) of
+		{ok,Header} ->
+		    case read_taglen(Fd) of
+			{ok, ?WAV_ID_DATA, _DataLength} ->
+			    ?dbg("DataLength = ~w\n",
+				 [_DataLength]),
+			    {ok,Header};
+			_ ->
+			    {ok,Header}
+			    %%{error, missing_data}
+		    end;
+		Err = {error,_} -> Err
+	    end;
+	{ok,_Tag,HdrLen} -> %% skip 
+	    ?dbg("skip: Tag ~p len=~p\n", [_Tag, HdrLen]),
+	    {ok,_Pos} = file:position(Fd, {cur, (HdrLen+1) band -2}),
+	    ?dbg("skipped: pos = ~p\n", [_Pos]),
+	    read_header_fmt(Fd);
+	{ok, _} -> {error, not_wav};
 	Err = {error,_} -> Err
     end.
 
