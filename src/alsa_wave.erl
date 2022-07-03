@@ -51,7 +51,7 @@
 	 w3 :: undefined | #waveform{}
 	}).
 
-play() ->	 
+play() ->
     play(#{}).
 
 play(Opts) when is_list(Opts) ->
@@ -64,7 +64,7 @@ play(Opts) when is_map(Opts) ->
 	   sustain => 1.5,
 	   peek_level => 0.0, sustain_level => 0.0 }).
 -define(E1,
-	#{ id => 1, 
+	#{ id => 1,
 	   sustain => 0.1, release => 0.5, decay => 0.1,
 	   peek_level => 0.9, sustain_level => 0.2 }).
 -define(E2,
@@ -72,16 +72,16 @@ play(Opts) when is_map(Opts) ->
 	   sustain => 0.1, release => 0.2, decay => 0.1,
 	   peek_level => 0.3, sustain_level => 0.2 }).
 
--define(E3, #{ id => 3, 
+-define(E3, #{ id => 3,
 	       sustain => 0.1, release => 0.5, decay => 0.1,
 	       peek_level => 0.2, sustain_level => 0.3 }).
 
--define(E4, #{ id => 4, 
-	       sustain => 0.1, release => 0.2, decay => 0.1, 
+-define(E4, #{ id => 4,
+	       sustain => 0.1, release => 0.2, decay => 0.1,
 	       peek_level => 0.3, sustain_level => 0.2 }).
 
--define(E5, #{ id => 5, 
-	       sustain => 0.1, release => 0.2, decay => 0.1, 
+-define(E5, #{ id => 5,
+	       sustain => 0.1, release => 0.2, decay => 0.1,
 	       peek_level => 0.2, sustain_level => 0.1 }).
 
 -define(PAUSE, [0, {square, [1]}]).
@@ -95,13 +95,13 @@ play(Opts) when is_map(Opts) ->
 -define(NOTE22, [4, {sine, ["G#4"]}, {sine, ["D#5"]}]).
 
 enter() ->
-    play(#{ rate => 16000, 
+    play(#{ rate => 16000,
 	    envelopes => [?EZ, ?E1, ?E2, ?E2, ?E3, ?E4, ?E5],
 	    waves => [?NOTE1, ?NOTE2]
 	  }).
 
 mute() ->
-    play(#{ rate => 16000, 
+    play(#{ rate => 16000,
 	    envelopes => [?EZ, ?E1, ?E2, ?E2, ?E3, ?E4, ?E5],
 	    waves => [
 		      ?PONG, ?PAUSE,
@@ -112,25 +112,25 @@ mute() ->
 	  }).
 
 leave() ->
-    play(#{ rate => 16000, 
+    play(#{ rate => 16000,
 	    envelopes => [?EZ, ?E1, ?E2, ?E2, ?E3, ?E4, ?E5],
 	    waves => [ ?NOTE22, ?NOTE12 ] }).
 
 
 demo() ->
-    play(#{ rate => 16000, 
-	    envelope => #{ sustain => 0.1, release => 0.2, 
-			   peek_level => 0.9, sustain_level => 0.7}, 
-	    waves => [ [{sine, ["C4"]}], 
-		       [{sine, ["E4"]}], 
+    play(#{ rate => 16000,
+	    envelope => #{ sustain => 0.1, release => 0.2,
+			   peek_level => 0.9, sustain_level => 0.7},
+	    waves => [ [{sine, ["C4"]}],
+		       [{sine, ["E4"]}],
 		       [{sine, ["G4"]}] ] }).
 
 demo2() ->
-    play(#{ rate => 16000, 
-	    envelope => #{ sustain => 0.1, release => 0.2, 
-			   peek_level => 0.9, sustain_level => 0.7}, 
-	    waves => [ [{sine, ["C4"]}, {sine, ["E5"]}], 
-		       [{sine, ["E4"]}], 
+    play(#{ rate => 16000,
+	    envelope => #{ sustain => 0.1, release => 0.2,
+			   peek_level => 0.9, sustain_level => 0.7},
+	    waves => [ [{sine, ["C4"]}, {sine, ["E5"]}],
+		       [{sine, ["E4"]}],
 		       [{sine, ["G4"]}] ] }).
 
 
@@ -139,13 +139,13 @@ init_(Options0) ->
     Options = maps:merge(Options0, #{ latency =>  100}),
     case alsa_playback:open(Options) of
 	{ok, H, Params} ->
-	    io:format("Params: ~p\n", [Params]),
+	    %%io:format("Params: ~p\n", [Params]),
 	    Time = maps:get(time, Options, 2.0),
 	    Es0 = maps:get(envelopes, Options, []),
 	    E0 = maps:get(envelope, Options, undefined),
 	    Es1 = if Es0 =:= [] ->
 			  if E0 =:= undefined ->
-				  [#{ id => 1, 
+				  [#{ id => 1,
 				      sustain => Time,
 				      peek_level => 1.0,
 				      sustain_level => 0.8}];
@@ -162,8 +162,8 @@ init_(Options0) ->
 	    Waves = [wave_def(W) || W <- Ws],
 	    EnvMap = make_envelope_map(Es1, #{}),
 	    P = maps:get(period_size, Params),
-	    io:format("P = ~p\n", [P]),
-	    io:format("Waves = ~p\n", [Waves]),
+	    %%io:format("P = ~p\n", [P]),
+	    %%io:format("Waves = ~p\n", [Waves]),
 	    run_(H,P,Rate,0.0,1/Rate,Waves,EnvMap,Format,Channels);
 
 	{error, Reason} ->
@@ -192,13 +192,13 @@ run_(H,N,N0,P,Rate,T,Dt,W,Ws,EnvMap,Format,Channels) ->
 		    T1 = T + Mf*Dt,
 		    run_(H,N-Mf,N0,P,Rate,T1,Dt,W,Ws,EnvMap,Format,Channels);
 		{ok, underrun} ->
-		    io:format("Recovered from underrun\n"),
+		    %%io:format("Recovered from underrun\n"),
 		    run_(H,N,N0,P,Rate,T,Dt,W,Ws,EnvMap,Format,Channels);
 		{ok, suspend_event} ->
-		    io:format("Recovered from suspend event\n"),
+		    %%io:format("Recovered from suspend event\n"),
 		    run_(H,N,N0,P,Rate,T,Dt,W,Ws,EnvMap,Format,Channels);
 		{error, Reason} ->
-		    io:format("write failed ~p\n", [Reason]),
+		    %%io:format("write failed ~p\n", [Reason]),
 		    stop(H),
 		    {error, alsa:strerror(Reason)}
 	    end
@@ -253,7 +253,7 @@ wdef_(Form, Fs, Phase) when Form =:= sine;
 	    Fe = wave_freq(F5),
 	    make_waveform(Form, Phase, Fa, Fb, Fc, Fd, Fe)
     end.
-    
+
 make_waveform(Form, Phase, F1, F2, F3, F4, F5) ->
     #waveform { form=Form, f1=F1, f2=F2, f3=F3, f4=F4, f5=F5, phase=Phase,
 		noice = 0 }.
@@ -277,7 +277,7 @@ make_envelope_map([E|Es], I, Map) ->
     Lz = maps:get(low_level, E, 0.0),
     Lp = maps:get(peek_level, E, 1.0),
     Ls = maps:get(sustain_level, E, 0.8),
-    Map1 = maps:put(ID, 
+    Map1 = maps:put(ID,
 		    #envelope{id=ID,attack=A,decay=D,sustain=S,release=R,
 			      low_level=Lz, peek_level=Lp, sustain_level=Ls},
 		    Map),
@@ -285,13 +285,13 @@ make_envelope_map([E|Es], I, Map) ->
 make_envelope_map([], _I, Map) ->
     Map.
 
-wave_freq({note,N}) when is_integer(N), N>=0, N=<127 -> 
+wave_freq({note,N}) when is_integer(N), N>=0, N=<127 ->
     alsa_util:midi_note_to_frequency(N);
 wave_freq(F) when is_number(F) -> float(F);
-wave_freq(Name) when is_list(Name) -> 
+wave_freq(Name) when is_list(Name) ->
     alsa_util:midi_note_to_frequency(
       alsa_util:midi_name_to_note(Name));
-wave_freq(Name) when is_atom(Name) -> 
+wave_freq(Name) when is_atom(Name) ->
     alsa_util:midi_note_to_frequency(
       alsa_util:midi_name_to_note(atom_to_list(Name))).
 
@@ -303,7 +303,7 @@ envelope_time(#envelope{attack=A,decay=D,sustain=S,release=R}) ->
 
 %% Calculate current level given envelop and time (0 <= T <= A+D+S+R)
 -spec envelope_level(T::time_s(), E::#envelope{}) -> float01().
-    
+
 envelope_level(T, #envelope{attack=A,decay=D,sustain=S,release=R,
 			    low_level=L0, peek_level=L1, sustain_level=L2 }) ->
     if A>0, T < A -> interp(T/A, L0, L1);
@@ -360,7 +360,7 @@ generate_form(N,W,T,Dt,E,Acc) ->
 	    triangle ->
 		Ti = F*math:fmod(T, 1/F),
 		if Ti =< 0.5 ->  %% ( 0 => 0.5 )
-			(4*Ti - 1.0); 
+			(4*Ti - 1.0);
 		   true ->  %% falling 0.5 => 1
 			(1.0 - 4*Ti)
 		end;
@@ -384,7 +384,7 @@ mix([A|As], [B|Bs], [C|Cs]) ->
     [alsa_util:mix_float(A,B,C) | mix(As,Bs,Cs)];
 mix([], [], []) -> [].
 
-%% multiply two sample sequences  
+%% multiply two sample sequences
 -spec mult([float01()], [float01()]) -> [float01()].
 mult([X|Xs], [Y|Ys]) ->
     [X*Y | mult(Xs,Ys)];
@@ -392,10 +392,10 @@ mult([], []) ->
     [].
 
 clamp(X, Min, Max) -> min(max(X,Min), Max).
-    
+
 
 native_samples(Ys, s16_le, 1) ->
     << <<(trunc(Y*32767)):16/little>> || Y <- Ys >>;
 native_samples(Ys, s16_le, 2) ->
-    << <<(trunc(Y*16383)):16/little,(trunc(Y*16383)):16/little>> || 
+    << <<(trunc(Y*16383)):16/little,(trunc(Y*16383)):16/little>> ||
 	Y <- Ys >>.
