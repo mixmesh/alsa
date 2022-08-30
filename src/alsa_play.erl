@@ -10,7 +10,6 @@
 
 -behaviour(gen_server).
 
--export([test/0]).
 %% API
 -export([start/1]).
 -export([start_link/0, start_link/1]).
@@ -28,10 +27,12 @@
 -export([mute/2, loop/2]).
 -export([insert/2, insert_file/2]).
 -export([append/2, append_file/2]).
--export([reset/1, clear/1]).
--export([reset/0, clear/0]).
+-export([delete/2]).
+-export([reset/1, clear/1, remove/1]).
+-export([reset/0, clear/0, remove/0]).
 -export([resume/0, pause/0]).
 
+-export([test/0, test_pong/0]).
 
 test() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
@@ -47,6 +48,56 @@ test() ->
     loop(2, true),
     loop(3, true),
     resume().
+
+test_pong() ->
+    start(#{}),
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    new(1),
+    mute(1, true),
+    append_file(1, filename:join(Sounds, "plop.wav")),
+    new(2),
+    mute(2, true),
+    append_file(2, filename:join(Sounds, "beep.wav")),
+    new(3),
+    mute(3, true),
+    append_file(3, filename:join(Sounds, "Side_Left.wav")),
+
+    resume(),
+    timer:sleep(500),
+
+    lists:foreach(
+      fun(_) ->
+	      mute(1, false),
+	      reset(1),
+	      timer:sleep(500), %% listen to plop
+	      mute(1, true),
+
+	      mute(2, false),
+	      reset(2),
+	      timer:sleep(500),  %% listen to beep
+	      mute(2, true),
+
+	      mute(3, false),
+	      reset(3),
+	      timer:sleep(2000),  %% listen to Side_Left
+	      mute(3, true)
+      end, lists:seq(1, 4)),
+
+    loop(1, true),
+    loop(2, true),
+    mute(1, false),
+    mute(2, false),
+    mute(3, false),
+    reset(3),
+    
+    timer:sleep(2000),  %% listen to all
+
+    alsa_play:pause(),
+
+    remove(1),
+    remove(2),
+    remove(3),
+    ok.
     
 
 new(Channel) when ?is_channel(Channel) ->
@@ -64,11 +115,21 @@ append(Channel, Samples) when ?is_channel(Channel), is_binary(Samples) ->
 append_file(Channel, Filename) when ?is_channel(Channel), is_list(Filename) ->
     gen_server:call(?SERVER, {append_file, Channel, Filename}).
 
+%% delete samples in channel
+delete(Channel, Range) when ?is_channel(Channel), is_list(Range) ->
+    gen_server:call(?SERVER, {delete, Channel, Range}).
+
 reset(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {reset, Channel}).
 
 clear(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {clear, Channel}).
+
+remove(Channel) when ?is_channel(Channel) ->
+    gen_server:call(?SERVER, {remove, Channel}).
+
+remove() ->
+    gen_server:call(?SERVER, remove).
 
 mute(Channel, On) when ?is_channel(Channel), is_boolean(On) ->
     gen_server:call(?SERVER, {mute, Channel, On}).
@@ -258,6 +319,28 @@ handle_call({loop,Channel,On}, _From, State) ->
 	    Buf1 = alsa_buffer:setopts(Buf,[{loop,On}]),
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;    
+
+handle_call({remove,Channel}, _From, State) ->
+    case maps:remove(Channel, State#state.channels) of
+	#{} ->
+	    {reply, ok, State#state { channels = #{}, pause = true }};
+	ChanMap1 ->
+	    {reply, ok, State#state { channels = ChanMap1 }}
+    end;
+
+handle_call(remove, _From, State) ->
+    ChanMap1 = #{},
+    {reply, ok, State#state { channels = ChanMap1, pause = true }};
+
+handle_call({delete,Channel,Range}, _From, State) ->
+    ChanMap = State#state.channels,
+    case maps:get(Channel, ChanMap, undefined) of
+	undefined ->
+	    {reply, {error, enoent}, State};
+	Buf ->
+	    Buf1 = alsa_buffer:delete_samples(Buf,Range),
+	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
+    end;
 
 handle_call(reset, _From, State) ->
     ChanMap1 = maps:map(

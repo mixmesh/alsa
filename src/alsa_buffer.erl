@@ -10,11 +10,15 @@
 -export([new/0, new/1]).
 -export([read/2, read_samples/2]).
 -export([skip/2, skip_samples/2]).
+-export([delete_samples/2]).
 -export([insert/2, insert_file/2]).
 -export([append/2, append_file/2]).
 -export([setopts/2, getopts/2]).
 -export([reset/1, clear/1]).
 -export([silence/2]).
+%% test
+-export([normalize_range/3]).
+-export([delete_range/3]).
 
 -define(MAX_DATA_SIZE, (10*1024*1024)).
 -define(DEFAULT_FORMAT,   s16_le).
@@ -38,6 +42,9 @@
 	}).
 
 -type sample_buffer() :: #sample_buffer{}.
+-type range_start() :: bof | unsigned().
+-type range_size() :: eof | unsigned().
+-type sample_range() :: [{range_start(), range_size()}].
 
 new() -> new([]).
 
@@ -146,6 +153,58 @@ skip(Cb=#sample_buffer{pos=Pos, buf=Buf}, N) when is_integer(N), N >= 0 ->
 		    Cb
 	    end
     end.
+
+-spec delete_samples(Cb::sample_buffer(), Range::sample_range()) ->
+	  Cb1::sample_buffer.
+
+delete_samples(Cb=#sample_buffer{bytes_per_sample=Z,buf=Buf}, Range) ->
+    Buf1 = delete_range(Range, Z, Buf),
+    %% FIXME: move Position if deleted!
+    Cb=#sample_buffer{buf=Buf1}.
+
+delete_range(Range, Z, Buf) when is_binary(Buf), is_integer(Z), Z >= 1 ->
+    IRange = normalize_range(Range, Z, byte_size(Buf) div Z),
+    list_to_binary(delete_range_(IRange, 0, Buf)).
+
+delete_range_([{Pos,Len}|Range],Pos0,Buf) ->
+    Pos1 = Pos-Pos0,
+    <<Keep:Pos1/binary, _:Len/binary, Buf1/binary>> = Buf,
+    [Keep|delete_range_(Range,Pos+Len,Buf1)];
+delete_range_([],_Pos,Buf) ->
+    [Buf].
+
+normalize_range(Range, Z, Size) ->
+    IRange = resolve_range(Range, Z, Size),  %% convert into integer range
+    IRange2 = lists:keysort(1,IRange),         %% sorted on start positions
+    overlap_range(IRange2).
+
+%% remove overlapping areas
+overlap_range([{Pos1,Len1},{Pos2,Len2}|Range]) when Pos2+Len2 =< Pos1+Len1 ->
+    overlap_range([{Pos1,Len1}|Range]);
+overlap_range([{Pos1,Len1},{Pos2,Len2}|Range]) when Pos2 =< Pos1+Len1 ->
+    Len3 = ((Pos2+Len2)-(Pos1+Len1)),
+    overlap_range([{Pos1,Len1+Len3}|Range]);
+overlap_range([{Pos1,Len1}|Range]) ->
+    [{Pos1,Len1}|overlap_range(Range)];
+overlap_range([]) ->
+    [].
+
+%% translate range [{Pos,Len}] into byte position byte length
+resolve_range([{Pos,Len}|Range],Z,Size) when is_integer(Pos),
+					     is_integer(Size),
+					     Pos >= 0, Pos < Size,
+					     is_integer(Len), Len >= 0 ->
+    [{Pos*Z,Len*Z}|resolve_range(Range, Z, Size)];
+resolve_range([{Pos,eof}|Range],Z,Size) when is_integer(Pos),
+					     Pos >= 0, Pos < Size ->
+    [{Pos*Z,(Size-Pos)*Z}|resolve_range(Range,Z,Size)];
+resolve_range([{bof,Len}|Range],Z,Size) when Len >= 0 ->
+    [{0,min(Len,Size)*Z}|resolve_range(Range,Z,Size)];
+resolve_range([{bof,eof}|Range],Z,Size) ->
+    [{0,Size*Z}|resolve_range(Range,Z,Size)];
+resolve_range([],_Z, _) ->
+    [].
+
 
 %% write/append samples to sample buffer
 insert(Cb=#sample_buffer{pos=Pos,buf=Buf}, Data) when is_binary(Data) ->
