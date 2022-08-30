@@ -78,23 +78,34 @@ resample_(Src, X, Dx, FrameSize, Acc) ->
 	       Src::binary()) -> binary().
 
 %% reformat frame format
+reformat(Format, Format, Channels, Channels, Src) ->
+    Src; %% no need
+reformat(SrcFormat, DstFormat, Channels, Channels, Src) ->
+    FrameSize = alsa:format_size(SrcFormat, Channels),
+    reformat_format_(Src, FrameSize, SrcFormat, DstFormat, []);
+%% fixme: add SrcFormat=DstFormat on channel map (maybe?)
 reformat(SrcFormat, DstFormat, SrcChannels, DstChannels, Src) ->
     FrameSize = alsa:format_size(SrcFormat, SrcChannels),
-    reformat_(Src,FrameSize,SrcFormat,DstFormat,DstChannels,[]).
+    reformat_all_(Src,FrameSize,SrcFormat,DstFormat,DstChannels,[]).
 
-reformat_(<<>>,_FrameSize,_SrcFormat,_DstFormat,_DstChannels,Acc) ->
+reformat_all_(<<>>,_FrameSize,_SrcFormat,_DstFormat,_DstChannels,Acc) ->
     list_to_binary(lists:reverse(Acc));
-reformat_(Bin,FrameSize,SrcFormat,DstFormat,DstChannels,Acc) ->
+reformat_all_(Bin,FrameSize,SrcFormat,DstFormat,DstChannels,Acc) ->
     <<Frame:FrameSize/binary, Bin1/binary>> = Bin,
-    DstFrame = reformat_frame(Frame, SrcFormat, DstFormat, DstChannels),
-    reformat_(Bin1,FrameSize,SrcFormat,DstFormat,DstChannels,
-	      [DstFrame|Acc]).
-
-%% fixme: optimize SrcFormat=DstFormat
-reformat_frame(Frame, SrcFormat, DstFormat, DstChannels) ->
     SrcSamples = decode_frame(Frame, SrcFormat),
     DstSamples = map_channels(SrcSamples, DstChannels),
-    encode_frame(DstSamples, DstFormat).
+    DstFrame =  encode_frame(DstSamples, DstFormat),
+    reformat_all_(Bin1,FrameSize,SrcFormat,DstFormat,DstChannels,
+		  [DstFrame|Acc]).
+
+%% decode/encode only
+reformat_format_(<<>>,_FrameSize,_SrcFormat,_DstFormat,Acc) ->
+    list_to_binary(lists:reverse(Acc));
+reformat_format_(Bin,FrameSize,SrcFormat,DstFormat,Acc) ->
+    <<Frame:FrameSize/binary, Bin1/binary>> = Bin,
+    SrcSamples = decode_frame(Frame, SrcFormat),
+    DstFrame = encode_frame(SrcSamples, DstFormat),
+    reformat_format_(Bin1,FrameSize,SrcFormat,DstFormat,[DstFrame|Acc]).
 
 map_channels(Xs=[_FC], 1) -> Xs;                               %% mono
 map_channels(Xs=[_FL,_FR], 2) -> Xs;                           %% stereo
@@ -135,8 +146,6 @@ map_channels([FC], 6) -> X=trunc(FC*0.5), [X,X,X,0,X,X];
 map_channels([FL,FR], 6) -> X=max(FL,FR),[FR,FL,X,0,FL,FR];
 map_channels([FL,FR,LFE,RR,RL], 6) -> FC=max(FL,FR), [FL,FR,FC,LFE,RR,RL];
 map_channels([FL,FR,FC,LFE,RL,RR,_SL,_SR], 6) -> [FL,FR,FC,LFE,RL,RR].
-
-
 
 -define(i8(X), ((X) bsl 24)).
 -define(i16(X), ((X) bsl 16)).

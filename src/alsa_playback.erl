@@ -2,6 +2,7 @@
 -export([file/1, file/2]).
 -export([open/1]).
 -export([fd/2]).
+-export([read_header/1, read_header/2]).
 
 -include("../include/alsa.hrl").
 -include("../include/alsa_log.hrl").
@@ -90,6 +91,8 @@ fd_(Fd, Options0) ->
     playback(Handle, Fd, PeriodSizeInBytes, Transform).
 
 %% check for wav and au file headers
+read_header(Fd) ->
+    read_header(Fd, #{}).
 read_header(Fd, Options) ->
     case alsa_wav:read_header(Fd) of
 	{ok, Params} ->

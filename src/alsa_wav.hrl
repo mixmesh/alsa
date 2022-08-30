@@ -16,6 +16,31 @@
 -define(WAV_ID_DATA, <<"data">>).
 -define(WAV_ID_LIST, <<"LIST">>).
 
+-define(WAV_LIST_INFO, <<"INFO">>).
+%% INFO items
+-define(WAV_INFO_IARL, <<"IARL">>). %% The location where the subject of the file is archived
+-define(WAV_INFO_IART, <<"IART">>). %% The artist of the original subject of the file
+-define(WAV_INFO_ICMS, <<"ICMS">>). %% The name of the person or organization that commissioned the original subject of the file
+-define(WAV_INFO_ICMT, <<"ICMT">>). %% General comments about the file or its subject
+-define(WAV_INFO_ICOP, <<"ICOP">>). %% Copyright information about the file (e.g., "Copyright Some Company 2011")
+-define(WAV_INFO_ICRD, <<"ICRD">>). %% The date the subject of the file was created (creation date)
+-define(WAV_INFO_ICRP, <<"ICRP">>). %% Whether and how an image was cropped
+-define(WAV_INFO_IDIM, <<"IDIM">>). %% The dimensions of the original subject of the file
+-define(WAV_INFO_IDPI, <<"IDPI">>). %% Dots per inch settings used to digitize the file
+-define(WAV_INFO_IENG, <<"IENG">>). %% The name of the engineer who worked on the file
+-define(WAV_INFO_IGNR, <<"IGNR">>). %% The genre of the subject
+-define(WAV_INFO_IKEY, <<"IKEY">>). %% A list of keywords for the file or its subject
+-define(WAV_INFO_ILGT, <<"ILGT">>). %% Lightness settings used to digitize the file
+-define(WAV_INFO_IMED, <<"IMED">>). %% Medium for the original subject of the file
+-define(WAV_INFO_INAM, <<"INAM">>). %% Title of the subject of the file (name)
+-define(WAV_INFO_IPLT, <<"IPLT">>). %% The number of colors in the color palette used to digitize the file
+-define(WAV_INFO_IPRD, <<"IPRD">>). %% Name of the title the subject was originally intended for
+-define(WAV_INFO_ISBJ, <<"ISBJ">>). %% Description of the contents of the file (subject)
+-define(WAV_INFO_ISFT, <<"ISFT">>). %% Name of the software package used to create the file
+-define(WAV_INFO_ISRC, <<"ISRC">>). %% The name of the person or organization that supplied the original subject of the file
+-define(WAV_INFO_ISRF, <<"ISRF">>). %% The original form of the material that was digitized (source form)
+-define(WAV_INFO_ITCH, <<"ITCH">>). %% The name of the technician who digitized the subject file
+
 -define(WAVE_FORMAT_PCM,        16#0001).
 -define(WAVE_FORMAT_IEEE_FLOAT, 16#0003).
 -define(WAVE_FORMAT_ALAW,       16#0006).

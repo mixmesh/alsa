@@ -11,13 +11,17 @@
 -include("alsa_wav.hrl").
 
 -export([read_header/1, write_header/2]).
+-export([read_file_info/1, read_info/1]).
 -export([encode_header/1]).
 -export([read_file_header/1]).
 -export([to_snd/2, from_snd/1]).
 -export([poke_file_length/1]).  %% fixme: extended header?
 
 -define(dbg(F,A), ok).
-%% -define(dbg(F,A), io:format((F), (A))).
+%%-define(dbg(F,A), io:format((F), (A))).
+
+-define(ALIGN(Len), (((Len)+1) band -2)).
+-define(PAD(Len),  (?ALIGN(Len)-(Len))).
 
 to_snd(AudioFormat, BitsPerChannel) ->	
     case AudioFormat of
@@ -84,7 +88,7 @@ read_file_header(Filename) ->
 -spec read_header(Fd::file:io_device()) ->
 	  {ok, map()} | {error, term()}.
 
-read_header(Fd) ->	
+read_header(Fd) ->
     case read_taglen(Fd) of
 	{ok,?WAV_ID_RIFF,_FileLength} ->
 	    ?dbg("FileLength = ~w\n", [_FileLength + 8]),
@@ -101,11 +105,81 @@ read_header(Fd) ->
 	Err = {error,_} -> Err
     end.
 
+
+read_file_info(Filename) ->
+    case file:open(Filename, [read, binary]) of
+	{ok, Fd} ->
+	    try read_info(Fd) of
+		Info -> Info
+	    after
+		file:close(Fd)
+	    end;
+	Error -> Error
+    end.
+
+-spec read_info(Fd::file:io_device()) ->
+	  {ok, map()} | {error, term()}.
+
+read_info(Fd) ->
+    case read_taglen(Fd) of
+	{ok,?WAV_ID_RIFF,_FileLength} ->
+	    ?dbg("FileLength = ~w\n", [_FileLength + 8]),
+	    case read_tag(Fd) of
+		{ok, ?WAV_ID_WAVE} ->
+		    ?dbg("Tag ~p found\n", [?WAV_ID_WAVE]),
+		    read_info_(Fd);
+		{ok, _Tag} ->
+		    ?dbg("error: Tag ~p found\n", [_Tag]),
+		    {error, not_wav};
+		Err = {error,_} -> Err
+	    end;
+	{ok,_,_} -> {error, not_wav};
+	Err = {error,_} -> Err
+    end.
+
+read_info_(Fd) ->
+    case find_tag_(Fd, ?WAV_ID_LIST) of
+	{ok, _Tag, Len} ->
+	    case file:read(Fd, ?ALIGN(Len)) of
+		{ok, Bin} ->
+		    decode_info(Bin);
+		eof -> {error, file_too_short};
+		Err = {error,_} -> Err
+	    end;
+	Error -> Error
+    end.
+
+decode_info(<<Tag:4/binary, Binary/binary>>) when Tag =:= ?WAV_LIST_INFO ->
+    decode_info(Binary, #{});
+decode_info(<<>>) ->
+    #{}.
+
+decode_info(<<Tag:4/binary, Len:32/little, _:?PAD(Len)/binary, 
+	      InfoData:Len/binary, Data/binary>>, Info) ->
+    decode_info(Data, Info#{ Tag => ascii(InfoData) });
+decode_info(<<>>, Info) ->
+    Info.
+
+ascii(<<>>) -> [];
+ascii(<<0,_/binary>>) -> [];
+ascii(<<C,Cs/binary>>) -> [C|ascii(Cs)].
+
+skip_tags_in_binary(<<Tag1:4/binary, Len1:32/little, _:?PAD(Len1)/binary, 
+		    InfoData:Len1/binary, Data/binary>>, Tag) ->
+    if Tag =:= Tag1 ->
+	    InfoData;
+       true ->
+	    skip_tags_in_binary(Data, Tag)
+    end;
+skip_tags_in_binary(<<>>, _Tag) ->
+    <<>>.
+
+
 read_header_fmt(Fd) ->
     case read_taglen(Fd) of
 	{ok,?WAV_ID_FMT, HdrLen} ->
 	    ?dbg("Tag ~p len=~p\n", [?WAV_ID_FMT, HdrLen]),
-	    case read_header_(Fd, (HdrLen+1) band -2) of
+	    case read_header_(Fd, ?ALIGN(HdrLen)) of
 		{ok,Header} ->
 		    case read_taglen(Fd) of
 			{ok, ?WAV_ID_DATA, _DataLength} ->
@@ -120,7 +194,7 @@ read_header_fmt(Fd) ->
 	    end;
 	{ok,_Tag,HdrLen} -> %% skip 
 	    ?dbg("skip: Tag ~p len=~p\n", [_Tag, HdrLen]),
-	    {ok,_Pos} = file:position(Fd, {cur, (HdrLen+1) band -2}),
+	    {ok,_Pos} = file:position(Fd, {cur, ?ALIGN(HdrLen)}),
 	    ?dbg("skipped: pos = ~p\n", [_Pos]),
 	    read_header_fmt(Fd);
 	{ok, _} -> {error, not_wav};
@@ -132,6 +206,18 @@ read_header_(Fd, HdrLen) ->
 	{ok, Bin} -> decode_header(Bin);
 	eof -> {error, file_too_short};
 	Error -> Error
+    end.
+
+find_tag_(Fd, Tag) ->
+    case read_taglen(Fd) of
+	{ok,Tag,Len} ->
+	    {ok,Tag,Len};
+	{ok,_Tag,HdrLen} ->
+	    ?dbg("skip: Tag ~p len=~p\n", [_Tag, HdrLen]),
+	    {ok,_Pos} = file:position(Fd, {cur, ?ALIGN(HdrLen)}),
+	    ?dbg("skipped: pos = ~p\n", [_Pos]),
+	    find_tag_(Fd, Tag);
+	Err = {error, _} -> Err
     end.
 
 write_header(Fd, Params) when is_map(Params) ->
