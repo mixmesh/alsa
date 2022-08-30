@@ -38,11 +38,14 @@ test() ->
     start(#{}),
     new(1),
     new(2),
+    new(3),
     append_file(1, filename:join(Sounds, "Front_Center.wav")),
     append_file(2, filename:join(Sounds, "Front_Left.wav")),
     append_file(2, filename:join(Sounds, "Front_Right.wav")),
+    append_file(3, filename:join(Sounds, "Rear_Right.wav")),
     loop(1, true),
     loop(2, true),
+    loop(3, true),
     resume().
     
 
@@ -242,7 +245,7 @@ handle_call({mute,Channel,On}, _From, State) ->
 	undefined ->
 	    {reply, {error, enoent}, State};
 	Buf ->
-	    Buf1 = alsa_buffer:setopts(Buf,[{mute,On}]),
+	    Buf1 = alsa_buffer:setopts(Buf,[{muted,On}]),
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;    
 
