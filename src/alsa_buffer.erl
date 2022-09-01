@@ -7,174 +7,377 @@
 
 -module(alsa_buffer).
 
--export([new/0, new/1]).
--export([read/2, read_samples/2]).
+-export([new/0, new/1, new/2]).
+-export([read/2, read_samples/2, read_samples_and_marks/2]).
 -export([skip/2, skip_samples/2]).
--export([delete_samples/2]).
--export([insert/2, insert_file/2]).
--export([append/2, append_file/2]).
+-export([delete_samples/2, copy_samples/2]).
+-export([insert/2, insert/3, insert/4]).
+-export([insert_file/2, insert_file/3]).
+-export([append/2, append/3]).
+-export([append_file/2]).
 -export([setopts/2, getopts/2]).
+-export([get_position/1, get_position/2]).
+-export([set_position/2]).
+-export([buffer/1]).
 -export([reset/1, clear/1]).
+-export([stop/1, run/1, mute/1, unmute/1]).
 -export([silence/2]).
-%% test
--export([normalize_range/3]).
--export([delete_range/3]).
+-export([mark/5, mark/6]).
+-export([unmark/2]).
+-export([find_marks/3]).
 
--define(MAX_DATA_SIZE, (10*1024*1024)).
+%% test
+-export([normalize_range/2]).
+-export([test/0]).
+
 -define(DEFAULT_FORMAT,   s16_le).
 -define(DEFAULT_CHANNELS, 1).
 -define(DEFAULT_RATE,     16000).
 -define(DEFAULT_LOOP,     false).
 -define(DEFAULT_MUTED,    false).
+-define(DEFAULT_STATE,    stopped).
 
 -type unsigned() :: non_neg_integer().
-
--record(sample_buffer,
-	{
-	 format = ?DEFAULT_FORMAT  :: alsa:format(),  %%
-	 channels = ?DEFAULT_CHANNELS :: unsigned(),     %%
-	 rate = ?DEFAULT_RATE         :: unsigned(),     %% Hz
-	 loop = ?DEFAULT_LOOP :: boolean(),      %% start from beginning at end
-	 muted = ?DEFAULT_MUTED :: boolean(),      %% step but generate silence
-	 bytes_per_sample=2 :: unsigned(),     %% frame size in bytes
-	 pos = 0 :: integer(),                 %% current pos in current buffer
-	 buf = <<>> :: binary()                %% sample buffer
-	}).
-
--type sample_buffer() :: #sample_buffer{}.
 -type range_start() :: bof | unsigned().
 -type range_size() :: eof | unsigned().
 -type sample_range() :: [{range_start(), range_size()}].
+-type sample_event_flag() :: stop|once.
+-type sample_event() :: {pid(),Pos::unsigned(),
+			 [sample_event_flag()],UserData::term()}.
+-type sample_length() :: integer() | {time,number()}.
+-type sample_position() :: 
+	unsigned() | cur | bof | eof | {time,number()} |
+	{cur, sample_length()} |
+	{bof, sample_length()} |
+	{eof, sample_length()}.
+-define(GB_EMPTY, {0,nil}).
 
+
+-record(sample_buffer,
+	{
+	 state = ?DEFAULT_STATE :: running | stopped,
+	 format = ?DEFAULT_FORMAT  :: alsa:format(),  %%
+	 channels = ?DEFAULT_CHANNELS :: unsigned(),  %%
+	 rate = ?DEFAULT_RATE         :: number(),  %% Hz
+	 muted = ?DEFAULT_MUTED :: boolean(),
+	 loop = ?DEFAULT_LOOP :: boolean(),    %% start from beginning at end
+	 bps = 2 :: unsigned(),                %% bytes per frame, in bytes
+	 cur = 0 :: integer(),                 %% current pos in current buffer
+	 buf = <<>> :: binary(),               %% sample buffer
+	 marks = #{} :: #{ reference() => sample_event() },
+	 mark_tree = gb_trees:empty() :: 
+		       gb_trees:tree(unsigned(),[reference()])
+	}).
+
+-type sample_buffer() :: #sample_buffer{}.
+
+-spec new() ->
+	  {ok,sample_buffer()} | {error,Reason::term()}.
 new() -> new([]).
 
-new(Opts) when is_list(Opts) ->
-    new(maps:from_list(Opts));
-new(Opts) when is_map(Opts) ->
-    Format   = maps:get(format, Opts, s16_le),
-    Channels = maps:get(channels, Opts, 1),
-    Rate     = maps:get(rate, Opts, 16000),
-    Loop     = maps:get(loop, Opts, false),
-    Muted    = maps:get(muted, Opts, false),
-    Size = alsa:format_size(Format, 1)*Channels,
-    #sample_buffer{format=Format,
-		   channels=Channels,
-		   rate=Rate,
-		   loop = Loop,
-		   muted = Muted,
-		   bytes_per_sample=Size}.
+-spec new(Opts::list()|map()) ->
+	  {ok,sample_buffer()} | {error,Reason::term()}.
+new(Opts) -> new(Opts, []).
 
-setopts(Cb, [{Key,Value}|Opts]) ->
+-spec new(Opts::list()|map(), Data::iodata()) ->
+	  {ok,sample_buffer()}.
+new(Opts,Data) when is_list(Opts) ->
+    new(maps:from_list(Opts),Data);
+new(Opts,Data) when is_map(Opts) ->
+    Buf = iolist_to_binary(Data),
+    Cb0 = #sample_buffer{buf=Buf},
+    setopts(Cb0, Opts).
+
+setopts(Cb, Opts) when is_list(Opts) ->
+    setopts(Cb, maps:from_list(Opts));
+setopts(Cb, Opts) when is_map(Opts) ->
+    setopts_(Cb, maps:keys(Opts), Opts).
+
+setopts_(Cx, [Key|Ks], Opts) ->
+    Value = maps:get(Key, Opts),
     case Key of
 	format when is_atom(Value) ->
-	    Size = alsa:format_size(Value, 1)*Cb#sample_buffer.channels,    
-	    setopts(Cb#sample_buffer{format=Value, 
-				     bytes_per_sample=Size}, Opts);
-	channels when is_integer(Value), Value>0 ->
-	    Size = alsa:format_size(Cb#sample_buffer.format, 1)*Value,
-	    setopts(Cb#sample_buffer{channels=Value, 
-				     bytes_per_sample=Size}, Opts);
-	rate when is_integer(Value), Value>0 ->
-	    setopts(Cb#sample_buffer{rate=Value}, Opts);
+	    case lists:member(Value, alsa:formats()) of
+		true ->
+		    Bps = alsa:format_size(Value, 1)*
+			Cx#sample_buffer.channels,
+		    Cx1 = Cx#sample_buffer{format=Value,bps=Bps},
+		    setopts_(Cx1,Ks,Opts);
+		false ->
+		    {error,{bad_format, Value}}
+	    end;
+	channels when is_integer(Value), Value > 0 ->
+	    Bps = alsa:format_size(Cx#sample_buffer.format, 1)*Value,
+	    Cx1 = Cx#sample_buffer{channels=Value,bps=Bps},
+	    setopts_(Cx1,Ks,Opts);
+	rate when is_number(Value), Value>0 ->
+	    Cx1 = Cx#sample_buffer{rate=Value},
+	    setopts_(Cx1,Ks,Opts);
+	loop when is_boolean(Value) ->
+	    Cx1 = Cx#sample_buffer{loop=Value},
+	    setopts_(Cx1,Ks,Opts);
 	muted when is_boolean(Value) ->
-	    setopts(Cb#sample_buffer{muted=Value}, Opts);
-        loop when is_boolean(Value) ->
-	    setopts(Cb#sample_buffer{loop=Value}, Opts)
+	    Cx1 = Cx#sample_buffer{muted=Value},
+	    setopts_(Cx1,Ks,Opts);
+	state when Value =:= stopped;
+		   Value =:= running ->
+	    Cx1 = Cx#sample_buffer{state=Value},
+	    setopts_(Cx1,Ks,Opts);
+	_ ->
+	    %% ignore other alsa options
+	    setopts_(Cx,Ks,Opts)
     end;
-setopts(Cb, []) ->
-    Cb.
+setopts_(Cx, [], _Opts) ->
+    {ok, Cx}.
 
 getopts(Cb, [Key|Opts]) ->
     Value = case Key of
 		format -> Cb#sample_buffer.format;
 		channels -> Cb#sample_buffer.channels;
 		rate -> Cb#sample_buffer.rate;
-		muted -> Cb#sample_buffer.muted;
 		loop -> Cb#sample_buffer.loop;
-		pos -> Cb#sample_buffer.pos;
-		bytes_per_sample -> Cb#sample_buffer.bytes_per_sample
+		muted -> Cb#sample_buffer.muted;
+		bytes_per_sample -> Cb#sample_buffer.bps;
+		size -> byte_size(Cb#sample_buffer.buf);
+		state -> Cb#sample_buffer.state
 	    end,
     [{Key,Value}|getopts(Cb,Opts)];
 getopts(_Cb, []) ->
     [].
 
+%% add a mark to current position
+-spec mark(Cb::sample_buffer(), Pid::pid(), Pos::sample_position(),
+	   Flags:: [sample_event_flag()], UserData::term()) ->
+	  Cb1::sample_buffer().
+mark(Cb, Pid, Pos, Flags, UserData) when is_pid(Pid), is_list(Flags) ->
+    mark(Cb, Pid, make_ref(), Pos, Flags, UserData).
+
+mark(Cb=#sample_buffer{bps=Bps,mark_tree=Gb,marks=Marks},
+     Pid, Ref, Pos, Flags, UserData)
+  when is_pid(Pid), is_reference(Ref), is_list(Flags) ->
+    Pos1 = pos(Cb,Pos)*Bps,
+    Gb1 = case gb_trees:lookup(Pos1, Gb) of
+	      none -> 
+		  gb_trees:insert(Pos1, [Ref], Gb);
+	      {value,List0} -> 
+		  gb_trees:update(Pos1, [Ref|List0], Gb)
+	  end,
+    Event = {Pid,Pos1,Flags,UserData},
+    Marks1 = Marks#{ Ref => Event },
+    io:format("add event ~p to gb=~p\n", [Event, Gb1]),
+    {Ref, Cb#sample_buffer{mark_tree=Gb1, marks=Marks1}}.
+
+%% remove a mark 
+unmark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks}, Ref) 
+  when is_reference(Ref) ->
+    case maps:get(Ref, Marks, undefined) of
+	{_Pid,Pos,_Flags,_EventData} ->
+	    Marks1 = maps:remove(Ref, Marks),
+	    case gb_trees:lookup(Pos, Gb) of
+		none ->
+		    Cb#sample_buffer{marks=Marks1};
+		{value,List0} ->
+		    Gb1 = case lists:delete(Ref,List0) of
+			      [] ->
+				  gb_trees:delete(Pos, Gb);
+			      List1 ->
+				  gb_trees:update(Pos, List1, Gb)
+			  end,
+		    Cb#sample_buffer{mark_tree=Gb1, marks=Marks1}
+	    end;
+	undefined ->
+	    Cb
+    end.
+
+-spec find_marks(Cb::sample_buffer(), From::unsigned(), To::unsigned()) ->
+	  [{reference(),sample_event()}].
+find_marks(#sample_buffer{mark_tree=Gb, marks=Marks,bps=Bps},
+	   From, To) when is_integer(From), is_integer(To), From >= 0,
+			  To >= From ->
+    Iter = gb_trees:iterator_from(From*Bps, Gb),
+    case find_marks_(Iter, Marks, To*Bps, []) of
+	[] -> [];
+	RefList -> [{Ref,maps:get(Ref,Marks)} || Ref <- RefList]
+    end.
+
+find_marks_(Iter, Marks, To, Acc) ->
+    case gb_trees:next(Iter) of
+	{Pos, RefList, Iter1} ->
+	    if Pos < To -> find_marks_(Iter1, Marks, To, Acc++RefList);
+	       true -> Acc
+	    end;
+	none -> Acc
+    end.
+
+-spec get_position(Cb::sample_buffer()) -> integer().
+get_position(Cb) ->
+    get_position(Cb, cur).
+
+-spec get_position(Cb::sample_buffer(),Pos::sample_position()) ->
+	  integer().
+get_position(Cb=#sample_buffer{bps=Bps}, Pos) ->
+    pos(Cb, Pos) div Bps.
+
+-spec set_position(Cb::sample_buffer(),Pos::sample_position()) ->
+	  Cb1::sample_buffer().
+set_position(Cb, Pos) ->
+    set_position_(Cb, pos(Cb, Pos)).
+
+set_position_(Cb=#sample_buffer{bps=Z,buf=Buf}, Pos) ->
+    Pos1 = Z*Pos,  %% new byte position
+    Pos2 = if Cb#sample_buffer.loop, Pos1 >= 0 ->
+		   Pos1 rem byte_size(Buf);
+	      Cb#sample_buffer.loop, Pos1 < 0 ->
+		   BufSize = byte_size(Buf),
+		   ((Pos1 rem BufSize) + BufSize) rem BufSize;
+	      Pos >= 0 -> min(byte_size(Buf), Pos1);
+	      Pos < 0 -> 0
+	   end,
+    Cb#sample_buffer{cur=Pos2}.
+
+buffer(#sample_buffer{buf=Buf}) ->
+    Buf.
+    
 reset(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{pos=0 }.
+    Cb#sample_buffer{cur=0 }.
 
 clear(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{pos=0, buf = <<>> }.
+    Cb#sample_buffer{cur=0, buf = <<>> }.
 
-read_samples(Cb=#sample_buffer{bytes_per_sample=Z}, N) ->
-    read(Cb, N*Z).
+stop(Cb=#sample_buffer{}) ->
+    Cb#sample_buffer{state=stopped}.
 
-read(Cb=#sample_buffer{pos=Pos,buf=Buf,muted=true}, N) when
-      is_integer(N), N >= 0 ->
-    BufSize = byte_size(Buf),
-    Pos1 = Pos + N,
-    if Cb#sample_buffer.loop ->
-	    {silence(Cb,N), Cb#sample_buffer{pos=Pos1 rem BufSize}};
+run(Cb=#sample_buffer{}) ->
+    Cb#sample_buffer{state=running}.
+
+mute(Cb=#sample_buffer{}) ->
+    Cb#sample_buffer{muted=true}.
+
+unmute(Cb=#sample_buffer{}) ->
+    Cb#sample_buffer{muted=false}.
+
+-spec read_samples_and_marks(Cb::sample_buffer(), Len::sample_length()) -> 
+	  {Data::binary(), Cb1::sample_buffer(), [sample_event()]}.
+read_samples_and_marks(Cb=#sample_buffer{cur=Cur,buf=Buf,bps=Bps,loop=Loop},
+		       Len) ->
+    BufSize = byte_size(Buf),      %% Number of bytes in buffer
+    NumSamples = BufSize div Bps,  %% Number of samples in buffer
+    From = Cur div Bps,            %% start Sample position
+    Len1 = len(Cb, Len),           %% length in number of samples
+    LenBytes = Len1*Bps,           %% length in number of bytes
+    {Data, Cb1} = read_(Cb, LenBytes),
+    if Loop, Cur + LenBytes >= BufSize -> 
+	    Cur2 = (Cur + LenBytes) rem BufSize,
+	    Marks1 = find_marks(Cb, From, NumSamples),
+	    Marks2 = find_marks(Cb, 0, Cur2),
+	    {Data, Cb1, lists:usort(Marks1 ++ Marks2)};
        true ->
-	    {silence(Cb,N),Cb#sample_buffer{pos=min(BufSize, Pos1)}}
+	    Marks = find_marks(Cb, From, Cur+Len1),
+	    {Data, Cb1, Marks}
+    end.
+
+-spec read_samples(Cb::sample_buffer(), Len::sample_length()) -> 
+	  {Data::binary(), Cb1::sample_buffer()}.
+read_samples(Cb=#sample_buffer{bps=Z}, Len) ->
+    Len1 = len(Cb, Len),
+    read_(Cb, Len1*Z).
+
+-spec read(Cb::sample_buffer(), N::unsigned()) -> 
+	  {Data::binary(), Cb1::sample_buffer()}.
+read(Cb=#sample_buffer{}, N) when is_integer(N), N >= 0 ->
+    read_(Cb, N).
+
+read_(Cb=#sample_buffer{state=stopped}, _N) ->
+    {<<>>, Cb};  %% nothing to read
+read_(Cb=#sample_buffer{cur=Cur,buf=Buf,muted=true},N) ->
+    BufSize = byte_size(Buf),
+    Pos1 = Cur + N,
+    if Cb#sample_buffer.loop ->
+	    {silence(Cb,N), Cb#sample_buffer{cur=Pos1 rem BufSize}};
+       true ->
+	    Pos2 = min(BufSize, Pos1),
+	    {silence(Cb,N),Cb#sample_buffer{cur=Pos2}}
     end;
-read(Cb=#sample_buffer{pos=Pos, buf=Buf}, N) when
-      is_integer(N), N >= 0 ->
+read_(Cb=#sample_buffer{muted=false,state=running},N) ->
+    read_data_(Cb, N).
+
+read_data_(Cb=#sample_buffer{cur=Cur,buf=Buf}, N) ->
     case Buf of
-	<<_:Pos/binary, Data:N/binary, _/binary>> ->
-	    Pos1 = Pos+N,
-	    {Data, Cb#sample_buffer{pos=Pos1}};
-	<<_:Pos/binary, Data/binary>> when byte_size(Data) > 0 ->
-	    Pos1 = Pos + byte_size(Data),
-	    {Data1, Cb1} = read(Cb#sample_buffer{pos=Pos1},N-byte_size(Data)),
+	<<_:Cur/binary, Data:N/binary, _/binary>> ->
+	    Pos1 = Cur+N,
+	    {Data, Cb#sample_buffer{cur=Pos1}};
+	<<_:Cur/binary, Data/binary>> when byte_size(Data) > 0 ->
+	    Pos1 = Cur + byte_size(Data),
+	    N1 = N - byte_size(Data),
+	    {Data1, Cb1} = read_data_(Cb#sample_buffer{cur=Pos1},N1),
 	    {<<Data/binary, Data1/binary>>, Cb1};
-	<<_:Pos/binary>> ->
+	<<_:Cur/binary>> ->
 	    if Cb#sample_buffer.loop ->
-		    read(Cb#sample_buffer{pos=0}, N);
+		    read(Cb#sample_buffer{cur=0}, N);
 	       true ->
 		    {silence(Cb,N), Cb}
 	    end
     end.
 
-skip_samples(Cb=#sample_buffer{bytes_per_sample=Z}, N) ->
-    skip(Cb, N*Z).
+-spec skip_samples(Cb::sample_buffer(), Len::sample_length()) -> 
+	  Cb1::sample_buffer().
+skip_samples(Cb=#sample_buffer{bps=Z}, Len) ->
+    Len1 = len(Cb, Len),
+    skip(Cb, Len1*Z).
 
--spec skip(Cb::sample_buffer(), N::integer()) -> Cb1::sample_buffer().
-
-skip(Cb=#sample_buffer{pos=Pos, buf=Buf}, N) when is_integer(N), N >= 0 ->
+-spec skip(Cb::sample_buffer(), N::unsigned()) -> Cb1::sample_buffer().
+skip(Cb=#sample_buffer{cur=Pos, buf=Buf}, N) when is_integer(N), N >= 0 ->
     case Buf of
 	<<_:Pos/binary, _:N/binary, _/binary>> ->
-	    Cb#sample_buffer{pos=Pos+N};
+	    Cb#sample_buffer{cur=Pos+N};
 	<<_:Pos/binary, Data/binary>> when byte_size(Data) > 0 ->
 	    Pos1 = Pos + byte_size(Data),
-	    skip(Cb#sample_buffer{pos=Pos1},N-byte_size(Data));
+	    skip(Cb#sample_buffer{cur=Pos1},N-byte_size(Data));
 	<<_:Pos/binary>> ->
 	    if Cb#sample_buffer.loop ->
-		    skip(Cb#sample_buffer{pos=0}, N);
+		    skip(Cb#sample_buffer{cur=0}, N);
 	       true ->
 		    Cb
 	    end
     end.
 
+%% copy samples from sample buffer
+-spec copy_samples(Cb::sample_buffer(), Range::sample_range()) -> binary().
+
+copy_samples(Cb=#sample_buffer{bps=Bps,buf=Buf}, Range) ->
+    IRange = normalize_range(Cb, Range),
+    list_to_binary(copy_range_(IRange, Bps, Buf)).
+
+copy_range_([{Pos,Len}|Range],Bps,Buf) ->
+    Pos1 = Pos*Bps, Len1=Len*Bps,
+    case Buf of
+	<<_:Pos1/binary, Bin:Len1/binary, _/binary>> ->
+	    [Bin | copy_range_(Range, Bps, Buf)];
+	<<_:Pos1/binary, Bin/binary>> ->
+	    [Bin]
+    end;
+copy_range_([],_Bps,_Buf) ->
+    [].
+
 -spec delete_samples(Cb::sample_buffer(), Range::sample_range()) ->
 	  Cb1::sample_buffer.
 
-delete_samples(Cb=#sample_buffer{bytes_per_sample=Z,buf=Buf}, Range) ->
-    Buf1 = delete_range(Range, Z, Buf),
-    %% FIXME: move Position if deleted!
-    Cb=#sample_buffer{buf=Buf1}.
+%% FIXME: move Position if deleted!
+delete_samples(Cb=#sample_buffer{bps=Bps,buf=Buf}, Range) ->
+    IRange = normalize_range(Cb, Range),
+    Buf1 = iolist_to_binary(delete_range_(IRange, 0, Bps, Buf)),
+    Cb#sample_buffer{buf=Buf1}.
 
-delete_range(Range, Z, Buf) when is_binary(Buf), is_integer(Z), Z >= 1 ->
-    IRange = normalize_range(Range, Z, byte_size(Buf) div Z),
-    list_to_binary(delete_range_(IRange, 0, Buf)).
-
-delete_range_([{Pos,Len}|Range],Pos0,Buf) ->
+delete_range_([{Pos,Len}|Range],Pos0,Bps,Buf) ->
     Pos1 = Pos-Pos0,
-    <<Keep:Pos1/binary, _:Len/binary, Buf1/binary>> = Buf,
-    [Keep|delete_range_(Range,Pos+Len,Buf1)];
-delete_range_([],_Pos,Buf) ->
+    Pos2 = Pos1*Bps, Len2 = Len*Bps,
+    <<Keep:Pos2/binary, _:Len2/binary, Buf1/binary>> = Buf,
+    [Keep|delete_range_(Range,Pos+Len,Bps,Buf1)];
+delete_range_([],_Pos,_Bps,Buf) ->
     [Buf].
 
-normalize_range(Range, Z, Size) ->
-    IRange = resolve_range(Range, Z, Size),  %% convert into integer range
+normalize_range(Cb,Range) ->
+    IRange = range(Cb,Range),            %% convert into integer range
     IRange2 = lists:keysort(1,IRange),         %% sorted on start positions
     overlap_range(IRange2).
 
@@ -190,56 +393,104 @@ overlap_range([]) ->
     [].
 
 %% translate range [{Pos,Len}] into byte position byte length
-resolve_range([{Pos,Len}|Range],Z,Size) when is_integer(Pos),
-					     is_integer(Size),
-					     Pos >= 0, Pos < Size,
-					     is_integer(Len), Len >= 0 ->
-    [{Pos*Z,Len*Z}|resolve_range(Range, Z, Size)];
-resolve_range([{Pos,eof}|Range],Z,Size) when is_integer(Pos),
-					     Pos >= 0, Pos < Size ->
-    [{Pos*Z,(Size-Pos)*Z}|resolve_range(Range,Z,Size)];
-resolve_range([{bof,Len}|Range],Z,Size) when Len >= 0 ->
-    [{0,min(Len,Size)*Z}|resolve_range(Range,Z,Size)];
-resolve_range([{bof,eof}|Range],Z,Size) ->
-    [{0,Size*Z}|resolve_range(Range,Z,Size)];
-resolve_range([],_Z, _) ->
+range(Cb, [Interval|Range]) ->
+    [ival(Cb,Interval) | range(Cb, Range)];
+range(_Cb, []) ->
     [].
 
+ival(Cb=#sample_buffer{cur=Cur,buf=Buf,bps=Bps},{Pos,eof}) ->
+    {pos(Cb,Pos), (byte_size(Buf)-Cur) div Bps};
+ival(Cb,{Pos,Len}) ->
+    {pos(Cb,Pos), len(Cb,Len)}.
 
-%% write/append samples to sample buffer
-insert(Cb=#sample_buffer{pos=Pos,buf=Buf}, Data) when is_binary(Data) ->
-    <<Buf0:Pos/binary,Buf1/binary>> = Buf,
-    Cb#sample_buffer{buf = <<Buf0/binary,Data/binary,Buf1/binary>>}.
+%% translate sample_position into absolute sample position
+-spec pos(Cb::sample_buffer(), Pos::sample_position()) -> integer().
+pos(_Cb,Pos) when is_integer(Pos), Pos >= 0 -> Pos;
+pos(#sample_buffer{rate=R},{time,T}) -> trunc((R * T) / 1000);
+pos(_Cb,bof) -> 0;
+pos(#sample_buffer{bps=Bps,buf=Buf},eof) -> byte_size(Buf) div Bps;
+pos(#sample_buffer{bps=Bps,cur=Cur},cur) -> Cur div Bps;
+pos(Cb=#sample_buffer{bps=Bps,cur=Cur},{cur,Offs}) ->
+    (Cur div Bps) + len(Cb, Offs);
+pos(Cb=#sample_buffer{},{bof,Offs}) -> len(Cb, Offs);
+pos(Cb=#sample_buffer{bps=Bps,buf=Buf},{eof,Offs}) ->
+    (byte_size(Buf) div Bps) + len(Cb, Offs).
+
+%% translate Len into number of samples
+-spec len(Cb::sample_buffer(), Len::sample_length()) -> integer().
+len(_Cb, Len) when is_integer(Len) -> Len;
+len(#sample_buffer{rate=R}, {time,T}) -> trunc((R * T) / 1000).
+
+%% Generate Len samples for silence 
+-spec silence(Cb::sample_buffer(), Len::sample_length()) ->
+	  binary().
+silence(Cb=#sample_buffer{format=Format,channels=Channels}, Len) ->
+    Len1 = len(Cb, Len) div Channels,
+    alsa:make_silence(Format, Channels, Len1).
+
+%% insert raw data (assumed in current format) at current position
+-spec insert(Cb::sample_buffer(), Data::iodata()|{silence,sample_length()}) ->
+	  Cb1::sample_buffer().
+insert(Cb, Data) ->
+    insert(Cb, cur, Data).
+
+%% insert raw data (assumed in current format) at position Pos
+-spec insert(Cb::sample_buffer(), Pos::sample_position(), 
+	     Data::iodata()|{silence,sample_length()}) ->
+	  Cb1::sample_buffer().
+insert(Cb=#sample_buffer{bps=Bps,buf=Buf},Pos,Data) ->
+    Pos1 = pos(Cb,Pos)*Bps,
+    Data1 = samples_to_binary(Cb,Data),
+    <<Buf0:Pos1/binary,Buf1/binary>> = Buf,
+    Cb#sample_buffer{buf = <<Buf0/binary,Data1/binary,Buf1/binary>>}.
+
+-spec insert(Cb::sample_buffer(), Pos::sample_position(), 
+	     Header::map(), Data::iodata()) ->
+	  Cb1::sample_buffer().
+insert(Cb=#sample_buffer{bps=Bps,buf=Buf},Pos,Header,Data) when 
+      is_map(Header) ->
+    Pos1 = pos(Cb,Pos)*Bps,
+    Data1 = samples_to_binary(Cb,Header,Data),
+    <<Buf0:Pos1/binary,Buf1/binary>> = Buf,
+    Cb#sample_buffer{buf = <<Buf0/binary,Data1/binary,Buf1/binary>>}.
+
+samples_to_binary(_Cb,Data) when is_binary(Data) ->
+    Data;
+samples_to_binary(_Cb,Data) when is_list(Data) ->
+    iolist_to_binary(Data);
+samples_to_binary(Cb, {silence, Len}) ->
+    silence(Cb, Len).
+
+samples_to_binary(Cb,Header,Data) when is_binary(Data) ->
+    transform_data(Cb,Header,Data);
+samples_to_binary(Cb,Header,Data) when is_list(Data) ->
+    transform_data(Cb,Header,iolist_to_binary(Data));
+samples_to_binary(Cb, _Header, {silence, Len}) ->
+    silence(Cb, Len).
 
 %% write samples from a file into the sample_buffer
 insert_file(Cb, Filename) ->
-    case read_file(Filename, ?MAX_DATA_SIZE) of    
+    insert_file(Cb, cur, Filename).
+
+insert_file(Cb, Pos, Filename) ->
+    case read_file(Filename) of    
 	{ok,{Header,Data}} ->
-	    Data1 = transform_data(Cb, Header, Data),
-	    insert(Cb, Data1);
+	    insert(Cb, Pos, Header, Data);
 	Error ->
 	    io:format("inster_file: error ~p\n", [Error]),
 	    Cb
     end.
 
-%% write/append samples to sample buffer
-append(Cb=#sample_buffer{buf=Buf}, Data) when is_binary(Data) ->
-    Cb#sample_buffer{buf = <<Buf/binary,Data/binary>>}.
+append(Cb, Data) ->
+    insert(Cb, eof, Data).
 
-%% write samples from a file into the sample_buffer
+append(Cb, Header, Data) ->
+    insert(Cb, eof, Header, Data).
+
 append_file(Cb, Filename) ->
-    case read_file(Filename, ?MAX_DATA_SIZE) of
-	{ok,{Header,Data}} ->
-	    Data1 = transform_data(Cb, Header, Data),
-	    append(Cb, Data1);
-	Error ->
-	    io:format("append_file: error ~p\n", [Error]),
-	    Cb
-    end.
+    insert_file(Cb, eof, Filename).
 
-%% FIXME: match format with existing?
-%% reformat new data?
-read_file(Filename, MaxDataSize) ->
+read_file(Filename) ->
     case file:open(Filename, [read, binary]) of
 	{ok, Fd} ->
 	    try alsa_playback:read_header(Fd) of
@@ -247,7 +498,7 @@ read_file(Filename, MaxDataSize) ->
 		    Format = maps:get(format, Header),
 		    Channels = maps:get(channels, Header),
 		    Size = alsa:format_size(Format, 1)*Channels,
-		    case read_file_data(Fd, MaxDataSize, Size) of
+		    case read_file_data(Fd, Size) of
 			{ok,Data} ->
 			    {ok,{Header, Data}};
 			Error ->
@@ -260,13 +511,13 @@ read_file(Filename, MaxDataSize) ->
 	    Error
     end.
 
-read_file_data(Fd, MaxDataSize, Align) ->
+read_file_data(Fd, Align) ->
     {ok,Cur} = file:position(Fd, cur),
     {ok,End} = file:position(Fd, eof),
     Size = End - Cur,
     AlignedDataSize = align_down(Size, Align),
-    AlignedMaxDataSize = align_up(MaxDataSize, Align),
-    DataSize = min(AlignedMaxDataSize, AlignedDataSize),
+    %% AlignedMaxDataSize = align_up(MaxDataSize, Align),
+    DataSize = AlignedDataSize, %% min(AlignedMaxDataSize, AlignedDataSize),
     file:position(Fd, Cur),
     file:read(Fd, DataSize).
 
@@ -275,11 +526,9 @@ align_down(X, Align) ->
     X - (X rem Align).
 
 %% align X to nearest greater multiple of Align
-align_up(X, Align) ->
-    X + ((Align - (X rem Align)) rem Align).
-    
-silence(#sample_buffer{format=Format, channels=Channels}, N) ->
-    alsa:make_silence(Format, Channels, N).
+%%align_up(X, Align) ->
+%%    X + ((Align - (X rem Align)) rem Align).
+
 
 transform_data(Cb, Header, Data) ->
     Rate = maps:get(rate, Header),
@@ -297,5 +546,20 @@ transform_data(Cb, Header, Data) ->
 	    end,
     Data2.
 
-    
+%% Tests
+
+test() ->
+    {ok,Cb1} = new(#{ format => u8, channels => 1}, "Hello world"),
+    <<"low">> = buffer(delete_samples(Cb1, [{0,3},{5,1},{7,4}])),
+    <<"low">> = copy_samples(Cb1, [{3,2},{6,1}]),
+
+    {ok,Cb2} = new(#{ rate => 1000, format => u8, channels => 1}, "0123456789"),
+    0 = get_position(Cb2, bof),
+    0 = get_position(Cb2, cur),
+    10 = get_position(Cb2, eof),
+    2 = get_position(Cb2, {bof,2}),
+    5 = get_position(Cb2, {cur,5}),
+    8 = get_position(Cb2, {eof,-2}),
+    2 = get_position(Cb2, {cur,{time,2}}),
+    ok.
     
