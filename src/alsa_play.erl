@@ -44,6 +44,8 @@
 %% -define(verbose(F), io:format((F),[])).
 -define(verbose(F,A), ok).
 %% -define(verbose(F,A), io:format((F),(A))).
+%%-define(info(F,A), ok).
+-define(info(F,A), io:format((F),(A))).
 
 test() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
@@ -113,16 +115,16 @@ test_pong() ->
 
 test_notify() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{}),
+    start(#{ rate => 16000 }),
     new(1),
     new(2),
     new(3),
     append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    append(1, {silence, {time, 1000}}),
+    append(1, {silence, {time,1000}}),
     append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time, 1000}}),
-    append_file(3, filename:join(Sounds, "Front_Right.wav")), 
-    append(3, {silence, {time, 1000}}),
+    append(2, {silence, {time,1000}}),
+    append_file(3, filename:join(Sounds, "Front_Right.wav")),
+    append(3, {silence, {time,1000}}),
     {ok,Ref1} = mark(1, {eof,-1}, [], center_done),
     {ok,Ref2} = mark(2, {eof,-1}, [], left_done),
     {ok,Ref3} = mark(3, {eof,-1}, [], right_done),
@@ -325,7 +327,7 @@ init(Options) ->
     process_flag(trap_exit, true),
     case alsa_playback:open(Options) of
 	{ok,H,Params} ->
-	    ?verbose("Alsa open: params = ~p\n", [Params]),
+	    ?info("Alsa open: params = ~p\n", [Params]),
 	    {ok, #state{ handle = H,
 			 params = Params,
 			 channels = #{}
