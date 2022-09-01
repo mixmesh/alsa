@@ -38,7 +38,7 @@
 -export([reset/0, clear/0, remove/0]).
 -export([resume/0, pause/0]).
 
--export([test/0, test_pong/0, test_notify/0]).
+-export([test/0, test/1, test_pong/0, test_notify/0]).
 
 -define(verbose(F), ok).
 %% -define(verbose(F), io:format((F),[])).
@@ -48,8 +48,10 @@
 -define(info(F,A), io:format((F),(A))).
 
 test() ->
+    test("default").
+test(Device) ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{}),
+    start(#{device=>Device, rate=>16000 }),
     new(1),
     new(2),
     new(3),
@@ -120,11 +122,11 @@ test_notify() ->
     new(2),
     new(3),
     append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    append(1, {silence, {time,1000}}),
+    append(1, {silence, {time,100}}),
     append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time,1000}}),
+    append(2, {silence, {time,100}}),
     append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    append(3, {silence, {time,1000}}),
+    append(3, {silence, {time,100}}),
     {ok,Ref1} = mark(1, {eof,-1}, [], center_done),
     {ok,Ref2} = mark(2, {eof,-1}, [], left_done),
     {ok,Ref3} = mark(3, {eof,-1}, [], right_done),
@@ -435,6 +437,7 @@ handle_call({clear,Channel}, _From, State) ->
 	undefined ->
 	    {reply, {error, enoent}, State};
 	Buf ->
+	    %% FIXME: clean marks?
 	    Buf1 = alsa_buffer:clear(Buf),
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;    
@@ -446,7 +449,7 @@ handle_call({mute,Channel,On}, _From, State) ->
 	    {reply, {error, enoent}, State};
 	Buf ->
 	    Buf1 = case On of
-		       true -> alsa_buffer:mute(Buf);
+		       true  -> alsa_buffer:mute(Buf);
 		       false -> alsa_buffer:unmute(Buf)
 		   end,
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
@@ -505,7 +508,7 @@ handle_call({delete,Channel,Range}, _From, State) ->
 	undefined ->
 	    {reply, {error, enoent}, State};
 	Buf ->
-	    Buf1 = alsa_buffer:delete_samples(Buf,Range),
+	    Buf1 = alsa_buffer:delete(Buf,Range),
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;
 
@@ -530,6 +533,7 @@ handle_call(run, _From, State) ->
 		 end, State#state.channels),
     {reply, ok, State#state { channels = ChanMap1 }};
 
+%% FIXME: clean marks?
 handle_call(clear, _From, State) ->
     ChanMap1 = maps:map(
 		 fun(_Channel, Buf) ->
@@ -755,7 +759,7 @@ read_buffer_list(ChanMap, PeriodSize) ->
 
 read_buffer_list_([Channel|Cs], ChanMap, PeriodSize, Acc, Marks) ->
     Cb = maps:get(Channel, ChanMap),
-    case alsa_buffer:read_samples_and_marks(Cb, PeriodSize) of
+    case alsa_buffer:read_with_marks(Cb, PeriodSize) of
 	{<<>>, Cb1, Ms} -> %% probably stopped
 	    read_buffer_list_(Cs, ChanMap#{ Channel => Cb1}, PeriodSize, 
 			      Acc, add_marks(Channel,Ms,Marks));
