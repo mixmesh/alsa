@@ -38,7 +38,14 @@
 -export([reset/0, clear/0, remove/0]).
 -export([resume/0, pause/0]).
 
--export([test/0, test/1, test_pong/0, test_notify/0]).
+-export([test/0, 
+	 test/1, 
+	 test_pong/0, 
+	 test_notify/0,
+	 test_notify_once/0,
+	 test_notify_once_one/0,
+	 test_notify_music/0
+	]).
 
 -define(verbose(F), ok).
 %% -define(verbose(F), io:format((F),[])).
@@ -145,13 +152,132 @@ test_notify() ->
 	    ok
     end,
     alsa_play:pause(),
-
+    unmark(1, Ref1),
+    unmark(2, Ref2),
+    unmark(3, Ref3),
     remove(1),
     remove(2),
     remove(3),
     ok.
 
-    
+%% play each wav file in sequence in different channels 1,2,3,
+%% reset channel and remove mark after each completed play
+test_notify_once() ->
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    start(#{ rate => 16000 }),
+    new(1),
+    new(2),
+    new(3),
+    append_file(1, filename:join(Sounds, "Front_Center.wav")),
+    append(1, {silence, {time,100}}),
+    append_file(2, filename:join(Sounds, "Front_Left.wav")),
+    append(2, {silence, {time,100}}),
+    append_file(3, filename:join(Sounds, "Front_Right.wav")),
+    append(3, {silence, {time,100}}),
+
+    {ok,Ref1} = mark(1, {eof,-1}, [once], sample_played),
+    run(1),
+    resume(),
+    receive
+	{Ref1, 1, _Pos1, _Flags1, sample_played} ->
+	    ok
+    end,
+
+    {ok,Ref2} = mark(2, {eof,-1}, [once], sample_played),
+    run(2),
+    receive
+	{Ref2, 2, _Pos2, _Flags2, sample_played} ->
+	    ok
+    end,
+
+    {ok,Ref3} = mark(3, {eof,-1}, [once], sample_played),
+    run(3),
+    receive
+	{Ref3, 3, _Pos3, _Flags3, sample_played} ->
+	    ok
+    end,
+    pause(),
+    remove(1),
+    remove(2),
+    remove(3),
+    ok.
+
+
+%% play each wav file in sequence in the same channels 1
+%% remove mark after each completed play
+test_notify_once_one() ->
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    start(#{ rate => 16000 }),
+    new(1),
+    append_file(1, filename:join(Sounds, "Front_Center.wav")),
+    %% append(1, {silence, {time,100}}),
+    {ok,Ref1} = mark(1, {eof,-1}, [once,stop], sample1_played),
+
+    append_file(1, filename:join(Sounds, "Front_Left.wav")),
+    %% append(2, {silence, {time,100}}),
+    {ok,Ref2} = mark(1, {eof,-1}, [once,stop], sample2_played),
+    append_file(1, filename:join(Sounds, "Front_Right.wav")),
+    %% append(3, {silence, {time,100}}),
+    {ok,Ref3} = mark(1, {eof,-1}, [once,stop], sample3_played),
+
+    run(1),
+    resume(),
+    receive
+	{Ref1, 1, _Pos1, _Flags1, sample1_played} ->
+	    ok
+    end,
+    run(1),
+    pause(),resume(),
+    receive
+	{Ref2, 1, _Pos2, _Flags2, sample2_played} ->
+	    ok
+    end,
+    run(1),
+    pause(),resume(),
+    receive
+	{Ref3, 1, _Pos3, _Flags3, sample3_played} ->
+	    ok
+    end,
+    pause(),
+    remove(1),
+    ok.
+
+test_notify_music() ->    
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    start(#{ rate => 16000 }),
+    new(1),
+    append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
+    {ok,Ref1} = mark(1, {eof,-1}, [reset], "Music"),
+    new(2),
+    append(2, {silence, {time,500}}),
+    append_file(2, filename:join(Sounds, "Front_Left.wav")),
+    append(2, {silence, {time,1000}}),
+    {ok,Ref2} = mark(2, {eof,-1}, [reset], "Left"),
+    new(3),
+    append(3, {silence, {time,1000}}),
+    append_file(3, filename:join(Sounds, "Front_Right.wav")),
+    append(3, {silence, {time,500}}),
+    {ok,Ref3} = mark(3, {eof,-1}, [reset], "Right"),
+
+    erlang:start_timer(20000, self(), stop),    
+    run(),
+    resume(),
+    test_notify_loop(),
+    unmark(1,Ref1),unmark(2,Ref2),unmark(3,Ref3),
+    remove(1),remove(2),remove(3),
+    ok.
+
+
+
+test_notify_loop() ->
+    receive
+	{_Ref, _Chan, _Pos, _Flags, What} ->
+	    io:format("~s\n", [What]),
+	    test_notify_loop();
+	{timeout, _, stop} ->
+	    pause(),
+	    ok
+    end.
     
     
     
@@ -277,7 +403,7 @@ pause() ->
 	 pause = true :: boolean(),
 	 channels :: #{ integer() => alsa_buffer:sample_buffer()  },
 	 output = undefined :: undefine | binary(),
-	 marks = []
+	 marks = []      %% current marks
 	}).
 
 %%%===================================================================
@@ -613,9 +739,9 @@ handle_info({select,Handle,undefined,_Ready}, State) when
 	{ok, Written} ->
 	    Size = byte_size(State#state.output),
 	    if Written =:= Size ->
-		    notify(State#state.marks),
-		    State1 = play(State#state{output=undefined,marks=[]}),
-		    {noreply, State1};
+		    State1 = notify(State#state.marks, State),
+		    State2 = play(State1#state{output=undefined,marks=[]}),
+		    {noreply, State2};
 	       true ->
 		    <<_:Written/binary, Bin1/binary>> = State#state.output,
 		    State1 = play(State#state{output=Bin1 }),
@@ -669,15 +795,38 @@ format_status(_Opt, Status) ->
 %%% Internal functions
 %%%===================================================================
 
-notify([]) -> ok;
-notify([{Channel,Ms}|Marks]) ->
-    lists:foreach(
-      fun({Ref,{Pid,Pos,Flags,UserData}}) ->
-	      Event = {Ref,Channel,Pos,Flags,UserData},
-	      io:format("notify ~p\n", [Event]),
-	      Pid ! Event
-      end, Ms),
-    notify(Marks).
+notify([], State) -> 
+    State;
+notify([{Channel,Ms}|Marks], State) ->
+    State1 = 
+	lists:foldl(
+	  fun({Ref,{Pid,Pos,Flags,UserData}}, Si) ->
+		  Sj = 
+		      with_buffer(
+			fun(Buf) ->
+				lists:foldl(
+				  fun(stop, Bi) ->
+					  alsa_buffer:stop(Bi);
+				     (once, Bi) ->
+					  alsa_buffer:unmark(Bi, Ref);
+				     (reset,Bi) ->
+					  alsa_buffer:reset(Bi)
+				  end, Buf, Flags)
+			end, Channel, Si),
+		  Event = {Ref,Channel,Pos,Flags,UserData},
+		  io:format("notify ~p\n", [Event]),
+		  Pid ! Event,
+		  Sj
+	  end, State, Ms),
+    notify(Marks, State1).
+
+with_buffer(Fun, Channel, State) ->
+    ChanMap = State#state.channels,
+    Buf = maps:get(Channel, ChanMap),
+    Buf1 = Fun(Buf),
+    ChanMap1 = ChanMap#{ Channel => Buf1 },
+    State#state { channels = ChanMap1 }.
+
 
 play(State = #state {handle=Handle,output=undefined,
 		     params=Params,channels=ChanMap}) ->
@@ -686,8 +835,8 @@ play(State = #state {handle=Handle,output=undefined,
     Format = maps:get(format, Params),
     case read_buffer_list(ChanMap, PeriodSize) of
 	{ChanMap1, [], Marks} -> %% nothing to play do internal pause?
-	    notify(Marks),
-	    State#state{ output=undefined, marks=[], channels=ChanMap1 };
+	    State1 = notify(Marks, State),
+	    State1#state{ output=undefined, marks=[], channels=ChanMap1 };
 	{ChanMap1,BufferList,Marks} ->
 	    FrameSize = alsa:format_size(Format, Channels),
 	    Bin = mix_buffers(BufferList, FrameSize, Format, Channels),
@@ -712,8 +861,8 @@ play(State = #state {handle=Handle,output=undefined,
 		    ?verbose("play: written ~w, remain=~w\n", 
 			     [Written, byte_size(Bin)]),
 		    if Written =:= byte_size(Bin) ->
-			    notify(Marks),
-			    play(State#state{output=undefined,
+			    State1 = notify(Marks, State),
+			    play(State1#state{output=undefined,
 					     marks=[],
 					     channels=ChanMap1});
 		       true ->
@@ -746,8 +895,8 @@ play(State = #state {handle=Handle,marks=Marks,output=Bin}) ->
 	    ?verbose("play1: written ~w, remain=~w\n", 
 		     [Written, byte_size(Bin)]),
 	    if Written =:= byte_size(Bin) ->
-		    notify(Marks),
-		    play(State#state{output=undefined,marks=[]});
+		    State1 = notify(Marks, State),
+		    play(State1#state{output=undefined,marks=[]});
 	       true ->
 		    <<_:Written/binary, Bin1/binary>> = Bin,
 		    play(State#state{output=Bin1})
@@ -855,6 +1004,7 @@ is_string(Name) ->
 
 is_mark_flags([once|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([stop|Fs]) -> is_mark_flags(Fs);
+is_mark_flags([reset|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([]) -> true;
 is_mark_flags(_) -> false.
 

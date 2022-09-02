@@ -24,6 +24,7 @@
 -export([silence/2]).
 -export([mark/5, mark/6]).
 -export([unmark/2]).
+-export([move_mark/3, set_mark_flags/3, set_mark_user_data/3]).
 -export([find_marks/3]).
 
 %% test
@@ -41,7 +42,7 @@
 -type range_start() :: bof | unsigned().
 -type range_size() :: eof | unsigned().
 -type sample_range() :: [{range_start(), range_size()}].
--type sample_event_flag() :: stop|once.
+-type sample_event_flag() :: stop|once|reset.
 -type sample_event() :: {pid(),Pos::unsigned(),
 			 [sample_event_flag()],UserData::term()}.
 -type sample_length() :: integer() | {time,number()}.
@@ -189,6 +190,60 @@ unmark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks}, Ref)
 	    Cb
     end.
 
+%% move mark to a new position
+move_mark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks}, Ref, NewPos) when
+      is_reference(Ref) ->
+    case maps:get(Ref, Marks, undefined) of
+	{Pid,Pos,Flags,UserData} ->    
+	    case gb_trees:lookup(Pos, Gb) of
+		none ->
+		    Cb;
+		{value,List0} ->
+		    Gb1 = case lists:delete(Ref,List0) of
+			      [] ->
+				  gb_trees:delete(Pos, Gb);
+			      List1 ->
+				  gb_trees:update(Pos, List1, Gb)
+			  end,
+		    NewPos1 = pos(Cb,NewPos),
+		    Gb2 = case gb_trees:lookup(NewPos1, Gb1) of
+			      none -> 
+				  gb_trees:insert(NewPos1, [Ref], Gb1);
+			      {value,List2} -> 
+				  gb_trees:update(NewPos1, [Ref|List2], Gb1)
+			  end,
+		    Event = {Pid,NewPos1,Flags,UserData},
+		    Marks1 = Marks#{ Ref => Event },
+		    Cb#sample_buffer{mark_tree=Gb2, marks=Marks1}
+	    end;
+	undefined ->
+	    Cb
+    end.
+
+%% set mark flags
+set_mark_flags(Cb=#sample_buffer{marks=Marks}, Ref, NewFlags) when
+      is_reference(Ref), is_list(NewFlags) ->
+    case maps:get(Ref, Marks, undefined) of
+	{Pid,Pos,_Flags,UserData} ->
+	    Event = {Pid,Pos,NewFlags,UserData},
+	    Marks1 = Marks#{ Ref => Event },
+	    Cb#sample_buffer{marks=Marks1};
+	undefined ->
+	    Cb
+    end.
+
+%% set mark user data
+set_mark_user_data(Cb=#sample_buffer{marks=Marks}, Ref, NewUserData) when
+      is_reference(Ref) ->
+    case maps:get(Ref, Marks, undefined) of
+	{Pid,Pos,Flags,_UserData} ->
+	    Event = {Pid,Pos,Flags,NewUserData},
+	    Marks1 = Marks#{ Ref => Event },
+	    Cb#sample_buffer{marks=Marks1};
+	undefined ->
+	    Cb
+    end.
+
 -spec find_marks(Cb::sample_buffer(), From::unsigned(), To::unsigned()) ->
 	  [{reference(),sample_event()}].
 find_marks(#sample_buffer{mark_tree=Gb, marks=Marks},
@@ -239,22 +294,22 @@ buffer(#sample_buffer{buf=Buf}) ->
     Buf.
     
 reset(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{cur=0 }.
+    Cb#sample_buffer{ cur=0 }.
 
 clear(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{cur=0, buf = <<>> }.
+    Cb#sample_buffer{ cur=0, buf = <<>> }.
 
 stop(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{state=stopped}.
+    Cb#sample_buffer{ state=stopped}.
 
 run(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{state=running}.
+    Cb#sample_buffer{ state=running}.
 
 mute(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{muted=true}.
+    Cb#sample_buffer{ muted=true}.
 
 unmute(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{muted=false}.
+    Cb#sample_buffer{ muted=false}.
 
 -spec read_with_marks(Cb::sample_buffer(), Len::sample_length()) -> 
 	  {Data::binary(), Cb1::sample_buffer(), [sample_event()]}.
