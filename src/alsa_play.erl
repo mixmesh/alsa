@@ -34,18 +34,21 @@
 -export([delete/2]).
 -export([run/1, run/0]).
 -export([stop/1, stop/0]).
--export([reset/1, clear/1, remove/1]).
--export([reset/0, clear/0, remove/0]).
+-export([restart/1, clear/1, remove/1]).
+-export([restart/0, clear/0, remove/0]).
 -export([resume/0, pause/0]).
 
--export([test/0, 
-	 test/1, 
-	 test_pong/0, 
+-export([test/0,
+	 test/1,
+	 test_pong/0,
 	 test_notify/0,
 	 test_notify_once/0,
 	 test_notify_once_one/0,
-	 test_notify_music/0
+	 test_notify_music/0,
+	 test_left_right/0
 	]).
+
+-type channel() :: non_neg_integer().
 
 -define(verbose(F), ok).
 %% -define(verbose(F), io:format((F),[])).
@@ -91,17 +94,17 @@ test_pong() ->
     lists:foreach(
       fun(_) ->
 	      mute(1, false),
-	      reset(1),
+	      restart(1),
 	      timer:sleep(500), %% listen to plop
 	      mute(1, true),
 
 	      mute(2, false),
-	      reset(2),
+	      restart(2),
 	      timer:sleep(500),  %% listen to beep
 	      mute(2, true),
 
 	      mute(3, false),
-	      reset(3),
+	      restart(3),
 	      timer:sleep(2000),  %% listen to Side_Left
 	      mute(3, true)
       end, lists:seq(1, 4)),
@@ -111,7 +114,7 @@ test_pong() ->
     mute(1, false),
     mute(2, false),
     mute(3, false),
-    reset(3),
+    restart(3),
     
     timer:sleep(2000),  %% listen to all
 
@@ -134,9 +137,9 @@ test_notify() ->
     append(2, {silence, {time,100}}),
     append_file(3, filename:join(Sounds, "Front_Right.wav")),
     append(3, {silence, {time,100}}),
-    {ok,Ref1} = mark(1, {eof,-1}, [], center_done),
-    {ok,Ref2} = mark(2, {eof,-1}, [], left_done),
-    {ok,Ref3} = mark(3, {eof,-1}, [], right_done),
+    {ok,Ref1} = mark(1, {eof,-1}, [notify], center_done),
+    {ok,Ref2} = mark(2, {eof,-1}, [notify], left_done),
+    {ok,Ref3} = mark(3, {eof,-1}, [notify], right_done),
     run(1),
     resume(),
     receive
@@ -161,7 +164,7 @@ test_notify() ->
     ok.
 
 %% play each wav file in sequence in different channels 1,2,3,
-%% reset channel and remove mark after each completed play
+%% restart channel and remove mark after each completed play
 test_notify_once() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
     start(#{ rate => 16000 }),
@@ -175,7 +178,7 @@ test_notify_once() ->
     append_file(3, filename:join(Sounds, "Front_Right.wav")),
     append(3, {silence, {time,100}}),
 
-    {ok,Ref1} = mark(1, {eof,-1}, [once], sample_played),
+    {ok,Ref1} = mark(1, {eof,-1}, [notify,once], sample_played),
     run(1),
     resume(),
     receive
@@ -183,14 +186,14 @@ test_notify_once() ->
 	    ok
     end,
 
-    {ok,Ref2} = mark(2, {eof,-1}, [once], sample_played),
+    {ok,Ref2} = mark(2, {eof,-1}, [notify,once], sample_played),
     run(2),
     receive
 	{Ref2, 2, _Pos2, _Flags2, sample_played} ->
 	    ok
     end,
 
-    {ok,Ref3} = mark(3, {eof,-1}, [once], sample_played),
+    {ok,Ref3} = mark(3, {eof,-1}, [notify,once], sample_played),
     run(3),
     receive
 	{Ref3, 3, _Pos3, _Flags3, sample_played} ->
@@ -211,14 +214,14 @@ test_notify_once_one() ->
     new(1),
     append_file(1, filename:join(Sounds, "Front_Center.wav")),
     %% append(1, {silence, {time,100}}),
-    {ok,Ref1} = mark(1, {eof,-1}, [once,stop], sample1_played),
+    {ok,Ref1} = mark(1, {eof,-1}, [notify,once,stop], sample1_played),
 
     append_file(1, filename:join(Sounds, "Front_Left.wav")),
     %% append(2, {silence, {time,100}}),
-    {ok,Ref2} = mark(1, {eof,-1}, [once,stop], sample2_played),
+    {ok,Ref2} = mark(1, {eof,-1}, [notify,once,stop], sample2_played),
     append_file(1, filename:join(Sounds, "Front_Right.wav")),
     %% append(3, {silence, {time,100}}),
-    {ok,Ref3} = mark(1, {eof,-1}, [once,stop], sample3_played),
+    {ok,Ref3} = mark(1, {eof,-1}, [notify,once,stop], sample3_played),
 
     run(1),
     resume(),
@@ -242,32 +245,30 @@ test_notify_once_one() ->
     remove(1),
     ok.
 
-test_notify_music() ->    
+test_notify_music() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
     start(#{ rate => 16000 }),
     new(1),
     append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
-    {ok,Ref1} = mark(1, {eof,-1}, [reset], "Music"),
+    {ok,Ref1} = mark(1, {eof,-1}, [notify,restart], "Music"),
     new(2),
     append(2, {silence, {time,500}}),
     append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time,1000}}),
-    {ok,Ref2} = mark(2, {eof,-1}, [reset], "Left"),
+    append(2, {silence, {time,1500}}),
+    {ok,Ref2} = mark(2, {time,2000}, [restart], "Left"),
     new(3),
     append(3, {silence, {time,1000}}),
     append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    append(3, {silence, {time,500}}),
-    {ok,Ref3} = mark(3, {eof,-1}, [reset], "Right"),
+    append(3, {silence, {time,1000}}),
+    {ok,Ref3} = mark(3, {time,2000}, [restart], "Right"),
 
-    erlang:start_timer(20000, self(), stop),    
+    erlang:start_timer(30000, self(), stop),    
     run(),
     resume(),
     test_notify_loop(),
     unmark(1,Ref1),unmark(2,Ref2),unmark(3,Ref3),
     remove(1),remove(2),remove(3),
     ok.
-
-
 
 test_notify_loop() ->
     receive
@@ -278,9 +279,22 @@ test_notify_loop() ->
 	    pause(),
 	    ok
     end.
-    
-    
-    
+
+%% Edit Front_Left and Front_Right to say Left/Right in a loop
+test_left_right() ->
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    start(#{ rate => 16000 }),
+    new(1),
+    append(1, {silence, {time,100}}),
+    mark(1, eof, [{set,{cur,{time,500}}}], undefined), %% skip Front_...
+    append_file(1, filename:join(Sounds, "Front_Left.wav")),
+    append(1, {silence, {time,100}}),
+    mark(1, eof, [{set,{cur,{time,550}}}], undefined), %% skip Front_...
+    append_file(1, filename:join(Sounds, "Front_Right.wav")),
+    mark(1, eof, [{set,bof}], undefined),
+    run(),
+    resume(),
+    ok.
 
 new(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {new, Channel}).
@@ -331,8 +345,18 @@ append(Channel, Header, Samples) ->
 append_file(Channel, Filename) ->
     insert_file(Channel, eof, Filename).
 
+-spec mark(Channel::channel(), UserData::term()) ->
+    {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, UserData) -> mark(Channel, cur, [], UserData).
+
+-spec mark(Channel::channel(), Flags::[alsa_buffer:sample_event_flag()],
+      UserData::term()) ->
+    {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Flags, UserData) -> mark(Channel, cur, Flags, UserData).
+
+-spec mark(Channel::channel(), Pos::alsa_buffer:sample_position(),
+      Flags::[alsa_buffer:sample_event_flag()], UserData::term()) ->
+    {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Pos, Flags, UserData) ->
     case is_channel(Channel) andalso
 	is_pos(Pos) andalso
@@ -343,6 +367,8 @@ mark(Channel, Pos, Flags, UserData) ->
 	    error(badarg)
     end.
 
+-spec unmark(Channel::channel(), Ref::reference()) ->
+	  ok | {error, Reason::term()}.
 unmark(Channel, Ref) ->
     case is_channel(Channel) andalso
 	is_reference(Ref) of
@@ -354,8 +380,8 @@ unmark(Channel, Ref) ->
 delete(Channel, Range) when ?is_channel(Channel), is_list(Range) ->
     gen_server:call(?SERVER, {delete, Channel, Range}).
 
-reset(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {reset, Channel}).
+restart(Channel) when ?is_channel(Channel) ->
+    gen_server:call(?SERVER, {restart, Channel}).
 
 clear(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {clear, Channel}).
@@ -378,8 +404,8 @@ run(Channel) when ?is_channel(Channel) ->
 stop(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {stop, Channel}).
 
-reset() ->
-    gen_server:call(?SERVER, reset).
+restart() ->
+    gen_server:call(?SERVER, restart).
 
 clear() ->
     gen_server:call(?SERVER, clear).
@@ -547,13 +573,13 @@ handle_call({unmark,Channel,Ref}, _From, State) ->
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;
 
-handle_call({reset,Channel}, _From, State) ->
+handle_call({restart,Channel}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
 	Buf ->
-	    Buf1 = alsa_buffer:reset(Buf),
+	    Buf1 = alsa_buffer:restart(Buf),
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;
 
@@ -638,10 +664,10 @@ handle_call({delete,Channel,Range}, _From, State) ->
 	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}}
     end;
 
-handle_call(reset, _From, State) ->
+handle_call(restart, _From, State) ->
     ChanMap1 = maps:map(
 		 fun(_Channel, Buf) ->
-			 alsa_buffer:reset(Buf)
+			 alsa_buffer:restart(Buf)
 		 end, State#state.channels),
     {reply, ok, State#state { channels = ChanMap1 }};
 
@@ -809,13 +835,19 @@ notify([{Channel,Ms}|Marks], State) ->
 					  alsa_buffer:stop(Bi);
 				     (once, Bi) ->
 					  alsa_buffer:unmark(Bi, Ref);
-				     (reset,Bi) ->
-					  alsa_buffer:reset(Bi)
+				     (restart,Bi) ->
+					  alsa_buffer:restart(Bi);
+				     ({set,Pos1},Bi) ->
+					  alsa_buffer:set_position(Bi,Pos1);
+				     (notify, Bi) ->
+					  Event = 
+					      {Ref,Channel,Pos,Flags,UserData},
+					  io:format("notify ~p\n", [Event]),
+					  Pid ! Event,
+					  Bi
 				  end, Buf, Flags)
 			end, Channel, Si),
-		  Event = {Ref,Channel,Pos,Flags,UserData},
-		  io:format("notify ~p\n", [Event]),
-		  Pid ! Event,
+
 		  Sj
 	  end, State, Ms),
     notify(Marks, State1).
@@ -970,7 +1002,7 @@ add([], []) -> [].
 %% check argument types
 %%
 %% Len = integer() | {time, number()}
-%% Pos = bof|eof|cur|{bof,Len}|{eof,Len}|{cur,Len}|unsigned()
+%% Pos = bof|eof|cur|{bof,Len}|{eof,Len}|{cur,Len}|unsigned()|{time,number()}
 is_pos(bof) -> true;
 is_pos(eof) -> true;
 is_pos(cur) -> true;
@@ -978,7 +1010,7 @@ is_pos(Pos) when is_integer(Pos), Pos >= 0 -> true;
 is_pos({bof,Len}) -> is_len(Len);
 is_pos({eof,Len}) -> is_len(Len);
 is_pos({cur,Len}) -> is_len(Len);
-is_pos(_) -> false.
+is_pos(Len) -> is_len(Len).
 
 is_len({time,T}) when is_number(T) -> true;
 is_len(Len) -> is_integer(Len).
@@ -1002,15 +1034,10 @@ is_string(Name) ->
 	    false
     end.
 
+is_mark_flags([notify|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([once|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([stop|Fs]) -> is_mark_flags(Fs);
-is_mark_flags([reset|Fs]) -> is_mark_flags(Fs);
+is_mark_flags([restart|Fs]) -> is_mark_flags(Fs); %% = {set,{pos,bof}}
+is_mark_flags([{set,Pos}|Fs]) -> is_pos(Pos) andalso is_mark_flags(Fs);
 is_mark_flags([]) -> true;
 is_mark_flags(_) -> false.
-
-    
-	     
-	    
-
-    
-    

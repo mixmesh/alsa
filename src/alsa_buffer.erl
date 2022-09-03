@@ -19,7 +19,7 @@
 -export([get_position/1, get_position/2]).
 -export([set_position/2]).
 -export([buffer/1]).
--export([reset/1, clear/1]).
+-export([restart/1, clear/1]).
 -export([stop/1, run/1, mute/1, unmute/1]).
 -export([silence/2]).
 -export([mark/5, mark/6]).
@@ -42,15 +42,21 @@
 -type range_start() :: bof | unsigned().
 -type range_size() :: eof | unsigned().
 -type sample_range() :: [{range_start(), range_size()}].
--type sample_event_flag() :: stop|once|reset.
--type sample_event() :: {pid(),Pos::unsigned(),
-			 [sample_event_flag()],UserData::term()}.
 -type sample_length() :: integer() | {time,number()}.
 -type sample_position() :: 
 	unsigned() | cur | bof | eof | {time,number()} |
 	{cur, sample_length()} |
 	{bof, sample_length()} |
 	{eof, sample_length()}.
+-type sample_event_flag() :: 
+	notify  | %% send event to mark creator
+	once    | %% remove mark when executed
+	stop    | %% stop channel after mark is executed
+	restart | %% set cur=0 when mark is executed = {set,0} = {set,bof}
+	{set,Pos::sample_position()} .
+
+-type sample_event() :: {pid(),Pos::unsigned(),
+			 [sample_event_flag()],UserData::term()}.
 -define(GB_EMPTY, {0,nil}).
 
 
@@ -244,6 +250,8 @@ set_mark_user_data(Cb=#sample_buffer{marks=Marks}, Ref, NewUserData) when
 	    Cb
     end.
 
+%% return list of marks from and including position From
+%% until but NOT including To (To is the location after the region scanned)
 -spec find_marks(Cb::sample_buffer(), From::unsigned(), To::unsigned()) ->
 	  [{reference(),sample_event()}].
 find_marks(#sample_buffer{mark_tree=Gb, marks=Marks},
@@ -279,8 +287,8 @@ get_position(Cb=#sample_buffer{}, Pos) ->
 set_position(Cb, Pos) ->
     set_position_(Cb, pos(Cb, Pos)).
 
-set_position_(Cb=#sample_buffer{bpf=Bpf,buf=Buf}, Pos) ->
-    NFrames = byte_size(Buf) div Bpf,
+set_position_(Cb=#sample_buffer{}, Pos) ->
+    NFrames = pos_eof(Cb),
     Pos1 = if Cb#sample_buffer.loop, Pos >= 0 ->
 		   Pos rem NFrames;
 	      Cb#sample_buffer.loop, Pos < 0 ->
@@ -293,7 +301,7 @@ set_position_(Cb=#sample_buffer{bpf=Bpf,buf=Buf}, Pos) ->
 buffer(#sample_buffer{buf=Buf}) ->
     Buf.
     
-reset(Cb=#sample_buffer{}) ->
+restart(Cb=#sample_buffer{}) ->
     Cb#sample_buffer{ cur=0 }.
 
 clear(Cb=#sample_buffer{}) ->
@@ -313,16 +321,16 @@ unmute(Cb=#sample_buffer{}) ->
 
 -spec read_with_marks(Cb::sample_buffer(), Len::sample_length()) -> 
 	  {Data::binary(), Cb1::sample_buffer(), [sample_event()]}.
-read_with_marks(Cb=#sample_buffer{cur=Cur,buf=Buf,bpf=Bpf,loop=Loop}, Len) ->
-    Len1 = len(Cb, Len),               %% length in number of samples
-    NFrames = byte_size(Buf) div Bpf,  %% Number of frames in buffer
+read_with_marks(Cb=#sample_buffer{cur=Cur,loop=Loop}, Len) ->
+    Len1 = len(Cb, Len),   %% length in number of samples
+    NFrames = pos_eof(Cb), %% Number of frames in buffer
     {Data, Cb1} = read_(Cb, Len1),
     %% io:format("read: range from=~w,len=~w,n=~w\n", [Cur,Len1,NFrames]),
     Cur1 = Cur + Len1,
     if Loop, Cur1 >= NFrames -> 
 	    Cur2 = Cur1 rem NFrames,
-	    Marks1 = find_marks(Cb, Cur, NFrames),
-	    Marks2 = find_marks(Cb, 0, Cur2),
+	    Marks1 = find_marks(Cb, Cur, NFrames), %% scan rest of buffer
+	    Marks2 = find_marks(Cb, 0, Cur2),      %% scan wrapped buffer
 	    {Data, Cb1, lists:usort(Marks1 ++ Marks2)};
        true ->
 	    Marks = find_marks(Cb, Cur, Cur1),
@@ -336,9 +344,9 @@ read(Cb=#sample_buffer{}, Len) ->
 
 read_(Cb=#sample_buffer{state=stopped}, _Len) ->
     {<<>>, Cb};  %% nothing to read
-read_(Cb=#sample_buffer{cur=Cur,buf=Buf,bpf=Bpf,muted=true},Len) ->
-    NFrames = byte_size(Buf) div Bpf,  %% total number of frames
-    Cur1 = Cur + Len,  %% position after read
+read_(Cb=#sample_buffer{cur=Cur,muted=true},Len) ->
+    NFrames = pos_eof(Cb), %% total number of frames
+    Cur1 = Cur + Len,      %% position after read
     if Cb#sample_buffer.loop ->
 	    {silence(Cb,Len), Cb#sample_buffer{cur=Cur1 rem NFrames}};
        true ->
@@ -449,23 +457,27 @@ range(Cb, [Interval|Range]) ->
 range(_Cb, []) ->
     [].
 
-ival(Cb=#sample_buffer{cur=Cur,buf=Buf,bpf=Bpf},{Pos,eof}) ->
-    {pos(Cb,Pos), (byte_size(Buf)-Cur) div Bpf};
+ival(Cb=#sample_buffer{},{Pos,eof}) ->
+    NFrames = pos_eof(Cb),
+    Pos1 = pos(Cb,Pos),
+    {Pos1, NFrames-Pos1};
 ival(Cb,{Pos,Len}) ->
     {pos(Cb,Pos), len(Cb,Len)}.
+
+%% position of at end of buffer (in number of frames)
+pos_eof(#sample_buffer{bpf=Bpf,buf=Buf}) ->
+    byte_size(Buf) div Bpf.
 
 %% translate sample_position into absolute sample position
 -spec pos(Cb::sample_buffer(), Pos::sample_position()) -> integer().
 pos(_Cb,Pos) when is_integer(Pos), Pos >= 0 -> Pos;
 pos(#sample_buffer{rate=R},{time,T}) -> trunc((R * T) / 1000);
 pos(_Cb,bof) -> 0;
-pos(#sample_buffer{bpf=Bpf,buf=Buf},eof) -> byte_size(Buf) div Bpf;
-pos(#sample_buffer{bpf=Bpf,cur=Cur},cur) -> Cur div Bpf;
-pos(Cb=#sample_buffer{bpf=Bpf,cur=Cur},{cur,Offs}) ->
-    (Cur div Bpf) + len(Cb, Offs);
+pos(Cb,eof) -> pos_eof(Cb);
+pos(#sample_buffer{cur=Cur},cur) -> Cur;
+pos(Cb=#sample_buffer{cur=Cur},{cur,Offs}) -> Cur + len(Cb, Offs);
 pos(Cb=#sample_buffer{},{bof,Offs}) -> len(Cb, Offs);
-pos(Cb=#sample_buffer{bpf=Bpf,buf=Buf},{eof,Offs}) ->
-    (byte_size(Buf) div Bpf) + len(Cb, Offs).
+pos(Cb=#sample_buffer{},{eof,Offs}) -> pos_eof(Cb) + len(Cb, Offs).
 
 %% translate Len into number of samples
 -spec len(Cb::sample_buffer(), Len::sample_length()) -> integer().
