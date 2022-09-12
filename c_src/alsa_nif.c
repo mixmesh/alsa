@@ -1,4 +1,3 @@
-#include <stdbool.h>
 #include <erl_nif.h>
 #include <alsa/asoundlib.h>
 
@@ -580,7 +579,6 @@ static ERL_NIF_TERM make_format(ErlNifEnv* env, snd_pcm_format_t format)
     }
 }
 
-// FIXME: speed up with little hash table (in ctx) if needed
 static int get_format(ErlNifEnv* env, ERL_NIF_TERM arg,
 		      snd_pcm_format_t* format_ptr)
 {

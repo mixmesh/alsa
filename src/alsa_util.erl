@@ -139,6 +139,8 @@ map_channels([FL,FR,_FC,_LFE,RL,RR,_SL,_SR], 4) -> [FR,FL,RR,RL];
 
 map_channels([FC], 5) -> X=trunc(FC*0.5), [X,X,0,X,X];
 map_channels([FL,FR], 5) -> [FR,FL,0,FL,FR];
+map_channels([FL,FR,LFE], 5) -> [FR,FL,LFE,FL,FR];
+map_channels([FL,FR,RL,RR], 5) -> [FR,FL,0,RL,RR];
 map_channels([FL,FR,_FC,LFE,RR,RL], 5) -> [FR,FL,LFE,RR,RL];
 map_channels([FL,FR,_FC,LFE,RL,RR,_SL,_SR], 5) -> [FR,FL,LFE,RR,RL];
 
