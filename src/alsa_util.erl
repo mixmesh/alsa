@@ -303,7 +303,7 @@ a_law_encode(X0) ->
     if X >= 256 ->
 	    Exponent = element(((X bsr 8) band 16#7f)+1, aLawCompressTable()),
 	    Mantissa = (X bsr (Exponent+3)) band 16#f,
-	    (Exponent bsl 4) bor Mantissa bxor Sign;
+	    ((Exponent bsl 4) bor Mantissa) bxor Sign;
        true ->
 	    ((X bsr 4) band 16#ff) bxor Sign
     end.

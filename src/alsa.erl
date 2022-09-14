@@ -198,7 +198,7 @@ formats() ->
      float64_le, float64_be,
      iec958_subframe_le,
      iec958_subframe_be,
-     mu_law, a_law ,
+     mu_law, a_law,
      ima_adpcm,
      g723_24, g723_40,
      dsd_u8, dsd_u16_le, dsd_u32_le,

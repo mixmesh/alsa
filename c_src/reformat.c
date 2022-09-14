@@ -14,10 +14,16 @@ static int is_int_format(snd_pcm_format_t format)
     case SND_PCM_FORMAT_S16_BE:
     case SND_PCM_FORMAT_U16_LE:
     case SND_PCM_FORMAT_U16_BE:
+    case SND_PCM_FORMAT_S24_LE:
+    case SND_PCM_FORMAT_S24_BE:
+    case SND_PCM_FORMAT_U24_LE:
+    case SND_PCM_FORMAT_U24_BE:	
     case SND_PCM_FORMAT_S32_LE:
     case SND_PCM_FORMAT_S32_BE:
     case SND_PCM_FORMAT_U32_LE:
     case SND_PCM_FORMAT_U32_BE:
+    case SND_PCM_FORMAT_A_LAW:
+    case SND_PCM_FORMAT_MU_LAW:
 	return 1;
     default:
 	return 0;
@@ -37,6 +43,117 @@ static int is_float_format(snd_pcm_format_t format)
     }
 }
 
+static int16_t a_law_table[256] = 
+{
+     -5504, -5248, -6016, -5760, -4480, -4224, -4992, -4736,
+     -7552, -7296, -8064, -7808, -6528, -6272, -7040, -6784,
+     -2752, -2624, -3008, -2880, -2240, -2112, -2496, -2368,
+     -3776, -3648, -4032, -3904, -3264, -3136, -3520, -3392,
+     -22016,-20992,-24064,-23040,-17920,-16896,-19968,-18944,
+     -30208,-29184,-32256,-31232,-26112,-25088,-28160,-27136,
+     -11008,-10496,-12032,-11520,-8960, -8448, -9984, -9472,
+     -15104,-14592,-16128,-15616,-13056,-12544,-14080,-13568,
+     -344,  -328,  -376,  -360,  -280,  -264,  -312,  -296,
+     -472,  -456,  -504,  -488,  -408,  -392,  -440,  -424,
+     -88,   -72,   -120,  -104,  -24,   -8,    -56,   -40,
+     -216,  -200,  -248,  -232,  -152,  -136,  -184,  -168,
+     -1376, -1312, -1504, -1440, -1120, -1056, -1248, -1184,
+     -1888, -1824, -2016, -1952, -1632, -1568, -1760, -1696,
+     -688,  -656,  -752,  -720,  -560,  -528,  -624,  -592,
+     -944,  -912,  -1008, -976,  -816,  -784,  -880,  -848,
+      5504,  5248,  6016,  5760,  4480,  4224,  4992,  4736,
+      7552,  7296,  8064,  7808,  6528,  6272,  7040,  6784,
+      2752,  2624,  3008,  2880,  2240,  2112,  2496,  2368,
+      3776,  3648,  4032,  3904,  3264,  3136,  3520,  3392,
+      22016, 20992, 24064, 23040, 17920, 16896, 19968, 18944,
+      30208, 29184, 32256, 31232, 26112, 25088, 28160, 27136,
+      11008, 10496, 12032, 11520, 8960,  8448,  9984,  9472,
+      15104, 14592, 16128, 15616, 13056, 12544, 14080, 13568,
+      344,   328,   376,   360,   280,   264,   312,   296,
+      472,   456,   504,   488,   408,   392,   440,   424,
+      88,    72,   120,   104,    24,     8,    56,    40,
+      216,   200,   248,   232,   152,   136,   184,   168,
+      1376,  1312,  1504,  1440,  1120,  1056,  1248,  1184,
+      1888,  1824,  2016,  1952,  1632,  1568,  1760,  1696,
+      688,   656,   752,   720,   560,   528,   624,   592,
+      944,   912,  1008,   976,   816,   784,   880,   848
+};
+
+static int16_t mu_law_table[256] = 
+{
+     -32124,-31100,-30076,-29052,-28028,-27004,-25980,-24956,
+     -23932,-22908,-21884,-20860,-19836,-18812,-17788,-16764,
+     -15996,-15484,-14972,-14460,-13948,-13436,-12924,-12412,
+     -11900,-11388,-10876,-10364, -9852, -9340, -8828, -8316,
+      -7932, -7676, -7420, -7164, -6908, -6652, -6396, -6140,
+      -5884, -5628, -5372, -5116, -4860, -4604, -4348, -4092,
+      -3900, -3772, -3644, -3516, -3388, -3260, -3132, -3004,
+      -2876, -2748, -2620, -2492, -2364, -2236, -2108, -1980,
+      -1884, -1820, -1756, -1692, -1628, -1564, -1500, -1436,
+      -1372, -1308, -1244, -1180, -1116, -1052,  -988,  -924,
+       -876,  -844,  -812,  -780,  -748,  -716,  -684,  -652,
+       -620,  -588,  -556,  -524,  -492,  -460,  -428,  -396,
+       -372,  -356,  -340,  -324,  -308,  -292,  -276,  -260,
+       -244,  -228,  -212,  -196,  -180,  -164,  -148,  -132,
+       -120,  -112,  -104,   -96,   -88,   -80,   -72,   -64,
+        -56,   -48,   -40,   -32,   -24,   -16,    -8,     -1,
+      32124, 31100, 30076, 29052, 28028, 27004, 25980, 24956,
+      23932, 22908, 21884, 20860, 19836, 18812, 17788, 16764,
+      15996, 15484, 14972, 14460, 13948, 13436, 12924, 12412,
+      11900, 11388, 10876, 10364,  9852,  9340,  8828,  8316,
+       7932,  7676,  7420,  7164,  6908,  6652,  6396,  6140,
+       5884,  5628,  5372,  5116,  4860,  4604,  4348,  4092,
+       3900,  3772,  3644,  3516,  3388,  3260,  3132,  3004,
+       2876,  2748,  2620,  2492,  2364,  2236,  2108,  1980,
+       1884,  1820,  1756,  1692,  1628,  1564,  1500,  1436,
+       1372,  1308,  1244,  1180,  1116,  1052,   988,   924,
+        876,   844,   812,   780,   748,   716,   684,   652,
+        620,   588,   556,   524,   492,   460,   428,   396,
+        372,   356,   340,   324,   308,   292,   276,   260,
+        244,   228,   212,   196,   180,   164,   148,   132,
+        120,   112,   104,    96,    88,    80,    72,    64,
+         56,    48,    40,    32,    24,    16,     8,     0
+};
+
+// convert signed 24 bit into signed 32 bit
+static inline int32_t i24_i32(uint32_t x)
+{
+    return (((int32_t)x) << 8);
+}
+
+// convert unsigned 24 bit into signed 32 bit
+static inline int32_t u24_i32(uint32_t x)
+{
+    return (((int32_t)(x & 0xffffff)) - 0x800000) << 8;
+}
+
+// convert unsigned 16 bit into signed 32 bit
+static inline int32_t u16_i32(uint16_t x)
+{
+    return ((int32_t)x - 0x800000) << 8;
+}
+
+static inline uint32_t i32_i24(int32_t x)
+{
+    return ((uint32_t)x) >> 8;
+}
+
+static inline int16_t i32_i16(int32_t x)
+{
+    return (x >> 16);
+}
+
+static inline int8_t i32_i8(int32_t x)
+{
+    return (x >> 24);
+}
+
+
+static inline uint32_t i32_u24(int32_t x)
+{
+    return ((x >> 8) + 0x800000) & 0xffffff;
+}
+
 // read pcm sample and return as 32 bit signed integer
 static inline int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 {
@@ -52,7 +169,15 @@ static inline int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
     case SND_PCM_FORMAT_U16_LE:
 	return ((int32_t)(le16toh(*((uint16_t*)ptr))-0x8000)) << 16;
     case SND_PCM_FORMAT_U16_BE:
-	return ((int32_t)(be16toh(*((uint16_t*)ptr))-0x8000)) << 16;	
+	return ((int32_t)(be16toh(*((uint16_t*)ptr))-0x8000)) << 16;
+    case SND_PCM_FORMAT_S24_LE:
+	return i24_i32(le32toh(*((uint32_t*)ptr)));
+    case SND_PCM_FORMAT_S24_BE:
+	return i24_i32(be32toh(*((uint32_t*)ptr)));
+    case SND_PCM_FORMAT_U24_LE:
+	return u24_i32(le32toh(*((uint32_t*)ptr)));
+    case SND_PCM_FORMAT_U24_BE:
+	return u24_i32(be32toh(*((uint32_t*)ptr)));
     case SND_PCM_FORMAT_S32_LE:
 	return (int32_t) le32toh(*((uint32_t*)ptr));
     case SND_PCM_FORMAT_S32_BE:
@@ -61,6 +186,10 @@ static inline int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 	return (int32_t) le32toh(*((uint32_t*)ptr))-0x80000000;
     case SND_PCM_FORMAT_U32_BE:
 	return (int32_t) be32toh(*((uint32_t*)ptr))-0x80000000;
+    case SND_PCM_FORMAT_A_LAW:
+	return ((int32_t) a_law_table[*((uint8_t*)ptr)]) << 16;
+    case SND_PCM_FORMAT_MU_LAW:
+	return ((int32_t) mu_law_table[*((uint8_t*)ptr)]) << 16;
     case SND_PCM_FORMAT_FLOAT_LE: {
 	union { float f; uint32_t u; } fu;
 	fu.u = le32toh(*((uint32_t*)ptr));
@@ -86,6 +215,71 @@ static inline int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
     }
 }
 
+
+static uint8_t mu_law_compress_table[256] = 
+{
+     0,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3,
+     4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+     5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+     5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+     6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
+};
+
+static inline uint8_t mu_law_encode(int16_t x0)
+{
+    uint8_t sign = (x0 < 0) ? 0x80 : 0x00;
+    int16_t ax = abs(x0);
+    int16_t x  = ((ax < 32635) ? ax : 32635) + 0x84;
+    uint8_t e = mu_law_compress_table[(x >> 7) & 0xff];
+    uint8_t m = (x >> (e+3)) & 0xf;
+    return ~(sign | (e << 4) | m); //  & 0xff;
+}
+
+static int a_law_compress_table[128] = 
+{
+     1,1,2,2,3,3,3,3,
+     4,4,4,4,4,4,4,4,
+     5,5,5,5,5,5,5,5,
+     5,5,5,5,5,5,5,5,
+     6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,
+     6,6,6,6,6,6,6,6,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7,
+     7,7,7,7,7,7,7,7
+};
+
+static inline uint8_t a_law_encode(int16_t x0)
+{
+    uint8_t sign = ((~x0 >> 8) & 0x80) ^ 0x55;
+    int16_t ax = abs(x0);
+    int16_t x = ((ax < 32635) ? ax : 32635);
+    if (x >= 256) {
+	int e = a_law_compress_table[(x >> 8) & 0x7f];
+	int m = (x >> (e+3)) & 0xf;
+	return ((e << 4) | m) ^ sign;
+    }
+    else
+	return ((x >> 4) & 0xff) ^ sign;
+}
+
 static inline void write_pcm_int(snd_pcm_format_t format, int32_t val,
 				 int8_t* ptr)
 {
@@ -108,6 +302,18 @@ static inline void write_pcm_int(snd_pcm_format_t format, int32_t val,
     case SND_PCM_FORMAT_U16_BE:
 	*((uint16_t*)ptr) = htobe16((int16_t) (val>>16) + 0x8000);
 	break;
+    case SND_PCM_FORMAT_S24_LE:
+	*((uint32_t*)ptr) = htole32(i32_i24(val));
+	break;
+    case SND_PCM_FORMAT_S24_BE:
+	*((uint32_t*)ptr) = htobe32(i32_i24(val));
+	break;
+    case SND_PCM_FORMAT_U24_LE:
+	*((uint32_t*)ptr) = htole32(i32_u24(val));
+	break;
+    case SND_PCM_FORMAT_U24_BE:
+	*((uint32_t*)ptr) = htobe32(i32_u24(val));
+	break;	
     case SND_PCM_FORMAT_S32_LE:
 	*((uint32_t*)ptr) = htole32((int32_t) val);
 	break;
@@ -119,6 +325,12 @@ static inline void write_pcm_int(snd_pcm_format_t format, int32_t val,
 	break;
     case SND_PCM_FORMAT_U32_BE:
 	*((uint32_t*)ptr) = htobe32((int32_t)val + 0x80000000);
+	break;
+    case SND_PCM_FORMAT_A_LAW:
+	*((uint8_t*) ptr) = a_law_encode(val >> 16);
+	break;
+    case SND_PCM_FORMAT_MU_LAW:
+	*((uint8_t*) ptr) = mu_law_encode(val >> 16);
 	break;
     case SND_PCM_FORMAT_FLOAT_LE: {
 	union { float f; uint32_t u; } fu;
@@ -357,6 +569,8 @@ static map_t* chan_map[9][9] =
   { chan_map_61_00, chan_map_61_10, chan_map_61_20, chan_map_61_21, chan_map_61_40, chan_map_61_41, chan_map_61_51, chan_map_61_61, chan_map_61_71 },
   { chan_map_71_00, chan_map_71_10, chan_map_71_20, chan_map_71_21, chan_map_71_40, chan_map_71_41, chan_map_71_51, chan_map_71_61, chan_map_71_71 }
 };
+
+
 
 static inline int32_t sadd_int(int32_t a, int32_t b)
 {
