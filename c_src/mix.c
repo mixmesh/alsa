@@ -407,16 +407,17 @@ int main(int argc, char** argv)
     test_mix_native(smv, dst, NUM_REPEATS);
     t1 = time_tick();
     printf("time = %lus+%luus, %f mixes/s\n",
-	   (t1-t0) / 1000000, (t1-t0) % 1000000,
-	   ((float)NUM_REPEATS / ((t1-t0)/1000000.0)));
+	   ((unsigned long)(t1-t0)) / 1000000,
+	   ((unsigned long)(t1-t0)) % 1000000,
+	   ((float)NUM_REPEATS / (((unsigned long)(t1-t0))/1000000.0)));
 
     t0 = time_tick();
     test_mix_swap(smv, dst, NUM_REPEATS);
     t1 = time_tick();
     printf("time = %lus+%luus, %f swapped mixes/s\n",
-	   (t1-t0) / 1000000, (t1-t0) % 1000000,
-	   ((float)NUM_REPEATS / ((t1-t0)/1000000.0)));    
-    
+	   ((unsigned long)(t1-t0)) / 1000000,
+	   ((unsigned long)(t1-t0)) % 1000000,
+	   ((float)NUM_REPEATS / (((unsigned long)(t1-t0))/1000000.0)));
     exit(0);
 }
 
