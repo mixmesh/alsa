@@ -384,9 +384,10 @@ static inline double read_pcm_float(snd_pcm_format_t format, int8_t* ptr)
 	du.u = be64toh(*((uint64_t*)ptr));
 	return du.d;
     }
-    default:
+    default: {
 	int32_t val = read_pcm_int(format, ptr);
 	return (val / MAX_INT32_DOUBLE);
+    }
     }
 }
 
