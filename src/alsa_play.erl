@@ -870,8 +870,9 @@ play(State = #state {handle=Handle,output=undefined,
 	    State1 = notify(Marks, State),
 	    State1#state{ output=undefined, marks=[], channels=ChanMap1 };
 	{ChanMap1,BufferList,Marks} ->
-	    FrameSize = alsa:format_size(Format, Channels),
-	    Bin = mix_buffers(BufferList, FrameSize, Format, Channels),
+	    %% FrameSize = alsa:format_size(Format, Channels),
+	    %% Bin = mix_buffers(BufferList, FrameSize, Format, Channels),
+	    Bin = alsa_samples:mix(Format, Channels, BufferList, []),
 	    case alsa:write_(Handle, Bin) of
 		{error, eagain} ->
 		    ?verbose("play: again\n"),

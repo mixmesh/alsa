@@ -596,13 +596,19 @@ transform_data(Cb, Header, Data) ->
     Rate = maps:get(rate, Header),
     Format = maps:get(format, Header),
     Channels = maps:get(channels, Header),
-    Data1 = alsa_util:reformat(Format, Cb#sample_buffer.format,
-			       Channels, Cb#sample_buffer.channels,
-			       Data),
+%%     Data1 = alsa_util:reformat(Format, Cb#sample_buffer.format,
+%%			       Channels, Cb#sample_buffer.channels,
+%%			       Data),
+    Data1 = alsa_samples:reformat(Format, Cb#sample_buffer.format,
+				  Channels, Cb#sample_buffer.channels,
+				  Data),
     Data2 = if Rate =/= Cb#sample_buffer.rate ->
-		    alsa_util:resample(Rate, Cb#sample_buffer.rate,
-				       Cb#sample_buffer.format,
-				       Cb#sample_buffer.channels, Data1);
+%%		    alsa_util:resample(Rate, Cb#sample_buffer.rate,
+%%				       Cb#sample_buffer.format,
+%%				       Cb#sample_buffer.channels, Data1);
+		    alsa_samples:resample(Rate, Cb#sample_buffer.rate,
+					  Cb#sample_buffer.format,
+					  Cb#sample_buffer.channels, Data1);
 	       true ->
 		    Data1
 	    end,
