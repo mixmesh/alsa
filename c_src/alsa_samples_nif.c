@@ -284,6 +284,17 @@ static ERL_NIF_TERM make_error(ErlNifEnv* env, int err)
 }
 */
 
+static int get_size_t(ErlNifEnv* env, ERL_NIF_TERM arg, size_t* sizep)
+{
+    unsigned long sz;
+    if (enif_get_ulong(env, arg, &sz)) {
+	*sizep = sz;
+	return 1;
+    }
+    return 0;
+}
+
+
 static int get_format(ErlNifEnv* env, ERL_NIF_TERM arg,
 		      snd_pcm_format_t* format_ptr)
 {
@@ -329,7 +340,7 @@ static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
     
     if (!get_format(env, argv[0], &format))
 	return enif_make_badarg(env);
-    if (!enif_get_ulong(env, argv[1], &num_channels))
+    if (!get_size_t(env, argv[1], &num_channels))
 	return enif_make_badarg(env);
     list = argv[2];
     if (!enif_get_list_length(env, list, &num_voices))
@@ -380,13 +391,13 @@ static ERL_NIF_TERM nif_resample(ErlNifEnv* env, int argc,
     ERL_NIF_TERM dst_bin;    
     void* dst;
     
-    if (!enif_get_ulong(env, argv[0], &src_rate))
+    if (!get_size_t(env, argv[0], &src_rate))
 	return enif_make_badarg(env);
-    if (!enif_get_ulong(env, argv[1], &dst_rate))
+    if (!get_size_t(env, argv[1], &dst_rate))
 	return enif_make_badarg(env);
     if (!get_format(env, argv[2], &format))
 	return enif_make_badarg(env);
-    if (!enif_get_ulong(env, argv[3], &num_channels))
+    if (!get_size_t(env, argv[3], &num_channels))
 	return enif_make_badarg(env);
     if (!enif_inspect_binary(env, argv[4], &src))
 	return enif_make_badarg(env);
@@ -426,9 +437,9 @@ static ERL_NIF_TERM nif_reformat(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_format(env, argv[1], &dst_format))
 	return enif_make_badarg(env);
-    if (!enif_get_ulong(env, argv[2], &src_channels))
+    if (!get_size_t(env, argv[2], &src_channels))
 	return enif_make_badarg(env);
-    if (!enif_get_ulong(env, argv[3], &dst_channels))
+    if (!get_size_t(env, argv[3], &dst_channels))
 	return enif_make_badarg(env);
     if (!enif_inspect_binary(env, argv[4], &src))
 	return enif_make_badarg(env);    
