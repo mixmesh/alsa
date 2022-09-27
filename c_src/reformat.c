@@ -155,7 +155,7 @@ static inline uint32_t i32_u24(int32_t x)
 }
 
 // read pcm sample and return as 32 bit signed integer
-static inline int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
+int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 {
     switch(format) {
     case SND_PCM_FORMAT_S8:
@@ -280,8 +280,7 @@ static inline uint8_t a_law_encode(int16_t x0)
 	return ((x >> 4) & 0xff) ^ sign;
 }
 
-static inline void write_pcm_int(snd_pcm_format_t format, int32_t val,
-				 int8_t* ptr)
+void write_pcm_int(snd_pcm_format_t format, int32_t val, int8_t* ptr)
 {
     switch(format) {
     case SND_PCM_FORMAT_S8:
@@ -361,7 +360,7 @@ static inline void write_pcm_int(snd_pcm_format_t format, int32_t val,
     }
 }
 
-static inline double read_pcm_float(snd_pcm_format_t format, int8_t* ptr)
+double read_pcm_float(snd_pcm_format_t format, int8_t* ptr)
 {
     switch(format) {
     case SND_PCM_FORMAT_FLOAT_LE: {
@@ -391,8 +390,7 @@ static inline double read_pcm_float(snd_pcm_format_t format, int8_t* ptr)
     }
 }
 
-static inline void write_pcm_float(snd_pcm_format_t format,double d,
-				   int8_t* ptr)
+void write_pcm_float(snd_pcm_format_t format,double d, int8_t* ptr)
 {
     switch(format) {
     case SND_PCM_FORMAT_FLOAT_LE: {
@@ -723,18 +721,18 @@ void reformat_float(snd_pcm_format_t src_format, size_t src_channels,
 // reformat src samples in src_format into dst samples in dst_format
 void reformat(snd_pcm_format_t src_format, size_t src_channels, void* src,
 	      snd_pcm_format_t dst_format, size_t dst_channels, void* dst,
-	      size_t n)
+	      size_t num_frames)
 {
     if (is_int_format(dst_format)) {
 	reformat_int(src_format, src_channels, src,
 		     dst_format, dst_channels, dst,
-		     n);
+		     num_frames);
     }
 
     else if (is_float_format(dst_format)) {
 	reformat_float(src_format, src_channels, src,
 		       dst_format, dst_channels, dst,
-		       n);	
+		       num_frames);	
     }
 }
 

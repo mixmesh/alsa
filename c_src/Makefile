@@ -3,7 +3,7 @@ ERL_TOP=$(ERL:%/bin/erl=%)
 CC=gcc
 CFLAGS= -Wall -Werror $(shell pkg-config --cflags alsa) -I$(ERL_TOP)/usr/include -D_REENTRANT -fPIC
 ALSA_LIBS=$(shell pkg-config --libs alsa) # $(ERL_TOP)/usr/lib/libei.a
-NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o
+NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o
 SBC_LIBS= -lsbc
 SIMD_FLAGS = # -msse4.1
 LDFLAGS=-shared
