@@ -30,14 +30,19 @@ all: ../priv/alsa_nif.so \
 ../priv/reformat_bench: reformat.c
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS) -DTEST -o$@ reformat.c -lm $(ALSA_LIBS)
 
-mix.o: mix.c
+mix.o: mix.c wave.h
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
 
-resample.o: resample.c
+resample.o: resample.c 
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
 
-reformat.o: reformat.c
+reformat.o: reformat.c reformat.h
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
+
+wave.o: wave.h
+
+alsa_samples_nif.o: wave.h reformat.h
+
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $<
