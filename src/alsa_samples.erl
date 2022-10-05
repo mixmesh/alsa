@@ -12,6 +12,7 @@
 -export([mix/4]).
 -export([resample/5]).
 -export([reformat/5]).
+-export([filter/4]).
 %% wave
 -export([wave_new/0]).
 -export([wave_set_nwaves/2]).
@@ -31,15 +32,10 @@
 -export([wave_set_env/3]).
 -export([wave_set_chan/3]).
 -export([wave_set_level/3]).
--export([wave_set_form/3, wave_set_form/4]).
--export([wave_set_freq/3, wave_set_freq/4]).
+-export([wave_set_form/3,  wave_set_form/4]).
+-export([wave_set_freq/3,  wave_set_freq/4]).
 -export([wave_set_phase/3, wave_set_phase/4]).
 -export([wave_set_noice/3, wave_set_noice/4]).
--export([wave_set_f1/3]).
--export([wave_set_f2/3]).
--export([wave_set_f3/3]).
--export([wave_set_f4/3]).
--export([wave_set_f5/3]).
 -export([wave/4]).
 %% util
 -export([create_wave/2]).
@@ -48,9 +44,9 @@
 %% TEST
 -export([test_reformat/0]).
 -export([test_amu_reformat/0]).
--export([test_play/0, test_play/2]).
+-export([test_play/0, test_play/1]).
 -export([play/1]).
--export([test_plot/0, test_plot/2]).
+-export([test_plot/0, test_plot/1]).
 -export([plot/1]).
 
 -define(MAX_WAVE, 8).
@@ -107,6 +103,12 @@ resample(_SrcRate, _DstRate, _Format, _Channels, _Src) ->
 	       Src::binary()) -> binary().
 
 reformat(_SrcFormat, _DstFormat, _SrcChannels, _DstChannels, _Src) ->
+    ?nif_stub.
+
+-spec filter(SrcFormat::alsa:format(), DstFormat::alsa:format(),
+	     Filter::[float()], Src::binary()) -> binary().
+
+filter(_SrcFormat, _DstFormat, _Filter, _Src) ->
     ?nif_stub.
 
 -spec wave_new() -> wavedef().
@@ -217,27 +219,6 @@ wave_set_freq(_W, _Index, _Pos, _Freq) ->
 wave_set_freq(W, Index, Freq) ->
     wave_set_freq(W, Index, 0, Freq).
 
--spec wave_set_f1(W::wavedef(), Index::waveind(), Freq::frequency()) -> ok.
-wave_set_f1(W, Index, Freq) ->
-    wave_set_freq(W, Index, 0, Freq).
-
--spec wave_set_f2(W::wavedef(), Index::waveind(), Freq::frequency()) -> ok.
-wave_set_f2(W, Index, Freq) ->
-    wave_set_freq(W, Index, 1, Freq).
-
--spec wave_set_f3(W::wavedef(), Index::waveind(), Freq::frequency()) -> ok.
-wave_set_f3(W, Index, Freq) ->
-    wave_set_freq(W, Index, 2, Freq).
-
--spec wave_set_f4(W::wavedef(), Index::waveind(), Freq::frequency()) -> ok.
-wave_set_f4(W, Index, Freq) ->
-    wave_set_freq(W, Index, 3, Freq).
-
--spec wave_set_f5(wavedef(), Index::waveind(), Freq::frequency()) -> ok.
-wave_set_f5(W, Index, Freq) ->
-    wave_set_freq(W, Index, 3, Freq).
-
-
 create_wave(Rate, Def) ->
     W = wave_new(),
     wave_set_rate(W, Rate),
@@ -245,7 +226,7 @@ create_wave(Rate, Def) ->
     io:format("n waves = ~w\n", [N]),
     ok = create_wave_(W, Def),
     wave_set_nwaves(W, N),
-    {ok,W}.
+    W.
 
 %% calculate number of waves in def
 num_waves(T) when is_tuple(T) ->
@@ -292,7 +273,7 @@ to_frequency(Name) when is_list(Name) ->
 to_frequency(Freq) when is_number(Freq) ->
     Freq.
 
-wave1(Form, Rate) ->
+wave1(Rate) ->
     Def = [{envelope,0, [ 2.0, 2.0 ]},
 	   {wave, 0, [#{form=>sine,freq=>"C4",level=>0.0},
 		      #{form=>square,freq=>"C4",level=>0.9},
@@ -305,12 +286,12 @@ wave1(Form, Rate) ->
     io:format("wave1: duration=~w\n", [Dur]),
     NFrames = round(Rate*Dur),
     io:format("wave1: nframes=~w\n", [NFrames]),
-    {ok,W} = create_wave(Rate, Def),
+    W = create_wave(Rate, Def),
     {W, NFrames}.
     
-test_play() -> test_play(sine,8000).
-test_play(Form,Rate) ->
-    {W,NFrames} = wave1(Form,Rate),
+test_play() -> test_play(8000).
+test_play(Rate) ->
+    {W,NFrames} = wave1(Rate),
     Samples = wave(W, s16_le, 1, NFrames),
     play({[{format,s16_le},{rate,Rate},{channels,1}], Samples}).
 
@@ -331,9 +312,9 @@ play_(Params, Samples) when is_list(Params) ->
 	    {error, file:format_error(Reason)}
     end.
 
-test_plot() -> test_plot(sine,8000).
-test_plot(Form,Rate) ->
-    {W,NFrames} = wave1(Form,Rate),
+test_plot() -> test_plot(8000).
+test_plot(Rate) ->
+    {W,NFrames} = wave1(Rate),
     Samples = wave(W, s16_le, 1, NFrames),
     plot({[{format,s16_le},{rate,Rate},{channels,1}], Samples}).
 

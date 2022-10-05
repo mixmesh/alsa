@@ -20,15 +20,17 @@
 -export([mix_float/1, mix_float/2, mix_float/3]).
 -export([midi_name_to_note/1]).
 -export([midi_note_to_frequency/1]).
+-export([chunks_of_len/4, chunks_of_time/5, energy/3]).
+-export([energy_norm/3, power_norm/3]).
+-export([kaiserord/2, kaiser_beta/1, kaiser_atten/2]).
 %% testing
 -export([test/0]).
 -export([test_a_law/0, test_mu_law/0]).
--export([test_float/0, test_float64/0, test_integer/0]).
+-export([test_float/0, test_float64/0]).
 -export([test_mix/0]).
 
 -include("../include/alsa_log.hrl").
 
--type int32() :: -16#7fffffff .. 16#7fffffff.
 -type float01() :: float().  %% range -1.0 ... 1.0
 
 
@@ -149,69 +151,116 @@ map_channels([FL,FR], 6) -> X=max(FL,FR),[FR,FL,X,0,FL,FR];
 map_channels([FL,FR,LFE,RR,RL], 6) -> FC=max(FL,FR), [FL,FR,FC,LFE,RR,RL];
 map_channels([FL,FR,FC,LFE,RL,RR,_SL,_SR], 6) -> [FL,FR,FC,LFE,RL,RR].
 
--define(i8(X), ((X) bsl 24)).
--define(i16(X), ((X) bsl 16)).
--define(i24(X), ((X) bsl 8)).
--define(i32(X), ((X))).
 
--define(u8(X), (((X)-16#80) bsl 24)).
--define(u16(X), (((X)-16#8000) bsl 16)).
--define(u24(X), (((X)-16#800000) bsl 8)).
--define(u32(X), (((X)-16#80000000))).
+%% split samples into chunks of T seconds (fixme overlap?)
+chunks_of_time(T, Rate, Format, Channels, Bin) ->
+    chunks_of_len(round(T*Rate), Format, Channels, Bin).
 
-%% decode samples into signed linear 32 bit if integer
-%% and floating point if float format
+chunks_of_len(Len, Format, Channels, Bin) ->
+    FrameSize = alsa:format_size(Format, Channels),
+    chunks_(Bin, Len*FrameSize, []).
+
+chunks_(Bin, ChunkSize, Acc) ->
+    case Bin of
+	<<Chunk:ChunkSize/binary, Bin1/binary>> ->
+	    chunks_(Bin1, ChunkSize, [Chunk|Acc]);
+	_ ->
+	    lists:reverse(Acc)
+    end.
+
+energy_norm(Chunks, Format, Channels) when is_list(Chunks) ->
+    Es = energy(Chunks, Format, Channels),
+    Emax = lists:max(Es),
+    if Emax =:= 0.0 ->
+	    [ 0.0 || _ <- Es];
+       true ->
+	    [ Ei/Emax || Ei <- Es]
+    end.
+
+power_norm(Chunks, Format, Channels) when is_list(Chunks) ->
+    Es = energy(Chunks, Format, Channels),
+    Emax = lists:max(Es),
+    Pmax = math:log10(max(1,Emax)),
+    if Pmax == 0.0 ->
+	    [ 0.0 || _ <- Es];
+       true ->
+	    [ math:log10(max(1,Ei))/Pmax || Ei <- Es]
+    end.
+
+energy(Bin, Format, Channels) when is_binary(Bin) ->
+    FrameSize = alsa:format_size(Format, Channels),
+    energy_(Bin, FrameSize, Format, 0.0);
+energy(Chunks, Format, Channels) when is_list(Chunks) ->
+    FrameSize = alsa:format_size(Format, Channels),
+    [ energy_(Chunk, FrameSize, Format, 0.0) || Chunk <- Chunks ].
+
+energy_(Bin, FrameSize, Format, Sum) ->
+    case Bin of
+	<<Frame:FrameSize/binary, Bin1/binary>> ->
+	    [S|_] = decode_frame(Frame, Format), %% fixme multi channel
+	    energy_(Bin1, FrameSize, Format, Sum + S*S);
+	<<>> ->
+	    Sum
+    end.
+
+%% Width could be Hz/(SampleRate/2)
+%% Ripple in Db
+%% abs(A(w) - D(w)) < 10^(-Ripple/20)
+kaiserord(Ripple, Width) ->
+    A = abs(Ripple),
+    if A >= 8 ->
+	    Beta = kaiser_beta(A),
+	    NumTaps = (A-7.95)/2.285/(math:pi()*Width) + 1,
+	    {NumTaps, Beta}
+    end.
+
+kaiser_beta(A) when A > 50 -> 0.1102 * (A - 8.7);
+kaiser_beta(A) when A > 21 -> 0.5842*math:pow(A-21,0.4) + 0.07886*(A-21);
+kaiser_beta(_) -> 0.0.
+
+kaiser_atten(NumTaps, Width) ->
+    2.285*(NumTaps-1) * math:pi()*Width + 7.
+
+
+%% -define(i8(X), ((X) bsl 24)).
+%% -define(i16(X), ((X) bsl 16)).
+%% -define(i24(X), ((X) bsl 8)).
+%% -define(i32(X), ((X))).
+
+%% -define(u8(X), (((X)-16#80) bsl 24)).
+%% -define(u16(X), (((X)-16#8000) bsl 16)).
+%% -define(u24(X), (((X)-16#800000) bsl 8)).
+%% -define(u32(X), (((X)-16#80000000))).
+
+-spec decode_frame(Frame::binary(), SrcFormat::alsa:format()) -> [float01()].
 decode_frame(Frame, SrcFormat) ->
     case SrcFormat of
-	s8 -> [ ?i8(X) || <<X:8/signed>> <= Frame];
-	u8 -> [ ?u8(X) || <<X:8/unsigned>> <= Frame];
-	s16_le -> [ ?i16(X) || <<X:16/signed-little>> <= Frame];
-	s16_be -> [ ?i16(X) || <<X:16/signed-big>> <= Frame];
-	u16_le -> [ ?u16(X) || <<X:16/unsigned-little>> <= Frame];
-	u16_be -> [ ?u16(X) || <<X:16/unsigned-big>> <= Frame];
-	s24_le -> [ ?i24(X) || <<X:32/signed-little>> <= Frame];
-	s24_be -> [ ?i24(X) || <<X:32/signed-big>> <= Frame];
-	u24_le -> [ ?u24(X) || <<X:32/unsigned-little>> <= Frame];
-	u24_be -> [ ?u24(X) || <<X:32/unsigned-big>> <= Frame];
-	s32_le -> [ ?i32(X) || <<X:32/signed-little>> <= Frame];
-	s32_be -> [ ?i32(X) || <<X:32/signed-big>> <= Frame];
-	u32_le -> [ ?u32(X) || <<X:32/unsigned-little>> <= Frame];
-	u32_be -> [ ?u32(X) || <<X:32/unsigned-big>> <= Frame];
+	s8 -> [ (X/16#7f) || <<X:8/signed>> <= Frame];
+	u8 -> [ (X-16#80)/16#7f || <<X:8/unsigned>> <= Frame];
+	s16_le -> [ (X/16#7fff) || <<X:16/signed-little>> <= Frame];
+	s16_be -> [ (X/16#7fff) || <<X:16/signed-big>> <= Frame];
+	u16_le -> [ ((X-16#8000)/16#7fff) || <<X:16/unsigned-little>> <= Frame];
+	u16_be -> [ ((X-16#8000)/16#7fff) || <<X:16/unsigned-big>> <= Frame];
+	s24_le -> [ (X/16#7fffff) || <<X:32/signed-little>> <= Frame];
+	s24_be -> [ (X/16#7fffff) || <<X:32/signed-big>> <= Frame];
+	u24_le -> [ ((X-16#8000)/16#7fffff) || <<X:32/unsigned-little>> <= Frame];
+	u24_be -> [ ((X-16#8000)/16#7fffff) || <<X:32/unsigned-big>> <= Frame];
+	s32_le -> [ (X/16#7fffffff) || <<X:32/signed-little>> <= Frame];
+	s32_be -> [ (X/16#7fffffff) || <<X:32/signed-big>> <= Frame];
+	u32_le -> [ ((X-16#8000)/16#7fffffff) || <<X:32/unsigned-little>> <= Frame];
+	u32_be -> [ ((X-16#8000)/16#7fffffff) || <<X:32/unsigned-big>> <= Frame];
 	float_le -> [ X || <<X:32/float-little>> <= Frame];
 	float_be -> [ X || <<X:32/float-big>> <= Frame];
 	float64_le -> [ X || <<X:64/float-little>> <= Frame];
 	float64_be -> [ X || <<X:64/float-big>> <= Frame];
-	mu_law -> [ (mu_law_decode(X) bsl 16) || <<X>> <= Frame ];
-	a_law -> [ (a_law_decode(X) bsl 16) || <<X>> <= Frame ]
+	mu_law -> [ (mu_law_decode(X) / 16#7fff) || <<X>> <= Frame ];
+	a_law -> [ (a_law_decode(X) / 16#7fff) || <<X>> <= Frame ]
     end.
 
--spec encode_frame(Xs :: [int32()]|[float01()], Format::alsa:format()) ->
+-spec encode_frame(Xs::[float01()], Format::alsa:format()) ->
 	  binary().
 
-encode_frame(Xs, Format) when is_integer(hd(Xs)) ->
-    case Format of
-	s8     -> << <<(X bsr 24)>> || X <- Xs>>;
-	u8     -> << <<((X bsr 24)+16#80)>> || X <- Xs>>;
-	s16_le -> << <<(X bsr 16):16/signed-little>> || X <- Xs >>;
-	s16_be -> << <<(X bsr 16):16/signed-big>> || X <- Xs >>;
-	u16_le -> << <<((X bsr 16)+16#8000):16/unsigned-little>> || X <- Xs >>;
-	u16_be -> << <<((X bsr 16)+16#8000):16/unsigned-big>> || X <- Xs >>;
-	s24_le -> << <<(X bsr 8):32/signed-little>> || X <- Xs >>;
-	s24_be -> << <<(X bsr 8):32/signed-big>> || X <- Xs >>;
-	u24_le -> << <<((X bsr 8)+16#800000):32/unsigned-little>> || X <- Xs >>;
-	u24_be -> << <<((X bsr 8)+16#800000):32/unsigned-big>> || X <- Xs >>;
-	s32_le -> << <<X:32/signed-little>> || X <- Xs >>;
-	s32_be -> << <<X:32/signed-big>> || X <- Xs >>;
-	u32_le -> << <<(X+16#80000000):32/unsigned-little>> || X <- Xs >>;
-	u32_be -> << <<(X+16#80000000):32/unsigned-big>> || X <- Xs >>;
-	mu_law -> << <<(mu_law_encode(X bsr 16)) >> || X <- Xs >>;
-	a_law -> << <<(a_law_encode(X bsr 16)) >> || X <- Xs >>;
-	float_le -> << <<(trunc(X/16#8000000)):32/float-little>> || X <- Xs >>;
-	float_be -> << <<(trunc(X/16#8000000)):32/float-big>>    || X <- Xs >>;
-	float64_le -> << <<(trunc(X/16#8000000)):64/float-little>> || X<-Xs >>;
-	float64_be -> << <<(trunc(X/16#8000000)):64/float-big>>    || X<-Xs >>
-    end;
-encode_frame(Xs, DstFormat) when is_float(hd(Xs)) ->
+encode_frame(Xs, DstFormat) ->
     case DstFormat of
 	s8 -> << <<(trunc(X*16#7f)):8/signed>> || X <- Xs>>;
 	u8 -> << <<(trunc(X*16#7f)+16#80):8/unsigned>> || X <- Xs>>;
@@ -660,30 +709,6 @@ test_float64() ->
     true = lists:all(fun({X,Y}) -> abs(X-Y) < 0.001 end,
 		     lists:zip(Xs,Ys)).
 
-test_integer() ->
-    Xs = [?i8(0), ?i8(20), ?i8(30), ?i8(50), ?i8(100), ?i8(127)],
-    lists:foreach(
-      fun(Format) ->
-	      Bin = encode_frame(Xs, Format),
-	      Ys  = decode_frame(Bin, Format),
-	      true = lists:all(fun({X,Y}) -> X =:= Y end,
-			       lists:zip(Xs,Ys))
-      end, [s8,u8,
-	    s16_le,s16_be,u16_le,u16_be,
-	    s24_le,s24_be,u24_le,u24_be,
-	    s32_le,s32_be,u32_le,u32_be]),
-    NXs = [?i8(-127), ?i8(-100), ?i8(-50), ?i8(-30), ?i8(-20)],
-    lists:foreach(
-      fun(Format) ->
-	      Bin = encode_frame(NXs, Format),
-	      Ys  = decode_frame(Bin, Format),
-	      true = lists:all(fun({X,Y}) -> X =:= Y end,
-			       lists:zip(NXs,Ys))
-      end, [s8,
-	    s16_le,s16_be,
-	    s24_le,s24_be,
-	    s32_le,s32_be]).
-
 test_mix() ->
     true = abs(mix_float(0.9, 0.9) - 0.99) < 0.0001,
     true = abs(mix_float(-0.9, 0.9)) < 0.0001,
@@ -707,5 +732,4 @@ test() ->
     test_a_law(),
     test_float(),
     test_float64(),
-    test_integer(),
     ok.

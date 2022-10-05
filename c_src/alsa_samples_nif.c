@@ -16,15 +16,9 @@
 
 #include "wave.h"
 #include "reformat.h"
-
-
-extern void mix(snd_pcm_format_t format, void** srcp, size_t num_channels,
-		void* dst, size_t num_frames);
-
-extern void resample(snd_pcm_format_t format, size_t channels, 
-		     size_t src_rate, void* src,
-		     size_t dst_rate, void* dst,
-		     size_t num_frames, size_t max_dst_frames);
+#include "resample.h"
+#include "mix.h"
+#include "filt.h"
 
 #define MAX_CHANNELS 8  // current "soft" max in frames
 #define MAX_VOICES  32  // current "soft" max of voices for mix
@@ -163,6 +157,7 @@ DECL_ATOM(g723_40_1b);
     NIF("mix", 4,  nif_mix)		  \
     NIF("resample", 5, nif_resample)	  \
     NIF("reformat", 5, nif_reformat)	  \
+    NIF("filter", 4, nif_filter)	  \
     NIF("wave_new", 0, nif_wave_new)				\
     NIF("wave",     4, nif_wave)				\
     NIF("wave_set_envelope", 3, nif_wave_set_envelope)		\
@@ -531,6 +526,52 @@ static ERL_NIF_TERM nif_reformat(ErlNifEnv* env, int argc,
     return dst_bin;
 }
 
+#define MAX_FILTER_N 128
+// filter(SrcFormat, DstFormat, Filter::[float()], Src::binary() ->
+//      Dst::binary().
+static ERL_NIF_TERM nif_filter(ErlNifEnv* env, int argc,
+			       const ERL_NIF_TERM argv[])
+{
+    snd_pcm_format_t src_format;
+    snd_pcm_format_t dst_format;
+    ErlNifBinary src;
+    ERL_NIF_TERM dst_bin;
+    void* dst;
+    size_t dst_size;
+    size_t num_samples;
+    ERL_NIF_TERM list, head, tail;    
+    double filt[MAX_FILTER_N];
+    size_t filt_len; // N
+    
+    if (!get_format(env, argv[0], &src_format))
+	return enif_make_badarg(env);
+    if (!get_format(env, argv[1], &dst_format))
+	return enif_make_badarg(env);
+    list = argv[2];
+    filt_len = 0;
+    while(enif_get_list_cell(env, list, &head, &tail) &&
+	  (filt_len < MAX_FILTER_N)) {
+	if (!get_number(env, head, &filt[filt_len]))
+	    return enif_make_badarg(env);
+	list = tail;
+	filt_len++;
+    }
+    if (!enif_is_empty_list(env, list))
+	return enif_make_badarg(env);    
+    if (!enif_inspect_binary(env, argv[3], &src))
+	return enif_make_badarg(env);
+
+    num_samples = src.size / snd_pcm_format_size(src_format, 1);
+    dst_size = num_samples * snd_pcm_format_size(dst_format, 1);
+
+    dst = enif_make_new_binary(env, dst_size, &dst_bin);
+
+    filter(src.data, src_format, num_samples,
+	   filt, filt_len,
+	   dst, dst_format, num_samples);
+    return dst_bin;
+}
+
 static ERL_NIF_TERM nif_wave_new(ErlNifEnv* env, int argc,
 				 const ERL_NIF_TERM argv[])
 {
@@ -584,8 +625,6 @@ static ERL_NIF_TERM nif_wave_set_envelope(ErlNifEnv* env, int argc,
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
     if (!enif_get_int(env, argv[1], &index))
-	return enif_make_badarg(env);
-    if (!enif_is_list(env, argv[2]))
 	return enif_make_badarg(env);
     list = argv[2];
     while(enif_get_list_cell(env, list, &head, &tail) && (n < MAX_PTE)) {

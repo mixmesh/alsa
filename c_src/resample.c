@@ -1,6 +1,5 @@
-#include <stdint.h>
-#include <byteswap.h>
-#include <alsa/asoundlib.h>
+
+#include "resample.h"
 
 // resample src samples in src_format into dst samples in dst_format
 // use simple skip and replicate resampling

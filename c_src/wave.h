@@ -18,7 +18,7 @@ typedef float Float_t;
 #define SINE(x) sinf((x))
 #endif
 
-#define MAX_PTE  7
+#define MAX_PTE 15
 #define MAX_PTW (MAX_PTE+1)
 
 // index in envelop.p[]  "standard" envelope parameters
@@ -63,7 +63,7 @@ typedef enum {
     SAW
 } waveform_t;
 
-typedef Float_t Radian_t;  // 0.0 - 3.14
+typedef Float_t Radian_t;  // 0.0 - 2*3.14
 
 typedef struct {
     int env;                   // evelope index to use

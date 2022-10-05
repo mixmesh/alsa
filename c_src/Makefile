@@ -3,7 +3,7 @@ ERL_TOP=$(ERL:%/bin/erl=%)
 CC=gcc
 CFLAGS= -Wall -Werror $(shell pkg-config --cflags alsa) -I$(ERL_TOP)/usr/include -D_REENTRANT -fPIC
 ALSA_LIBS=$(shell pkg-config --libs alsa) # $(ERL_TOP)/usr/lib/libei.a
-NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o
+NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o filt.o
 SBC_LIBS= -lsbc
 SIMD_FLAGS = # -msse4.1
 LDFLAGS=-shared
@@ -30,18 +30,20 @@ all: ../priv/alsa_nif.so \
 ../priv/reformat_bench: reformat.c
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS) -DTEST -o$@ reformat.c -lm $(ALSA_LIBS)
 
-mix.o: mix.c wave.h
+mix.o: mix.c mix.h
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
 
-resample.o: resample.c 
+resample.o: resample.c resample.h
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
 
 reformat.o: reformat.c reformat.h
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
 
-wave.o: wave.h
+wave.o: wave.c wave.h
 
-alsa_samples_nif.o: wave.h reformat.h
+filt.o: filt.c filt.h
+
+alsa_samples_nif.o: wave.h reformat.h resample.h mix.h filt.h
 
 
 %.o: %.c
