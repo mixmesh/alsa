@@ -1,5 +1,6 @@
 // include file to mix variouse sample types
 
+
 static void PROCEDURE(TYPE** src, size_t m,
 		      TYPE* dst, size_t n
 		      PARAMS_DECL)
@@ -22,7 +23,7 @@ static void PROCEDURE(TYPE** src, size_t m,
 	tptr  = tmp;
 	for (i = 0; i < n; i++) {
 	    TYPE sample = READ(ptr);
-	    *tptr += sample;
+	    *tptr = MIX2(*tptr,sample);
 	    ptr++;
 	    tptr++;
 	}
@@ -40,3 +41,4 @@ static void PROCEDURE(TYPE** src, size_t m,
 #undef LOCALS_DECL
 #undef READ
 #undef CLAMP
+#undef MIX2

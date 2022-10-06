@@ -20,7 +20,7 @@
 -export([set_position/2]).
 -export([buffer/1]).
 -export([restart/1, clear/1]).
--export([stop/1, run/1, mute/1, unmute/1]).
+-export([stop/1, run/1, mute/2]).
 -export([silence/2]).
 -export([mark/5, mark/6]).
 -export([unmark/2]).
@@ -48,17 +48,6 @@
 	{cur, sample_length()} |
 	{bof, sample_length()} |
 	{eof, sample_length()}.
--type sample_event_flag() :: 
-	notify  | %% send event to mark creator
-	once    | %% remove mark when executed
-	stop    | %% stop channel after mark is executed
-	restart | %% set cur=0 when mark is executed = {set,0} = {set,bof}
-	{set,Pos::sample_position()} .
-
--type sample_event() :: {pid(),Pos::unsigned(),
-			 [sample_event_flag()],UserData::term()}.
--define(GB_EMPTY, {0,nil}).
-
 
 -record(sample_buffer,
 	{
@@ -71,9 +60,7 @@
 	 bpf = 2 :: unsigned(),             %% bytes per frame, in bytes
 	 cur = 0 :: integer(),              %% current frame in current buffer
 	 buf = <<>> :: binary(),            %% sample buffer
-	 marks = #{} :: #{ reference() => sample_event() },
-	 mark_tree = gb_trees:empty() :: 
-		       gb_trees:tree(unsigned(),[reference()])
+	 marks = alsa_marks:marks()         %% sample marks
 	}).
 
 -type sample_buffer() :: #sample_buffer{}.
@@ -92,7 +79,7 @@ new(Opts,Data) when is_list(Opts) ->
     new(maps:from_list(Opts),Data);
 new(Opts,Data) when is_map(Opts) ->
     Buf = iolist_to_binary(Data),
-    Cb0 = #sample_buffer{buf=Buf},
+    Cb0 = #sample_buffer{buf=Buf,marks=alsa_marks:new()},
     setopts(Cb0, Opts).
 
 setopts(Cb, Opts) when is_list(Opts) ->
@@ -153,136 +140,63 @@ getopts(_Cb, []) ->
     [].
 
 %% add a mark to current position
--spec mark(Cb::sample_buffer(), Pid::pid(), Pos::sample_position(),
-	   Flags:: [sample_event_flag()], UserData::term()) ->
+-spec mark(Cb::sample_buffer(), Pid::pid(), 
+	   Pos::alsa_marks:sample_position(),
+	   Flags:: [alsa_marks:sample_event_flag()], UserData::term()) ->
 	  Cb1::sample_buffer().
 mark(Cb, Pid, Pos, Flags, UserData) when is_pid(Pid), is_list(Flags) ->
     mark(Cb, Pid, make_ref(), Pos, Flags, UserData).
 
-mark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks},
+mark(Cb=#sample_buffer{marks=Marks},
      Pid, Ref, Pos, Flags, UserData)
   when is_pid(Pid), is_reference(Ref), is_list(Flags) ->
     Pos1 = pos(Cb,Pos),
-    Gb1 = case gb_trees:lookup(Pos1, Gb) of
-	      none -> 
-		  gb_trees:insert(Pos1, [Ref], Gb);
-	      {value,List0} -> 
-		  gb_trees:update(Pos1, [Ref|List0], Gb)
-	  end,
-    Event = {Pid,Pos1,Flags,UserData},
-    Marks1 = Marks#{ Ref => Event },
-    %% io:format("add event ~p to gb=~p\n", [Event, Gb1]),
-    {Ref, Cb#sample_buffer{mark_tree=Gb1, marks=Marks1}}.
+    {Ref,Marks1} = alsa_marks:mark(Marks,Pid, Ref, Pos1, Flags, UserData),
+    {Ref,Cb#sample_buffer{marks=Marks1}}.
 
 %% remove a mark 
-unmark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks}, Ref) 
-  when is_reference(Ref) ->
-    case maps:get(Ref, Marks, undefined) of
-	{_Pid,Pos,_Flags,_EventData} ->
-	    Marks1 = maps:remove(Ref, Marks),
-	    case gb_trees:lookup(Pos, Gb) of
-		none ->
-		    Cb#sample_buffer{marks=Marks1};
-		{value,List0} ->
-		    Gb1 = case lists:delete(Ref,List0) of
-			      [] ->
-				  gb_trees:delete(Pos, Gb);
-			      List1 ->
-				  gb_trees:update(Pos, List1, Gb)
-			  end,
-		    Cb#sample_buffer{mark_tree=Gb1, marks=Marks1}
-	    end;
-	undefined ->
-	    Cb
-    end.
+unmark(Cb=#sample_buffer{marks=Marks}, Ref) when is_reference(Ref) ->
+    Marks1 = alsa_marks:unmark(Marks, Ref),
+    Cb#sample_buffer{marks=Marks1}.
 
 %% move mark to a new position
-move_mark(Cb=#sample_buffer{mark_tree=Gb,marks=Marks}, Ref, NewPos) when
+move_mark(Cb=#sample_buffer{marks=Marks}, Ref, NewPos) when
       is_reference(Ref) ->
-    case maps:get(Ref, Marks, undefined) of
-	{Pid,Pos,Flags,UserData} ->    
-	    case gb_trees:lookup(Pos, Gb) of
-		none ->
-		    Cb;
-		{value,List0} ->
-		    Gb1 = case lists:delete(Ref,List0) of
-			      [] ->
-				  gb_trees:delete(Pos, Gb);
-			      List1 ->
-				  gb_trees:update(Pos, List1, Gb)
-			  end,
-		    NewPos1 = pos(Cb,NewPos),
-		    Gb2 = case gb_trees:lookup(NewPos1, Gb1) of
-			      none -> 
-				  gb_trees:insert(NewPos1, [Ref], Gb1);
-			      {value,List2} -> 
-				  gb_trees:update(NewPos1, [Ref|List2], Gb1)
-			  end,
-		    Event = {Pid,NewPos1,Flags,UserData},
-		    Marks1 = Marks#{ Ref => Event },
-		    Cb#sample_buffer{mark_tree=Gb2, marks=Marks1}
-	    end;
-	undefined ->
-	    Cb
-    end.
+    NewPos1 = pos(Cb,NewPos),
+    Marks1 = alsa_marks:set_poistion(Marks, Ref, NewPos1),
+    Cb#sample_buffer{marks=Marks1}.
 
 %% set mark flags
 set_mark_flags(Cb=#sample_buffer{marks=Marks}, Ref, NewFlags) when
       is_reference(Ref), is_list(NewFlags) ->
-    case maps:get(Ref, Marks, undefined) of
-	{Pid,Pos,_Flags,UserData} ->
-	    Event = {Pid,Pos,NewFlags,UserData},
-	    Marks1 = Marks#{ Ref => Event },
-	    Cb#sample_buffer{marks=Marks1};
-	undefined ->
-	    Cb
-    end.
+    Marks1 = alsa_marks:set_flags(Marks, Ref, NewFlags),
+    Cb#sample_buffer{marks=Marks1}.    
 
 %% set mark user data
 set_mark_user_data(Cb=#sample_buffer{marks=Marks}, Ref, NewUserData) when
       is_reference(Ref) ->
-    case maps:get(Ref, Marks, undefined) of
-	{Pid,Pos,Flags,_UserData} ->
-	    Event = {Pid,Pos,Flags,NewUserData},
-	    Marks1 = Marks#{ Ref => Event },
-	    Cb#sample_buffer{marks=Marks1};
-	undefined ->
-	    Cb
-    end.
+    Marks1 = alsa_marks:set_user_data(Marks, Ref, NewUserData),
+    Cb#sample_buffer{marks=Marks1}.    
 
 %% return list of marks from and including position From
 %% until but NOT including To (To is the location after the region scanned)
 -spec find_marks(Cb::sample_buffer(), From::unsigned(), To::unsigned()) ->
-	  [{reference(),sample_event()}].
-find_marks(#sample_buffer{mark_tree=Gb, marks=Marks},
+	  [{reference(),alsa_marks:sample_event()}].
+find_marks(#sample_buffer{marks=Marks},
 	   From, To) when is_integer(From), is_integer(To), From >= 0,
 			  To >= From ->
-    Iter = gb_trees:iterator_from(From, Gb),
-    case find_marks_(Iter, Marks, To, []) of
-	[] -> [];
-	RefList -> [{Ref,maps:get(Ref,Marks)} || Ref <- RefList]
-    end.
-
-find_marks_(Iter, Marks, To, Acc) ->
-    case gb_trees:next(Iter) of
-	{Pos, RefList, Iter1} ->
-	    if Pos < To ->
-		    find_marks_(Iter1, Marks, To, Acc++RefList);
-	       true -> Acc
-	    end;
-	none -> Acc
-    end.
+    alsa_marks:range(Marks, From, To).
 
 -spec get_position(Cb::sample_buffer()) -> integer().
 get_position(Cb=#sample_buffer{}) ->
     get_position(Cb, cur).
 
--spec get_position(Cb::sample_buffer(),Pos::sample_position()) ->
+-spec get_position(Cb::sample_buffer(),Pos::alsa_marks:sample_position()) ->
 	  integer().
 get_position(Cb=#sample_buffer{}, Pos) ->
     pos(Cb, Pos).
 
--spec set_position(Cb::sample_buffer(),Pos::sample_position()) ->
+-spec set_position(Cb::sample_buffer(),Pos::alsa_marks:sample_position()) ->
 	  Cb1::sample_buffer().
 set_position(Cb, Pos) ->
     set_position_(Cb, pos(Cb, Pos)).
@@ -313,14 +227,11 @@ stop(Cb=#sample_buffer{}) ->
 run(Cb=#sample_buffer{}) ->
     Cb#sample_buffer{ state=running}.
 
-mute(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{ muted=true}.
-
-unmute(Cb=#sample_buffer{}) ->
-    Cb#sample_buffer{ muted=false}.
+mute(Cb=#sample_buffer{}, On) when is_boolean(On) ->
+    Cb#sample_buffer{ muted=On}.
 
 -spec read_with_marks(Cb::sample_buffer(), Len::sample_length()) -> 
-	  {Data::binary(), Cb1::sample_buffer(), [sample_event()]}.
+	  {Data::binary(), Cb1::sample_buffer(), [alsa_marks:sample_event()]}.
 read_with_marks(Cb=#sample_buffer{cur=Cur,loop=Loop}, Len) ->
     Len1 = len(Cb, Len),   %% length in number of samples
     NFrames = pos_eof(Cb), %% Number of frames in buffer

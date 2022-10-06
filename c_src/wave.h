@@ -5,6 +5,7 @@
 #include <alsa/asoundlib.h>
 
 #define DEFAULT_RATE 16000
+#define MAX_CHANNELS 8
 #define MAX_WAVES 8
 #define USE_DOUBLE
 
@@ -78,6 +79,8 @@ typedef struct {
 
 typedef struct {
     unsigned int rate;       // sample rate
+    unsigned int mute;       // mute=1 unmute=0
+    unsigned int state;      // running=1 stopped=0
     unsigned int n;          // number of wave forms
     Float_t t;               // current time
     Float_t dt;              // time step
@@ -97,6 +100,8 @@ extern int  wave_set_adsr(wavedef_t* param, int i,
 extern int wave_set_nwaves(wavedef_t* param, unsigned int n);
 extern int wave_set_rate(wavedef_t* param, unsigned int rate);
 extern int wave_set_mode(wavedef_t* param, unsigned int mode);
+extern int wave_set_mute(wavedef_t* param, unsigned int mute);
+extern int wave_set_state(wavedef_t* param, unsigned int state);
 extern int wave_set_time(wavedef_t* param, Float_t t);
 extern int wave_set_attack(wavedef_t* param, int i, Float_t duration);
 extern int wave_set_decay(wavedef_t* param, int i, Float_t duration);

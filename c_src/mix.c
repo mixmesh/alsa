@@ -67,6 +67,52 @@ static inline double clamp_double_double(double x)
     return (double) x;
 }
 
+static inline int8_t mix2_int8(int8_t a, int8_t b)
+{
+    if ((a < 0) && (b < 0))
+	return (int16_t)a + (int16_t)b + ((int16_t)a * (int16_t)b)/127;
+    else if ((a > 0) && (b > 0))
+	return (int16_t)a + (int16_t)b - ((int16_t)a * (int16_t)b)/127;
+    return a+b;    
+}
+
+static inline int16_t mix2_int16(int16_t a, int16_t b)
+{
+    if ((a < 0) && (b < 0))
+	return (int32_t)a + (int32_t)b + ((int32_t)a * (int32_t)b)/32767;
+    else if ((a > 0) && (b > 0))
+	return (int32_t)a + (int32_t)b - ((int32_t)a * (int32_t)b)/32767;
+    return a+b;
+}
+
+static inline int32_t mix2_int32(int32_t a, int32_t b)
+{
+    if ((a < 0) && (b < 0))
+	return (int64_t)a + (int64_t)b + ((int64_t)a * (int64_t)b)/2147483647;
+    else if ((a > 0) && (b > 0))
+	return (int64_t)a + (int64_t)b - ((int64_t)a * (int64_t)b)/2147483647;
+    return a+b;
+}
+
+
+static inline float mix2_float(float a, float b)
+{
+    if ((a < 0.0) && (b < 0.0))
+	return a + b + a*b;
+    else if ((a > 0.0) && (b > 0.0))
+	return a + b - a*b;
+    return a+b;
+}
+
+static inline double mix2_double(double a, double b)
+{
+    if ((a < 0.0) && (b < 0.0))
+	return a + b + a*b;
+    else if ((a > 0.0) && (b > 0.0))
+	return a + b - a*b;
+    return a+b;
+}
+
 #define PROCEDURE mix_pcm_int8
 #define TYPE   int8_t
 #define TYPE_R int16_t
@@ -74,6 +120,8 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) *(ptr)
 #define CLAMP(sum) clamp_int16_int8(sum)
+#define MIX2(a,b)  mix2_int8((a),(b))
+
 #include "mix_v.i"
 
 #define PROCEDURE mix_pcm_uint8
@@ -83,6 +131,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) (*(ptr)-0x80)
 #define CLAMP(sum) (uint8_t) (clamp_int16_int8(sum)+0x80)
+#define MIX2(a,b)  mix2_int8((a),(b))
 #include "mix_v.i"
 
 
@@ -93,6 +142,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) *(ptr)
 #define CLAMP(sum) clamp_int32_int16(sum)
+#define MIX2(a,b)  mix2_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_int16
@@ -102,6 +152,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) bswap_16(*(ptr))
 #define CLAMP(sum) clamp_int32_int16(sum)
+#define MIX2(a,b)  mix2_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_uint16
@@ -111,6 +162,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) (*(ptr)-0x8000)
 #define CLAMP(sum) (uint16_t)(clamp_int32_int16(sum)+0x8000)
+#define MIX2(a,b)  mix2_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_uint16
@@ -120,6 +172,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) (bswap_16(*(ptr))-0x8000)
 #define CLAMP(sum) (uint16_t)(clamp_int32_int16(sum)+0x8000)
+#define MIX2(a,b)  mix2_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_uint32
@@ -129,6 +182,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) (*(ptr)-0x80000000)
 #define CLAMP(sum) (uint32_t)(clamp_int64_int32(sum)+0x80000000)
+#define MIX2(a,b)  mix2_int32((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_uint32
@@ -138,6 +192,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) (bswap_32(*(ptr))-0x80000000)
 #define CLAMP(sum) (uint32_t)(clamp_int64_int32(sum)+0x80000000)
+#define MIX2(a,b)  mix2_int32((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_int32
@@ -147,6 +202,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) *(ptr)
 #define CLAMP(sum) clamp_int64_int32(sum)
+#define MIX2(a,b)  mix2_int32((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_int32
@@ -156,6 +212,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) bswap_32(*(ptr))
 #define CLAMP(sum) clamp_int64_int32(sum)
+#define MIX2(a,b)  mix2_int32((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_float
@@ -165,6 +222,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) *(ptr)
 #define CLAMP(sum) clamp_double_float(sum)
+#define MIX2(a,b)  mix2_float((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_float
@@ -174,6 +232,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) bswap_32(*(ptr))
 #define CLAMP(sum) clamp_double_float(sum)
+#define MIX2(a,b)  mix2_float((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_double
@@ -183,6 +242,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) *(ptr)
 #define CLAMP(sum) clamp_double_double(sum)
+#define MIX2(a,b)  mix2_double((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_double
@@ -192,6 +252,7 @@ static inline double clamp_double_double(double x)
 #define LOCALS_DECL
 #define READ(ptr) bswap_64(*(ptr))
 #define CLAMP(sum) clamp_double_double(sum)
+#define MIX2(a,b)  mix2_double((a),(b))
 #include "mix_v.i"
 
 // mix samples from *src[i] and store in *dst

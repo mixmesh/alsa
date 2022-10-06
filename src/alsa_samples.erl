@@ -19,6 +19,8 @@
 -export([wave_set_rate/2]).
 -export([wave_set_mode/2]).
 -export([wave_set_time/2]).
+-export([wave_set_mute/2]).
+-export([wave_set_state/2]).
 
 -export([wave_set_envelope/3]).
 -export([wave_set_adsr/6]).
@@ -39,6 +41,7 @@
 -export([wave/4]).
 %% util
 -export([create_wave/2]).
+-export([set_wave/2]).
 -export([to_frequency/1]).
 
 %% TEST
@@ -129,9 +132,17 @@ wave_set_nwaves(_WaveDef, _Num) ->
 wave_set_rate(_WaveDef, _Rate) ->
         ?nif_stub.
 
--spec wave_set_mode(wavedef(), sustain|off) -> ok.
-wave_set_mode(_WaveDef, _Mode) ->
+-spec wave_set_mode(W::wavedef(), sustain|off) -> ok.
+wave_set_mode(_W, _Mode) ->
         ?nif_stub.
+
+-spec wave_set_mute(W::wavedef(), boolean()) -> ok.
+wave_set_mute(_W, _On) ->
+    ?nif_stub.
+
+-spec wave_set_state(W::wavedef(), running|stopped) -> ok.
+wave_set_state(_W, _State) ->
+    ?nif_stub.
 
 %% set current time in seconds (typically 0.0 to reset time)
 -spec wave_set_time(wavedef(), Time::number()) -> ok.
@@ -222,19 +233,36 @@ wave_set_freq(W, Index, Freq) ->
 create_wave(Rate, Def) ->
     W = wave_new(),
     wave_set_rate(W, Rate),
-    N = num_waves(Def),
-    io:format("n waves = ~w\n", [N]),
-    ok = create_wave_(W, Def),
-    wave_set_nwaves(W, N),
+    _N = set_wave(W, Def),
     W.
 
-%% calculate number of waves in def
-num_waves(T) when is_tuple(T) ->
-    if element(1, T) =:= wave -> element(2, T)+1;
-       true -> 0
-    end;
-num_waves(Ts) when is_list(Ts) ->
-    lists:max([num_waves(T) || T <- Ts, is_tuple(T)]).
+set_wave(W, Def) ->
+    Ni = set_wave(W, Def, 0),
+    wave_set_nwaves(W, Ni),
+    io:format("n waves = ~w\n", [Ni]),
+    Ni.
+    
+set_wave(W, [D|Def], Ni) ->
+    Nii = set_wave_(W, D, Ni),
+    set_wave(W, Def, Nii);
+set_wave(_W, [], Ni) ->
+    Ni;
+set_wave(W, D, Ni) ->
+    set_wave_(W, D, Ni).
+    
+set_wave_(W,{wave,Wi,Fs}, Ni) ->
+    Fs1 = [to_frequency(F) || F <- Fs],
+    ok = wave_set_wave(W,Wi,Fs1),
+    max(Wi+1,Ni);
+set_wave_(W,{level, Wi, Levels}, Ni) ->
+    ok = wave_set_level(W, Wi, Levels),
+    max(Wi+1,Ni);
+set_wave_(W,{adsr,J, A,D,S,R}, Ni) ->
+    ok = wave_set_adsr(W,J,A,D,S,R),
+    Ni;
+set_wave_(W,{envelope,J, Elems}, Ni) ->
+    ok = wave_set_envelope(W,J,Elems),
+    Ni.
 
 duration({adsr,_J, A,D,S,R}) -> A+D+S+R;
 duration({envelope,_J,Es}) ->
@@ -245,23 +273,6 @@ duration({envelope,_J,Es}) ->
 duration(T) when is_tuple(T) -> 0;
 duration(Ts) when is_list(Ts) -> lists:max([duration(T) || T <- Ts]).
 
-create_wave_(W, [D|Def]) ->
-    set_wave_(W, D),
-    create_wave_(W, Def);
-create_wave_(_W, []) ->
-    ok;
-create_wave_(W, D) ->
-    set_wave_(W, D).
-    
-set_wave_(W,{wave,Wi,Fs}) ->
-    Fs1 = [to_frequency(F) || F <- Fs],
-    wave_set_wave(W,Wi,Fs1);
-set_wave_(W,{level, Wi, Levels}) ->
-    wave_set_level(W, Wi, Levels);
-set_wave_(W,{adsr,J, A,D,S,R}) ->
-    wave_set_adsr(W,J,A,D,S,R);
-set_wave_(W,{envelope,J, Elems}) ->
-    wave_set_envelope(W,J,Elems).
 
 to_frequency(T) when tuple_size(T) >= 2 ->
     setelement(2, T, to_frequency(element(2,T)));

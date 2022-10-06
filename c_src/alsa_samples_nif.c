@@ -65,6 +65,11 @@ static void unload(ErlNifEnv* env, void* priv_data);
 DECL_ATOM(ok);
 DECL_ATOM(error);
 DECL_ATOM(undefined);
+DECL_ATOM(true);
+DECL_ATOM(false);
+// state
+DECL_ATOM(running);
+DECL_ATOM(stopped);
 // mode
 DECL_ATOM(off);
 DECL_ATOM(linear);
@@ -166,6 +171,8 @@ DECL_ATOM(g723_40_1b);
     NIF("wave_set_wave", 3, nif_wave_set_wave)			\
     NIF("wave_set_rate", 2, nif_wave_set_rate)			\
     NIF("wave_set_mode", 2, nif_wave_set_mode)			\
+    NIF("wave_set_state", 2, nif_wave_set_state)		\
+    NIF("wave_set_mute", 2, nif_wave_set_mute)			\
     NIF("wave_set_nwaves", 2, nif_wave_set_nwaves)		\
     NIF("wave_set_time", 2, nif_wave_set_time)			\
     NIF("wave_set_attack", 3, nif_wave_set_attack)		\
@@ -412,6 +419,8 @@ static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[1], &num_channels))
 	return enif_make_badarg(env);
+    if ((num_channels < 1) || (num_channels > MAX_CHANNELS))
+	return enif_make_badarg(env);    
     list = argv[2];
     if (!enif_get_list_length(env, list, &num_voices))
 	return enif_make_badarg(env);
@@ -469,6 +478,8 @@ static ERL_NIF_TERM nif_resample(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[3], &num_channels))
 	return enif_make_badarg(env);
+    if ((num_channels < 1) || (num_channels > MAX_CHANNELS))
+	return enif_make_badarg(env);    
     if (!enif_inspect_binary(env, argv[4], &src))
 	return enif_make_badarg(env);
         
@@ -885,6 +896,44 @@ static ERL_NIF_TERM nif_wave_set_mode(ErlNifEnv* env, int argc,
     return ATOM(ok);
 }
 
+static ERL_NIF_TERM nif_wave_set_mute(ErlNifEnv* env, int argc,
+				      const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    unsigned int mute;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (argv[1] == ATOM(true))
+	mute = 1;
+    else if (argv[1] == ATOM(false))
+	mute = 0;
+    else
+	return enif_make_badarg(env);
+    if (wave_set_mute(param, mute) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
+static ERL_NIF_TERM nif_wave_set_state(ErlNifEnv* env, int argc,
+				       const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    unsigned int state;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (argv[1] == ATOM(running))
+	state = 1;
+    else if (argv[1] == ATOM(stopped))
+	state = 0;
+    else
+	return enif_make_badarg(env);
+    if (wave_set_state(param, state) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
 static ERL_NIF_TERM nif_wave_set_nwaves(ErlNifEnv* env, int argc,
 					const ERL_NIF_TERM argv[])
 {
@@ -1139,17 +1188,21 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[2], &num_channels))
 	return enif_make_badarg(env);
+    if ((num_channels < 1) || (num_channels > MAX_CHANNELS))
+	return enif_make_badarg(env);
     if (!get_size_t(env, argv[3], &num_frames))
-	return enif_make_badarg(env);    
-    frame_size = num_channels * snd_pcm_format_size(format, 1);
-    size = frame_size*num_frames;
-    dst = enif_make_new_binary(env, size, &dst_bin);
-
+	return enif_make_badarg(env);
+    if (param->state == 0) { // not running
+	enif_make_new_binary(env, 0, &dst_bin);
+    }
+    else {
+	frame_size = num_channels * snd_pcm_format_size(format, 1);
+	size = frame_size*num_frames;
+	dst = enif_make_new_binary(env, size, &dst_bin);
 //  enif_fprintf(stderr, "num_frames=%d, frame_size=%d, size=%d\r\n",
 //		 (int)num_frames, (int)frame_size, (int)size);
-    
-    wave_buffer(param, format, num_channels, dst, num_frames);
-
+	wave_buffer(param, format, num_channels, dst, num_frames);
+    }
     return dst_bin;
 }
     
@@ -1198,6 +1251,11 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(ok);
     LOAD_ATOM(error);
     LOAD_ATOM(undefined);
+    LOAD_ATOM(true);
+    LOAD_ATOM(false);
+    // state
+    LOAD_ATOM(running);
+    LOAD_ATOM(stopped);
     // mode
     LOAD_ATOM(off);
     LOAD_ATOM(linear);
