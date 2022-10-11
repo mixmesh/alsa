@@ -411,6 +411,7 @@ typedef struct {
     int           is_open;
     snd_pcm_t*    pcm;
     int           nfds;           // number of fds used in select
+    int           nstp;           // number of fds stopped
     struct pollfd fds[MAX_NFDS];  // >=0 when in select
 } handle_t;
 
@@ -1684,6 +1685,7 @@ static ERL_NIF_TERM nif_select(ErlNifEnv* env, int argc,
 	nfds = MAX_NFDS;
     }
     handle->nfds = nfds;
+    handle->nstp = 0;
     if (nfds > 0) {
 	enum ErlNifSelectFlags mode = 0;
 	ErlNifPid pid;
@@ -1986,11 +1988,17 @@ void pcm_dtor(ErlNifEnv *env, void *obj) {
     if (handle->is_open) {
 	int i;
 	DEBUGF("pcm_dtor: (open) access_count = %d", handle->access_count);
-	handle->is_open = 0;	
-	for (i = 0; i < handle->nfds; i++) {
-	    enif_select(env, (ErlNifEvent)handle->fds[i].fd,
-			ERL_NIF_SELECT_CANCEL,
-			handle, NULL, ATOM(undefined));
+	handle->is_open = 0;
+	if (handle->nfds == 0) {  // not issued a select
+	    DEBUGF("pcm_dtor: close pcm%s", "");
+	    snd_pcm_close(handle->pcm);
+	}
+	else {
+	    for (i = 0; i < handle->nfds; i++) {
+		enif_select(env, (ErlNifEvent)handle->fds[i].fd,
+			    ERL_NIF_SELECT_STOP,
+			    handle, NULL, ATOM(undefined));
+	    }
 	}
     }
     else {
@@ -2003,14 +2011,14 @@ static void pcm_stop(ErlNifEnv* env, handle_t* handle,
 		     ErlNifEvent event, int is_direct_call)
 {
     UNUSED(env);
-    int i, j;
-    DEBUGF("pcm_stop: event=%lx\r\n", (intptr_t)event);
-    j = handle->nfds-1;
-    for (i = 0; i <= j; i++) {
-	if (handle->fds[i].fd == (ErlNifEvent)event) {
-	    handle->fds[i] = handle->fds[j];
-	    handle->nfds--;
-	    if ((handle->nfds == 0) && (!handle->is_open)) {
+    int i;
+    DEBUGF("pcm_stop: direct=%d event=%lx", is_direct_call, (intptr_t)event);
+
+    for (i = 0; i < handle->nfds;  i++) {
+	if (handle->fds[i].fd == (ErlNifEvent)event) { // found it
+	    handle->fds[i].fd = -1; // mark it as stopped
+	    handle->nstp++;
+	    if ((handle->nfds == handle->nstp) && !handle->is_open) {
 		DEBUGF("pcm_stop: close pcm%s", "");
 		snd_pcm_close(handle->pcm);
 	    }
