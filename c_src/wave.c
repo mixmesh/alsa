@@ -698,7 +698,7 @@ int wave_set_samples(wavedef_t* param, int i, int j, int k,
 	resize_sample_buffer(wp, size, 1);
     xp = &wp->samples[j];
 
-    fprintf(stderr, "i=%d,j=%d,k=%d,sample_size=%ld,frame_size=%ld,src_frames=%ld,dst_frames=%ld\r\n", i, j, k, sample_size, frame_size, src_frames, dst_frames);    
+    // enif_fprintf(stderr, "i=%d,j=%d,k=%d,sample_size=%ld,frame_size=%ld,src_frames=%ld,dst_frames=%ld\r\n", i, j, k, sample_size, frame_size, src_frames, dst_frames);
 
     // load every k'th samples from frames
     k *= sample_size;
@@ -780,12 +780,19 @@ int wave_add_mark(wavedef_t* param, mark_t* mp)
 	return -1;
     // simple swap insert from end, improve this if we insert a bit randomly
     // and we have alto of marks
-    while((i > 0) && (param->markv[i-1]->pos > mp->pos)) {
+    while((i > 0) && (mp->pos < param->markv[i-1]->pos)) {
 	param->markv[i] = param->markv[i-1];
 	i--;
     }
     param->markv[i] = mp;
     param->num_marks++;
+    /*
+    enif_fprintf(stderr, "add mark: index=%d\r\n", i);
+    enif_fprintf(stderr, "  pos=%d\r\n", mp->pos);
+    enif_fprintf(stderr, "  flags=%x\r\n", mp->flags0);
+    enif_fprintf(stderr, "  set: lbl=%d,pos=%d,cnt=%d,rep=%d\r\n",
+		 mp->set.lbl,mp->set.pos,mp->set.cnt,mp->set.rep);
+    */
     return 0;
 }
 
@@ -816,6 +823,18 @@ mark_t* wave_remove_mark(wavedef_t* param, ERL_NIF_TERM ref)
     return NULL;
 }
 
+// return mark index if lbl is found -1 otherwise
+static int wave_goto_mark(wavedef_t* param, int lbl)
+{
+    int i;
+    for (i = 0; i < param->num_marks; i++) {
+	mark_t* mp = param->markv[i];
+	if ((mp->flags0 & MARK_LABEL) && (mp->set.lbl == lbl))
+	    return i;
+    }
+    return -1;
+}
+
 // make samples buffer, return list of marks contining notifications data
 mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 		    unsigned int channels, void* dst, size_t n)
@@ -831,7 +850,7 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
     envelope_t* ep = &param->e;
     mark_t* mpl = NULL;
     int i;
-    int mrk;
+    int mrk, mrk1;
 
     for (i = 0; i < MAX_CHANNELS; i++)
 	y[i] = 0.0;
@@ -863,26 +882,43 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 	    }
 	}
 
-	// check marks
+	// check marks - fixme loop over pcm generation between marks!?
 	pos1 = -1;  // the position may be updated
+	mrk1 = -1;  // maybe move mrk as well
 	while ((mrk < param->num_marks) && (pos > param->markv[mrk]->pos)) {
 	    //enif_fprintf(stderr, "mark-next: %d\r\n", param->markv[mrk]->pos);
 	    mrk++;
 	}
-	while ((mrk < param->num_marks) && (pos == param->markv[mrk]->pos)) {
+	while ((pos1 < 0) &&
+	       (mrk < param->num_marks) &&
+	       (pos == param->markv[mrk]->pos)) {
 	    mark_t* mp = param->markv[mrk];
 	    unsigned int flags = mp->flags0;
 	    //enif_fprintf(stderr, "mark-event: %d, flags=%x\r\n",
 	    // param->markv[mrk]->pos, flags);
 	    if (flags & MARK_SET) {
-		pos1 = mp->set.pos;
+		if (flags & MARK_GOTO) {
+		    if ((i = wave_goto_mark(param, mp->set.pos)) >= 0) {
+			pos1 = param->markv[i]->pos;
+			mrk1 = i;
+		    }
+		}
+		else
+		    pos1 = mp->set.pos;
 	    }
 	    if (flags & MARK_REPEAT) {
 		if (mp->set.cnt == 0) {
 		    mp->set.cnt = mp->set.rep;
 		}
 		else {
-		    pos1 = mp->set.pos;
+		    if (flags & MARK_GOTO) {
+			if ((i = wave_goto_mark(param, mp->set.pos)) >= 0) {
+			    pos1 = param->markv[i]->pos;
+			    mrk1 = i;
+			}
+		    }
+		    else
+			pos1 = mp->set.pos;
 		    mp->set.cnt--;
 		}
 	    }
@@ -904,7 +940,10 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 	}
 	if (pos1 >= 0) {
 	    wave_set_pos(param, pos1);
-	    mrk = wave_find_mark(param, pos1);
+	    if (mrk1 >= 0)
+		mrk = mrk1;
+	    else
+		mrk = wave_find_mark(param, pos1);
 	    pos = pos1;
 	    t = param->t;
 	    // enif_fprintf(stderr, "set(t=%f,pos=%d,mrk=%d)\r\n", t, pos, mrk);

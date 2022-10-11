@@ -96,6 +96,7 @@ DECL_ATOM(once);
 DECL_ATOM(stop);
 DECL_ATOM(set);
 DECL_ATOM(repeat);
+DECL_ATOM(label);
 
 // format
 DECL_ATOM(s8);
@@ -441,6 +442,8 @@ static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
     while(enif_get_list_cell(env, list, &hd, &tl)) {
 	int arity;
 	const ERL_NIF_TERM* elem;
+	int brity;	
+	const ERL_NIF_TERM* blem;
 	
 	if (hd == ATOM(notify))
 	    flags |= MARK_NOTIFY;
@@ -449,17 +452,41 @@ static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
 	else if (hd == ATOM(stop))
 	    flags |= MARK_STOP;
 	else if (enif_get_tuple(env, hd, &arity, &elem)) {
-	    if ((arity == 2) && (elem[0] == ATOM(set))) {
-		flags |= MARK_SET;
-		if (!enif_get_int(env, elem[1], &set.pos) || (set.pos < 0))
+	    if ((arity == 2) && (elem[0] == ATOM(label))) {
+		flags |= MARK_LABEL;
+		if (!enif_get_int(env, elem[1], &set.lbl))
 		    return 0;
+	    }
+	    else if ((arity == 2) && (elem[0] == ATOM(set))) {
+		flags |= MARK_SET;
 		set.rep = 0;
 		set.cnt = 0;
+		if (enif_get_int(env, elem[1], &set.pos)) {
+		    if (set.pos < 0) return 0;
+		}
+		else if (enif_get_tuple(env, elem[1], &brity, &blem) &&
+			 (brity == 2) && (blem[0] == ATOM(label))) {
+		    flags |= MARK_GOTO;
+		    if (!enif_get_int(env, blem[1], &set.pos))
+			return 0;
+		}
+		else
+		    return 0;
 	    }
 	    else if ((arity == 3) && (elem[0] == ATOM(repeat))) {
 		flags |= MARK_REPEAT;
-		if (!enif_get_int(env, elem[1], &set.pos) || (set.pos < 0))
-		    return 0;
+
+		if (enif_get_int(env, elem[1], &set.pos)) {
+		    if (set.pos < 0) return 0;
+		}
+		else if (enif_get_tuple(env, elem[1], &brity, &blem) &&
+			 (brity == 2) && (blem[0] == ATOM(label))) {
+		    flags |= MARK_GOTO;
+		    if (!enif_get_int(env, blem[1], &set.pos))
+			return 0;
+		}
+		else
+		    return 0;		
 		if (!enif_get_int(env, elem[2], &set.rep) || (set.rep < 0))
 		    return 0;
 		set.cnt = set.rep;
@@ -1411,10 +1438,14 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 
 //-spec mark(W::wavedef(), Pid::pid(), Ref::reference(), Pos::integer(),
 //	   Flags::[notify|once|stop|restart (={set,0})
-//		   {set,Pos::integer()}|
-//		   {repeat,Pos::integer(),Count::integer()}],
+//                 {label, Label::integer} |
+//                 {goto, Label::integer()} |
+//		   {set,Pos::position()} |
+//		   {repeat,Pos::position(),Count::integer()}
+//                ],
 //	   UserData :: term()) ->
 //	  ok.
+//  position() :: integer() | {label, integer()}
 static ERL_NIF_TERM nif_mark(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
 {
@@ -1435,10 +1466,6 @@ static ERL_NIF_TERM nif_mark(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_mark_flags(env, argv[4], &mark_flags, &mark_set))
 	return enif_make_badarg(env);
-//    enif_fprintf(stderr, "mark: pos=%d\r\n", pos);    
-//    enif_fprintf(stderr, "      flags=%x\r\n", mark_flags);
-//    enif_fprintf(stderr, "      set: pos=%d,cnt=%d,rep=%d\r\n",
-//		 mark_set.pos,mark_set.cnt, mark_set.rep);
     mp = alloc_mark();
     mp->pos = pos;
     mp->pid = pid;
@@ -1591,6 +1618,7 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(stop);
     LOAD_ATOM(set);
     LOAD_ATOM(repeat);
+    LOAD_ATOM(label);
     // format
     LOAD_ATOM(s8);
     LOAD_ATOM(u8);

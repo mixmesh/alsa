@@ -19,6 +19,7 @@
 -export([test_wave/0]).
 -export([test_mem/0]).
 -export([test_repeat_music/0]).
+-export([test_goto1/0, test_goto2/0]).
 
 test1() ->	 
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
@@ -114,6 +115,127 @@ test_pong() ->
     alsa_play:remove(2),
     alsa_play:remove(3),
     ok.
+
+-define(A,     10).
+-define(B,     20).
+-define(C,     30).
+
+-define(PLOP,  1).
+-define(BEEP,  2).
+-define(PEEP,  3).
+-define(LEFT,  4).
+-define(RIGHT, 5).
+
+%% simple
+test_goto1() ->
+    alsa_play:start(#{}),
+    alsa_play:remove(),
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    alsa_play:new(1),
+    alsa_play:append(1, {silence, {time,100}}),
+
+    %% REPEAT A 1
+    alsa_play:mark(1, eof, [{label,?A},notify], a),
+    begin
+	%% REPEAT PLOP 2
+	alsa_play:mark(1, eof, [{label,?PLOP},notify], plop),
+	begin
+	    alsa_play:append_file(1, filename:join(Sounds, "plop.wav")),
+	    alsa_play:append(1, {silence, {time,500}})		
+	end,
+	alsa_play:mark(1, eof, [{repeat,{label,?PLOP},2}], []),
+	    
+	%% REPEAT BEEP 2
+	alsa_play:mark(1, eof, [{label,?BEEP},notify], beep),
+	begin
+	    alsa_play:append_file(1, filename:join(Sounds, "beep.wav")),
+	    alsa_play:append(1, {silence, {time,500}})
+	end,
+	alsa_play:mark(1, eof, [{repeat,{label,?BEEP},2}], []),
+	    
+	%% REPEAT PEEP 2
+	alsa_play:mark(1, eof, [{label,?PEEP},notify], peep),
+	begin
+	    alsa_play:append_file(1, filename:join(Sounds, "peep.wav")),
+	    alsa_play:append(1, {silence, {time,500}})
+	end,
+	alsa_play:mark(1, eof, [{repeat,{label,?PEEP},2}], [])
+    end,
+    alsa_play:mark(1, eof, [{repeat,{label,?A},1}], []),
+
+    alsa_play:mark(1, eof, [notify, stop], stop),
+
+    alsa_play:run(1),
+    alsa_play:resume(),    
+
+    test_notify_loop(),
+
+    alsa_play:remove(1).
+
+%% complex
+test_goto2() ->
+    alsa_play:start(#{}),
+    alsa_play:remove(),
+    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
+    alsa_play:new(1),
+    alsa_play:append(1, {silence, {time,100}}),
+
+    %% REPEAT A 2 times
+    alsa_play:mark(1, eof, [{label,?A}], []),
+    begin
+	%% REPEAT B 2 times
+	alsa_play:mark(1, eof, [{label,?B}], []),
+	begin
+	    %% REPEAT PLOP 2
+	    alsa_play:mark(1, eof, [{label,?PLOP}], []),
+	    begin
+		alsa_play:append_file(1, filename:join(Sounds, "plop.wav")),
+		alsa_play:append(1, {silence, {time,100}})		
+	    end,
+	    alsa_play:mark(1, eof, [{repeat,{label,?PLOP},2}], []),
+	    
+	    %% REPEAT BEEP 2
+	    alsa_play:mark(1, eof, [{label,?BEEP}], []),
+	    begin
+		alsa_play:append_file(1, filename:join(Sounds, "beep.wav")),
+		alsa_play:append(1, {silence, {time,100}})
+	    end,
+	    alsa_play:mark(1, eof, [{repeat,{label,?BEEP},2}], []),
+	    
+	    %% REPEAT PEEP 2
+	    alsa_play:mark(1, eof, [{label,?PEEP}], []),
+	    begin
+		alsa_play:append_file(1, filename:join(Sounds, "peep.wav")),
+		alsa_play:append(1, {silence, {time,100}})
+	    end,
+	    alsa_play:mark(1, eof, [{repeat,{label,?PEEP},3}], [])
+	end,
+	alsa_play:mark(1, eof, [{repeat,{label,?B},2}], []),
+
+	%% REPEAT C 1 time
+	alsa_play:mark(1, eof, [{label,?C}], []),
+	begin
+	    %% skip "Front"
+	    alsa_play:mark(1, eof, [{set,{eof,{time,500}}}], undefined), 
+	    alsa_play:append_file(1, filename:join(Sounds, "Front_Left.wav")),
+	    
+	    %% skip "Front"
+	    alsa_play:mark(1, eof, [{set,{eof,{time,500}}}], undefined),
+	    alsa_play:append_file(1, filename:join(Sounds, "Front_Right.wav"))
+	end,
+	alsa_play:mark(1, eof, [{repeat,{label,?C},1}], [])
+    end,
+    alsa_play:mark(1, eof, [{repeat,{label,?A},2}], []),
+
+    alsa_play:mark(1, eof, [notify, stop], stop),
+
+    alsa_play:run(1),
+    alsa_play:resume(),    
+
+    test_notify_loop(),
+
+    alsa_play:remove(1).
+
 
 test_notify() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
@@ -346,6 +468,7 @@ test_wave() ->
     alsa_play:new(1),
     E = [0.2, 0.5, 0.2],
     D = trunc(1000*lists:sum(E)),
+
     alsa_play:set_wave(1, [{envelope,E},
 			   {wave,0, [#{ form=>sine, freq=>"A3", level=>0.0},
 				     #{ form=>sine, freq=>"D4", level=>0.9},
@@ -394,6 +517,6 @@ test_notify_loop() ->
 	    alsa_play:pause(),
 	    ok;
 	{_Ref, _Chan, _Pos, What} -> %% other notifications
-	    io:format("~s\n", [What]),
+	    io:format("~p\n", [What]),
 	    test_notify_loop()
     end.

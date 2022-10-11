@@ -83,13 +83,16 @@ typedef struct {
 #define MARK_STOP    0x04  // stop marker
 #define MARK_SET     0x08  // change position {set,Pos}
 #define MARK_REPEAT  0x10  // maybe change pos and maybe reset counter
+#define MARK_LABEL   0x20  // mark has a label
+#define MARK_GOTO    0x40  // mark use GOTO label instead of position
 #define MARK_FREE    0x80  // free needed
 // cnt=0 => no repeat (rep must be 0)
 // cnt=1 => cnt=rep, continue
 // cnt=n => cnt=n-1, take jump
 typedef struct
 {
-    int pos;   // next poistion (config)
+    int lbl;   // mark label
+    int pos;   // next position SET/REPEAT | label if GOTO
     int rep;   // repeat value (config)
     int cnt;   // current count (reset to rep)
 } mark_set_t;

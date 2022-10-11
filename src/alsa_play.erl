@@ -50,7 +50,8 @@
 	unsigned() | cur | bof | eof | last | {time,number()} |
 	{cur, sample_length()} |
 	{bof, sample_length()} |
-	{eof, sample_length()}.
+	{eof, sample_length()} |
+	{label, integer()}.
 
 -define(verbose(F), ok).
 %% -define(verbose(F), io:format((F),[])).
@@ -249,7 +250,7 @@ init(Options) ->
     process_flag(trap_exit, true),
     case alsa_playback:open(Options) of
 	{ok,H,Params} ->
-	    ?info("Alsa open: params = ~p\n", [Params]),
+	    ?verbose("Alsa open: params = ~p\n", [Params]),
 	    {ok, #state{ handle = H,
 			 params = Params,
 			 channels = #{}
@@ -614,7 +615,8 @@ pos(W,last) -> pos_last(W);
 pos(W,cur) -> pos_cur(W);
 pos(W,{cur,Offs}) -> pos_cur(W) + len(W, Offs);
 pos(W,{bof,Offs}) -> len(W, Offs);
-pos(W,{eof,Offs}) -> pos_eof(W) + len(W, Offs).
+pos(W,{eof,Offs}) -> pos_eof(W) + len(W, Offs);
+pos(_W,Lbl={label,_}) -> Lbl.
 
 pos_cur(W) ->
     round(alsa_samples:wave_get_time(W) * alsa_samples:wave_get_rate(W)).
@@ -784,6 +786,7 @@ is_pos(Pos) when is_integer(Pos), Pos >= 0 -> true;
 is_pos({bof,Len}) -> is_len(Len);
 is_pos({eof,Len}) -> is_len(Len);
 is_pos({cur,Len}) -> is_len(Len);
+is_pos({label,Lbl}) -> is_integer(Lbl);
 is_pos(Len) -> is_len(Len).
 
 is_len({time,T}) when is_number(T) -> true;
@@ -812,6 +815,7 @@ is_mark_flags([notify|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([once|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([stop|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([restart|Fs]) -> is_mark_flags(Fs); %% = {set,{pos,bof}}
+is_mark_flags([{label,Lbl}|Fs]) -> is_integer(Lbl) andalso is_mark_flags(Fs);
 is_mark_flags([{set,Pos}|Fs]) -> is_pos(Pos) andalso is_mark_flags(Fs);
 is_mark_flags([{repeat,Pos,Num}|Fs]) -> is_pos(Pos) andalso 
 					is_integer(Num) andalso

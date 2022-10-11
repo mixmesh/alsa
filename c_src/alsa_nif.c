@@ -462,7 +462,7 @@ static int get_handle(ErlNifEnv* env, ERL_NIF_TERM arg,
 // code calling get_handle must call done_handle at the end of code
 static void done_handle(ErlNifEnv* env, handle_t* handle) {
     int must_close = 0;
-    DEBUGF("done_handle: access_count = %d", handle->access_count);    
+    DEBUGF("done_handle: access_count = %d", handle->access_count);
     enif_mutex_lock(handle->access_mtx);
     handle->access_count--;
     if ((handle->access_count == 0) && !handle->is_open)
@@ -470,7 +470,11 @@ static void done_handle(ErlNifEnv* env, handle_t* handle) {
     enif_mutex_unlock(handle->access_mtx);    
     if (must_close) {
 	DEBUGF("done_handle: close", 0);
-	if (handle->nfds > 0) {
+	if (handle->nfds == 0) {  // no select issued
+	    DEBUGF("done_handle: close pcm%s", "");
+	    snd_pcm_close(handle->pcm);
+	}
+	else {
 	    int i;
 	    for (i = 0; i < handle->nfds; i++) {
 		DEBUGF("done_handle: select STOP fd=%d", handle->fds[i].fd);
@@ -478,9 +482,6 @@ static void done_handle(ErlNifEnv* env, handle_t* handle) {
 			    ERL_NIF_SELECT_STOP,
 			    handle, NULL, ATOM(undefined));
 	    }
-	}
-	else {
-	    snd_pcm_close(handle->pcm);
 	}
     }
 }
@@ -1675,10 +1676,6 @@ static ERL_NIF_TERM nif_select(ErlNifEnv* env, int argc,
     default: break;
     }
 
-    // how do we now we are still in select?
-    // FIXME: mutex
-    // if (handle->nfds > 0)
-    //  return make_herror(env, handle, ATOM(select_already));
     nfds = snd_pcm_poll_descriptors_count(handle->pcm);
     if (nfds > MAX_NFDS) {
 	ERRORF("poll_descriptor_count > MAX_NFDS (%d>%d)", nfds, MAX_NFDS);
@@ -1691,7 +1688,6 @@ static ERL_NIF_TERM nif_select(ErlNifEnv* env, int argc,
 	ErlNifPid pid;
 	int i;
 
-	handle->nfds = nfds;
 	snd_pcm_poll_descriptors(handle->pcm, handle->fds, nfds);
 
 	enif_self(env, &pid);
@@ -1995,6 +1991,7 @@ void pcm_dtor(ErlNifEnv *env, void *obj) {
 	}
 	else {
 	    for (i = 0; i < handle->nfds; i++) {
+		DEBUGF("dtor: select STOP fd=%d", handle->fds[i].fd);
 		enif_select(env, (ErlNifEvent)handle->fds[i].fd,
 			    ERL_NIF_SELECT_STOP,
 			    handle, NULL, ATOM(undefined));

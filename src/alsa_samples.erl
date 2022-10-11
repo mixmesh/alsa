@@ -82,15 +82,17 @@
 		     Phase::float(),
 		     Noice::float01()}].
 -type event() :: {Ref::reference(),Pid::pid(),Pos::integer(),UserData::term()}.
+-type position() :: integer() | {label,integer()}.
 -type event_flag() :: notify |  %% send not event() notification
 		      once |    %% remove mark after trigger
 		      stop |    %% stop stream after trigger
 		      restart | %% set time=0 after trigger = {set,bof}
-		      {set,Pos::integer()} |  %% set new position
+		      {label, Lbl::integer()} | %% mark "name"
+		      {set,Pos::position()} |  %% set new position
 		      %% {repeat,Pos,0}  %% do not repeat
 		      %% {repeat,Pos,1}  %% repeat from Pos one time
 		      %% {repeat,Pos,N}  %% repeat from Pos N times
-		      {repeat,Pos::integer(),Count::integer()}.
+		      {repeat,Pos::position(),Count::integer()}.
 
 
 -define(nif_stub,nif_stub_error(?LINE)).
