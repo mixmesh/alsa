@@ -41,6 +41,16 @@
 -export([pause/0, resume/0]).
 
 -type channel() :: non_neg_integer().
+-type unsigned() :: non_neg_integer().
+%%-type range_start() :: bof | unsigned().
+%%-type range_size() :: eof | unsigned().
+%%-type sample_range() :: [{range_start(), range_size()}].
+-type sample_length() :: integer() | {time,number()}.
+-type sample_position() :: 
+	unsigned() | cur | bof | eof | last | {time,number()} |
+	{cur, sample_length()} |
+	{bof, sample_length()} |
+	{eof, sample_length()}.
 
 -define(verbose(F), ok).
 %% -define(verbose(F), io:format((F),[])).
@@ -119,12 +129,12 @@ append_file(Channel, Filename) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, UserData) -> mark(Channel, cur, [], UserData).
 
--spec mark(Channel::channel(), Flags::[alsa_marks:event_flag()],
+-spec mark(Channel::channel(), Flags::[alsa_samples:event_flag()],
       UserData::term()) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Flags, UserData) -> mark(Channel, cur, Flags, UserData).
 
--spec mark(Channel::channel(), Pos::alsa_marks:position(),
+-spec mark(Channel::channel(), Pos::sample_position(),
 	   Flags::[alsa_samples:event_flag()], UserData::term()) ->
 	  {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Pos, Flags, UserData) ->
@@ -593,17 +603,6 @@ samples_to_binary(W, #{ format := Format, channels := Channels},
 		  {silence, Len}) ->
     alsa:make_silence(Format, Channels, len(W,Len)).
 
-
--type unsigned() :: non_neg_integer().
-%%-type range_start() :: bof | unsigned().
-%%-type range_size() :: eof | unsigned().
-%%-type sample_range() :: [{range_start(), range_size()}].
--type sample_length() :: integer() | {time,number()}.
--type sample_position() :: 
-	unsigned() | cur | bof | eof | last | {time,number()} |
-	{cur, sample_length()} |
-	{bof, sample_length()} |
-	{eof, sample_length()}.
 
 %% translate sample_position into absolute sample position
 -spec pos(W::alsa_samples:wavedef(), Pos::sample_position()) -> integer().
