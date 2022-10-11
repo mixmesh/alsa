@@ -22,26 +22,12 @@
 -define(MAX_CHANNELS, 16).
 -define(is_channel(C), (is_integer((C)) andalso ((C)>=0) 
 			andalso ((C)<?MAX_CHANNELS))).
-
--record(buffer,
-	{
-	 b :: alsa_buffer:sample_buffer(),
-	 marks :: alsa_marks:marks()
-	}).
--define(is_buffer(B), is_record((B),buffer)).
-
--record(wave,
-	{
-	 w :: reference(), %% alsa_samples wave def
-	 marks :: alsa_marks:marks()
-	}).
--define(is_wave(W), is_record((W),wave)).
+-define(DEFAULT_WAVE_NUM, 0).
 
 -export([new/1]).
--export([new_wave/2]).
 -export([set_wave/2]).
--export([mute/2, loop/2]).
--export([insert/2, insert/3, insert/4]).
+-export([mute/2]).
+-export([insert/4]).
 -export([insert_file/2, insert_file/3]).
 -export([append/2, append/3]).
 -export([append_file/2]).
@@ -52,18 +38,7 @@
 -export([stop/1, stop/0]).
 -export([restart/1, clear/1, remove/1]).
 -export([restart/0, clear/0, remove/0]).
--export([resume/0, pause/0]).
-
--export([test/0,
-	 test/1,
-	 test_pong/0,
-	 test_notify/0,
-	 test_notify_once/0,
-	 test_notify_once_one/0,
-	 test_notify_music/0,
-	 test_left_right/0
-	]).
--export([test_wave/0]).
+-export([pause/0, resume/0]).
 
 -type channel() :: non_neg_integer().
 
@@ -74,285 +49,23 @@
 %%-define(info(F,A), ok).
 -define(info(F,A), io:format((F),(A))).
 
-test() ->
-    test("default").
-test(Device) ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{device=>Device, rate=>16000 }),
-    new(1),
-    new(2),
-    new(3),
-    append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append_file(2, filename:join(Sounds, "Front_Right.wav")),
-    append_file(3, filename:join(Sounds, "Rear_Right.wav")),
-    loop(1, true),
-    loop(2, true),
-    loop(3, true),
-    run(),
-    resume().
+-record(state, 
+	{
+	 handle :: alsa:handle(),
+	 params :: #{},                 %% alsa open params
+	 pause = true :: boolean(),     %% user call pause
+	 playing = false :: boolean(),  %% alsa is playing
+	 channels :: #{ integer() => alsa_samples:wavedef() },
+	 output = undefined :: undefine | binary(),
+	 marks = []      %% current marks
+	}).
 
-test_pong() ->
-    start(#{}),
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    new(1),
-    mute(1, true),
-    append_file(1, filename:join(Sounds, "plop.wav")),   
-    new(2),
-    mute(2, true),
-    append_file(2, filename:join(Sounds, "beep.wav")),
-    new(3),
-    mute(3, true),
-    append_file(3, filename:join(Sounds, "Side_Left.wav")),
-    run(),
-    resume(),
-    timer:sleep(500),
-
-    lists:foreach(
-      fun(_) ->
-	      mute(1, false),
-	      restart(1),
-	      timer:sleep(500), %% listen to plop
-	      mute(1, true),
-
-	      mute(2, false),
-	      restart(2),
-	      timer:sleep(500),  %% listen to beep
-	      mute(2, true),
-
-	      mute(3, false),
-	      restart(3),
-	      timer:sleep(2000),  %% listen to Side_Left
-	      mute(3, true)
-      end, lists:seq(1, 4)),
-
-    loop(1, true),
-    loop(2, true),
-    mute(1, false),
-    mute(2, false),
-    mute(3, false),
-    restart(3),
-    
-    timer:sleep(2000),  %% listen to all
-
-    alsa_play:pause(),
-
-    remove(1),
-    remove(2),
-    remove(3),
-    ok.
-
-test_notify() ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{ rate => 16000 }),
-    new(1),
-    new(2),
-    new(3),
-    append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    append(1, {silence, {time,100}}),
-    append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time,100}}),
-    append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    append(3, {silence, {time,100}}),
-    {ok,Ref1} = mark(1, {eof,-1}, [notify], center_done),
-    {ok,Ref2} = mark(2, {eof,-1}, [notify], left_done),
-    {ok,Ref3} = mark(3, {eof,-1}, [notify], right_done),
-    run(1),
-    resume(),
-    receive
-	{Ref1, 1, _Pos1, _Flags1, center_done} ->
-	    run(2)
-    end,
-    receive
-	{Ref2, 2, _Pos2, _Flags2, left_done} ->
-	    run(3)
-    end,
-    receive
-	{Ref3, 3, _Pos3, _Flags3, right_done} ->
-	    ok
-    end,
-    alsa_play:pause(),
-    unmark(1, Ref1),
-    unmark(2, Ref2),
-    unmark(3, Ref3),
-    remove(1),
-    remove(2),
-    remove(3),
-    ok.
-
-%% play each wav file in sequence in different channels 1,2,3,
-%% restart channel and remove mark after each completed play
-test_notify_once() ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{ rate => 16000 }),
-    new(1),
-    new(2),
-    new(3),
-    append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    append(1, {silence, {time,100}}),
-    append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time,100}}),
-    append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    append(3, {silence, {time,100}}),
-
-    {ok,Ref1} = mark(1, {eof,-1}, [notify,once], sample_played),
-    run(1),
-    resume(),
-    receive
-	{Ref1, 1, _Pos1, _Flags1, sample_played} ->
-	    ok
-    end,
-
-    {ok,Ref2} = mark(2, {eof,-1}, [notify,once], sample_played),
-    run(2),
-    receive
-	{Ref2, 2, _Pos2, _Flags2, sample_played} ->
-	    ok
-    end,
-
-    {ok,Ref3} = mark(3, {eof,-1}, [notify,once], sample_played),
-    run(3),
-    receive
-	{Ref3, 3, _Pos3, _Flags3, sample_played} ->
-	    ok
-    end,
-    pause(),
-    remove(1),
-    remove(2),
-    remove(3),
-    ok.
-
-
-%% play each wav file in sequence in the same channels 1
-%% remove mark after each completed play
-test_notify_once_one() ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{ rate => 16000 }),
-    new(1),
-    append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    %% append(1, {silence, {time,100}}),
-    {ok,Ref1} = mark(1, {eof,-1}, [notify,once,stop], sample1_played),
-
-    append_file(1, filename:join(Sounds, "Front_Left.wav")),
-    %% append(2, {silence, {time,100}}),
-    {ok,Ref2} = mark(1, {eof,-1}, [notify,once,stop], sample2_played),
-    append_file(1, filename:join(Sounds, "Front_Right.wav")),
-    %% append(3, {silence, {time,100}}),
-    {ok,Ref3} = mark(1, {eof,-1}, [notify,once,stop], sample3_played),
-
-    run(1),
-    resume(),
-    receive
-	{Ref1, 1, _Pos1, _Flags1, sample1_played} ->
-	    ok
-    end,
-    run(1),
-    pause(),resume(),
-    receive
-	{Ref2, 1, _Pos2, _Flags2, sample2_played} ->
-	    ok
-    end,
-    run(1),
-    pause(),resume(),
-    receive
-	{Ref3, 1, _Pos3, _Flags3, sample3_played} ->
-	    ok
-    end,
-    pause(),
-    remove(1),
-    ok.
-
-test_notify_music() ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{ rate => 16000 }),
-    new(1),
-    append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
-    {ok,Ref1} = mark(1, {eof,-1}, [notify,restart], "Music"),
-    new(2),
-    append(2, {silence, {time,500}}),
-    append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    append(2, {silence, {time,1500}}),
-    {ok,Ref2} = mark(2, {time,2000}, [restart], "Left"),
-    new(3),
-    append(3, {silence, {time,1000}}),
-    append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    append(3, {silence, {time,1000}}),
-    {ok,Ref3} = mark(3, {time,2000}, [restart], "Right"),
-
-    erlang:start_timer(30000, self(), stop),    
-    run(),
-    resume(),
-    test_notify_loop(),
-    unmark(1,Ref1),unmark(2,Ref2),unmark(3,Ref3),
-    remove(1),remove(2),remove(3),
-    ok.
-
-test_notify_loop() ->
-    receive
-	{_Ref, _Chan, _Pos, _Flags, What} ->
-	    io:format("~s\n", [What]),
-	    test_notify_loop();
-	{timeout, _, stop} ->
-	    pause(),
-	    ok
-    end.
-
-%% Edit Front_Left and Front_Right to say Left/Right in a loop
-test_left_right() ->
-    Sounds = filename:join(code:lib_dir(alsa), "sounds"),
-    start(#{ rate => 16000 }),
-    new(1),
-    append(1, {silence, {time,100}}),
-    mark(1, eof, [{set,{cur,{time,500}}}], undefined), %% skip Front_...
-    append_file(1, filename:join(Sounds, "Front_Left.wav")),
-    append(1, {silence, {time,100}}),
-    mark(1, eof, [{set,{cur,{time,550}}}], undefined), %% skip Front_...
-    append_file(1, filename:join(Sounds, "Front_Right.wav")),
-    mark(1, eof, [{set,bof}], undefined),
-    run(),
-    resume(),
-    ok.
-
-test_wave() ->
-    start(#{ rate => 44100, latency => 50 }),
-    new_wave(1, [{adsr,0,  0.1, 0.1, 3.0, 0.5},
-		 {wave,0, [#{ form=>sine, freq=>"A3", level=>0.0},
-			   #{ form=>sine, freq=>"D4", level=>0.1},
-			   #{ form=>sine, freq=>"A3", level=>0.5}]},
-
-		 {wave,1, [#{ form=>sine, freq=>"G3", level=>0.9},
-			   #{ form=>sine, freq=>"G3", level=>0.9},
-			   #{ form=>sine, freq=>"G3", level=>0.9}]},
-			   
-		 {wave,2, [#{ form=>sine, freq=>"E3", level=>0.9},
-			   #{ form=>sine, freq=>"E3", level=>0.9},
-			   #{ form=>sine, freq=>"E3", level=>0.9}]}
-		]),
-    run(),
-    resume(),
-    ok.
 
 new(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {new, Channel}).
 
-new_wave(Channel, WaveDef) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {new_wave, Channel, WaveDef}).
-
 set_wave(Channel, WaveDef) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {set_wave, Channel, WaveDef}).
-
-insert(Channel, Samples) ->
-    insert(Channel, cur, Samples).
-
-insert(Channel, Pos, Samples) ->
-    case is_channel(Channel) andalso
-	is_pos(Pos) andalso
-	is_data(Samples) of
-	true ->
-	    gen_server:call(?SERVER, {insert,Channel,Pos,Samples});
-	false ->
-	    error(badarg)
-    end.
 
 insert(Channel, Pos, Header, Samples) ->
     case is_channel(Channel) andalso
@@ -365,6 +78,16 @@ insert(Channel, Pos, Header, Samples) ->
 	    error(badarg)
     end.
 
+insert(Channel, Pos, Samples) ->
+    case is_channel(Channel) andalso
+	is_pos(Pos) andalso
+	is_data(Samples) of
+	true ->
+	    gen_server:call(?SERVER, {insert,Channel,Pos,Samples});
+	false ->
+	    error(badarg)
+    end.
+
 insert_file(Channel, Filename) ->
     insert_file(Channel, cur, Filename).
 
@@ -373,7 +96,12 @@ insert_file(Channel, Pos, Filename) ->
 	is_pos(Pos) andalso 
 	is_filename(Filename) of
 	true ->
-	    gen_server:call(?SERVER, {insert_file,Channel,Pos,Filename});
+	    case alsa_util:read_file(Filename) of
+		{ok,{Header,Samples}} ->
+		    gen_server:call(?SERVER, {insert,Channel,Pos,Header,Samples});
+		Error ->
+		    Error
+	    end;
 	false ->
 	    error(badarg)
     end.
@@ -391,14 +119,14 @@ append_file(Channel, Filename) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, UserData) -> mark(Channel, cur, [], UserData).
 
--spec mark(Channel::channel(), Flags::[alsa_buffer:sample_event_flag()],
+-spec mark(Channel::channel(), Flags::[alsa_marks:event_flag()],
       UserData::term()) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Flags, UserData) -> mark(Channel, cur, Flags, UserData).
 
--spec mark(Channel::channel(), Pos::alsa_buffer:sample_position(),
-      Flags::[alsa_buffer:sample_event_flag()], UserData::term()) ->
-    {ok, Ref::reference()} | {error, Reason::term()}.
+-spec mark(Channel::channel(), Pos::alsa_marks:position(),
+	   Flags::[alsa_samples:event_flag()], UserData::term()) ->
+	  {ok, Ref::reference()} | {error, Reason::term()}.
 mark(Channel, Pos, Flags, UserData) ->
     case is_channel(Channel) andalso
 	is_pos(Pos) andalso
@@ -437,9 +165,6 @@ remove() ->
 mute(Channel, On) when ?is_channel(Channel), is_boolean(On) ->
     gen_server:call(?SERVER, {mute, Channel, On}).
 
-loop(Channel, On) when ?is_channel(Channel), is_boolean(On) ->
-    gen_server:call(?SERVER, {loop, Channel, On}).
-
 run(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {run, Channel}).
 
@@ -464,15 +189,6 @@ resume() ->
 pause() ->
     gen_server:call(?SERVER, pause).
 
--record(state, 
-	{
-	 handle :: alsa:handle(),
-	 params :: #{},  %% alsa open params
-	 pause = true :: boolean(),
-	 channels :: #{ integer() => alsa_buffer:sample_buffer()  },
-	 output = undefined :: undefine | binary(),
-	 marks = []      %% current marks
-	}).
 
 %%%===================================================================
 %%% API
@@ -548,30 +264,14 @@ init(Options) ->
 	  {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	  {stop, Reason :: term(), NewState :: term()}.
 
-handle_call({new,Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    case alsa_buffer:new(State#state.params) of
-		{ok,B} ->
-		    Buf = #buffer{b=B},
-		    ChanMap1 = ChanMap#{ Channel => Buf },
-		    {reply, ok, State#state { channels = ChanMap1 }};
-		Error={error,_} ->
-		    {reply, Error, State}
-	    end;
-	_Buf ->
-	    {reply, {error, ealready}, State}
-    end;
-
-handle_call({new_wave,Channel,Def}, _From, State) ->
+handle_call({new, Channel}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    Rate = maps:get(rate, State#state.params, 16000),
-	    W = alsa_samples:create_wave(Rate, Def),
-	    Marks = alsa_marks:new(),
-	    ChanMap1 = ChanMap#{ Channel => #wave{w=W,marks=Marks} },
+	    W = alsa_samples:wave_new(),
+	    alsa_samples:wave_set_rate(W, Rate),
+	    ChanMap1 = ChanMap#{ Channel => W },
 	    {reply, ok, State#state { channels = ChanMap1 }};
 	_Buf ->
 	    {reply, {error, ealready}, State}
@@ -580,72 +280,30 @@ handle_call({new_wave,Channel,Def}, _From, State) ->
 handle_call({set_wave,Channel,WaveDef}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
-	Wave when ?is_wave(Wave) ->
-	    alsa_samples:set_wave(Wave#wave.w, WaveDef),
-	    {reply, ok, State};
-	Buf when ?is_buffer(Buf) ->
-	    %% FIXME: sample wave and store as bufffer samples?
-	    {reply, {error, not_supported}, State};
 	undefined ->
-	    {reply, {error, enoent}, State}
+	    {reply, {error, enoent}, State};
+	W ->
+	    alsa_samples:set_wave(W, WaveDef),
+	    {reply, ok, State}
     end;
 
 handle_call({insert,Channel,Pos,Samples}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:insert(Buf#buffer.b, Pos, Samples),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    {reply, {error, not_supported}, State}
-    end;
-handle_call({insert,Channel,Pos,Header,Samples}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:insert(Buf#buffer.b, Pos, Header, Samples),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    {reply, {error, not_supported}, State}
-    end;
+    handle_insert(Channel, Pos, State#state.params, Samples, State);
 
-handle_call({insert_file,Channel,Pos,Filename}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:insert_file(Buf#buffer.b, Pos, Filename),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    {reply, {error, not_supported}, State}
-    end;
+handle_call({insert,Channel,Pos,Header,Samples}, _From, State) ->
+    handle_insert(Channel, Pos, Header, Samples, State);
 
 handle_call({mark,Pid,Channel,Pos,Flags,UserData}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf  when ?is_buffer(Buf) ->
+	W ->
 	    Ref = erlang:monitor(process, Pid),
-	    {_,B1} = alsa_buffer:mark(Buf#buffer.b, Pid, Ref, Pos, Flags, UserData),
-	    Buf1 = Buf#buffer { b = B1 },
-	    ChanMap1 = ChanMap#{ Channel => Buf1 },
-	    {reply, {ok,Ref}, State#state { channels = ChanMap1}};
-	Wave=#wave{marks=Marks} ->
-	    Ref = erlang:monitor(process, Pid),
-	    Pos1 = Pos, %% fixme pos function!!
-	    {_,Mark1} = alsa_marks:mark(Marks, Pid, Ref, Pos1, Flags, UserData),
-	    Wave1 = Wave#wave{marks=Mark1},
-	    ChanMap1 = ChanMap#{ Channel => Wave1 },
-	    {reply, {ok,Ref}, State#state { channels = ChanMap1}}
+	    Pos1 = pos(W, Pos),
+	    Flags1 = flags(W, Flags),
+	    alsa_samples:mark(W, Pid, Ref, Pos1, Flags1, UserData),
+	    {reply, {ok,Ref}, State}
     end;
 
 handle_call({unmark,Channel,Ref}, _From, State) ->
@@ -653,18 +311,10 @@ handle_call({unmark,Channel,Ref}, _From, State) ->
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error,enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:unmark(Buf#buffer.b, Ref),
-	    Buf1 = Buf#buffer { b = B1 },
-	    ChanMap1 = ChanMap#{ Channel => Buf1 },
+	W ->
+	    alsa_samples:unmark(W, Ref),
 	    erlang:demonitor(Ref, [flush]),
-	    {reply, ok, State#state { channels = ChanMap1 }};
-	Wave=#wave{marks=Marks} ->
-	    Marks1 = alsa_marks:unmark(Marks, Ref),
-	    Wave1 = Wave#wave{marks=Marks1},
-	    ChanMap1 = ChanMap#{ Channel => Wave1 },
-	    erlang:demonitor(Ref, [flush]),
-	    {reply, ok, State#state { channels = ChanMap1 }}
+	    {reply, ok, State}
     end;
 
 handle_call({restart,Channel}, _From, State) ->
@@ -672,57 +322,57 @@ handle_call({restart,Channel}, _From, State) ->
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:restart(Buf#buffer.b),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    %% fixme: add restart to restart repeat...
-	    alsa_samples:wave_set_time(Wave#wave.w, 0),
+	W ->
+	    alsa_samples:wave_set_time(W, 0),
 	    {reply, ok, State}
     end;
 
+%% clear one channel, but keep structure
 handle_call({clear,Channel}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf  when ?is_buffer(Buf) ->
-	    %% FIXME: clean marks?
-	    B1 = alsa_buffer:clear(Buf#buffer.b),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    alsa_samples:wave_set_nwaves(Wave#wave.w, 0),
+	W ->
+	    alsa_samples:wave_clear(W),
 	    {reply, ok, State}
     end;
+%% clear all channels
+handle_call(clear, _From, State) ->
+    maps:foreach(
+      fun(_Channel, W) ->
+	      %% force flush of all potential samples
+	      alsa_samples:wave_clear(W)
+      end, State#state.channels),
+    {reply, ok, State};
 
 handle_call({mute,Channel,On}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf  when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:mute(Buf#buffer.b, On),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    alsa_samples:wave_set_mute(Wave#wave.w, On),
+	W ->
+	    alsa_samples:wave_set_mute(W, On),
 	    {reply, ok, State}
     end;
+
+handle_call(run, _From, State) ->
+    maps:foreach(
+      fun (_Channel, W) ->
+	      alsa_samples:wave_set_state(W, running)
+      end, State#state.channels),
+    State1 = continue_playing(State),
+    {reply, ok, State1};
 
 handle_call({run,Channel}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:run(Buf#buffer.b),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    alsa_samples:wave_set_state(Wave#wave.w, running),
-	    {reply, ok, State}
+	W ->
+	    alsa_samples:wave_set_state(W, running),
+	    State1 = continue_playing(State),
+	    {reply, ok, State1}
     end;
 
 handle_call({stop,Channel}, _From, State) ->
@@ -730,101 +380,52 @@ handle_call({stop,Channel}, _From, State) ->
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:stop(Buf#buffer.b),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    alsa_samples:wave_set_state(Wave#wave.w, stopped),
+	W ->
+	    alsa_samples:wave_set_state(W, stopped),
 	    {reply, ok, State}
     end;
-
-handle_call({loop,Channel,On}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    case alsa_buffer:setopts(Buf#buffer.b,[{loop,On}]) of
-		{ok,B1} ->
-		    Buf1 = Buf#buffer { b = B1 },
-		    {reply, ok, State#state { channels = 
-						  ChanMap#{ Channel => Buf1 }}};
-		Error ->
-		    {reply, Error, State}
-	    end;
-	Wave when ?is_wave(Wave) ->
-	    %% true = infinite, false = 0, N = number 
-	    %% alsa_samples:repeat(Wave, On),
-	    {reply, ok, State}
-    end;
+handle_call(stop, _From, State) ->
+    maps:foreach(
+      fun(_Channel, W) ->
+	      alsa_samples:wave_set_state(W, stopped)
+      end, State#state.channels),
+    {reply, ok, State};
 
 handle_call({remove,Channel}, _From, State) ->
-    case maps:remove(Channel, State#state.channels) of
-	#{} ->
-	    {reply, ok, State#state { channels = #{}, pause = true }};
-	ChanMap1 ->
+    case maps:take(Channel, State#state.channels) of
+	error ->
+	    {reply, ok, State};
+	{W, #{}} ->
+	    alsa_samples:wave_clear(W),
+	    {reply, ok, State#state { channels = #{}, playing = false }};
+	{W, ChanMap1} ->
+	    alsa_samples:wave_clear(W),
 	    {reply, ok, State#state { channels = ChanMap1 }}
     end;
 
 handle_call(remove, _From, State) ->
-    ChanMap1 = #{},
-    {reply, ok, State#state { channels = ChanMap1, pause = true }};
+    maps:foreach(
+      fun(_Channel, W) ->
+	      alsa_samples:wave_clear(W)
+      end, State#state.channels),
+    {reply, ok, State#state { channels = #{}, playing = false }};
 
 handle_call({delete,Channel,Range}, _From, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
-	Buf when ?is_buffer(Buf) ->
-	    B1 = alsa_buffer:delete(Buf#buffer.b,Range),
-	    Buf1 = Buf#buffer { b = B1 },
-	    {reply, ok, State#state { channels = ChanMap#{ Channel => Buf1 }}};
-	Wave when ?is_wave(Wave) ->
-	    {reply, {error, not_supported}, State}
+	W ->
+	    Reply = alsa_samples:wave_delete_samples(W, Range),
+	    {reply, Reply, State}
     end;
 
 handle_call(restart, _From, State) ->
-    ChanMap1 = maps:map(
-		 fun(_Channel, Buf) when ?is_buffer(Buf) ->
-			 B1 = alsa_buffer:restart(Buf#buffer.b),
-			 Buf#buffer{b=B1};
-		    (_Channel, Wave) when ?is_wave(Wave) ->
-			 alsa_samples:wave_set_time(Wave, 0),
-			 Wave
-		 end, State#state.channels),
-    {reply, ok, State#state { channels = ChanMap1 }};
-
-handle_call(stop, _From, State) ->
-    ChanMap1 = maps:map(
-		 fun(_Channel, Buf) when ?is_buffer(Buf) ->
-			 B1 = alsa_buffer:stop(Buf#buffer.b),
-			 Buf#buffer{b=B1};
-		    (_Channel, Wave) when ?is_wave(Wave) ->
-			 Wave
-		 end, State#state.channels),
-    {reply, ok, State#state { channels = ChanMap1 }};
-
-handle_call(run, _From, State) ->
-    ChanMap1 = maps:map(
-		 fun(_Channel, Buf) when ?is_buffer(Buf) ->
-			 B1 = alsa_buffer:run(Buf#buffer.b),
-			 Buf#buffer{b=B1};
-		    (_Channel, Wave) when ?is_wave(Wave) ->
-			 Wave
-		 end, State#state.channels),
-    {reply, ok, State#state { channels = ChanMap1 }};
-
-%% FIXME: clean marks?
-handle_call(clear, _From, State) ->
-    ChanMap1 = maps:map(
-		 fun(_Channel, Buf) when ?is_buffer(Buf) ->
-			 B1 = alsa_buffer:clear(Buf#buffer.b),
-			 Buf#buffer{b=B1};
-		    (_Channel, Wave) when ?is_wave(Wave) ->
-			 Wave
-		 end, State#state.channels),
-    {reply, ok, State#state { channels = ChanMap1 }};
+    maps:foreach(
+      fun(_Channel, W) ->
+	      alsa_samples:wave_set_time(W, 0)
+      end, State#state.channels),
+    {reply, ok, State};
 
 handle_call(pause, _From, State) ->
     case State#state.pause of
@@ -833,11 +434,11 @@ handle_call(pause, _From, State) ->
 	false ->
 	    {reply, ok, State#state { pause = true }}
     end;
-%% FIXME: when output=binary we are selecting and should not play!
 handle_call(resume, _From, State) ->
     case State#state.pause of
 	true ->
-	    State1 = play(State#state{pause=false}),
+	    State1 = continue_playing(State#state{pause=false}),
+	    %% io:format("resume: playing=~p\n", [State1#state.playing]),
 	    {reply, ok, State1};
 	false ->
 	    {reply, ok, State}
@@ -954,86 +555,159 @@ format_status(_Opt, Status) ->
 %%% Internal functions
 %%%===================================================================
 
+continue_playing(State) ->
+    if State#state.pause -> State;
+       State#state.playing -> State;
+       true -> play(State#state{playing=true})
+    end.
+
+handle_insert(Channel, Pos, Header, Samples, State) ->
+    ChanMap = State#state.channels,
+    case maps:get(Channel, ChanMap, undefined) of
+	undefined ->
+	    {reply, {error, enoent}, State};
+	W ->
+	    SrcRate = maps:get(rate, Header, 16000),
+	    SrcFormat = maps:get(format, Header, s16_le),
+	    SrcChannels = maps:get(channels, Header, 1),
+	    Pos1 = pos(W, Pos),
+	    Samples1 = samples_to_binary(W, Header, Samples),
+	    %% FIXME: handle multi channel! use wave index!
+	    io:format("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
+		      [Channel, SrcRate, SrcFormat, SrcChannels, Pos1]),
+	    io:format("#samples = ~w\n", [byte_size(Samples1) div
+					      alsa:format_size(SrcFormat,
+							       SrcChannels)]),
+	    ok = alsa_samples:wave_set_samples(W, ?DEFAULT_WAVE_NUM,
+					       Pos1, 0,
+					       SrcRate, SrcFormat, SrcChannels, 
+					       Samples1),
+	    {reply, ok, State}
+    end.
+
+samples_to_binary(_W,_Header,Data) when is_binary(Data) ->
+    Data;
+samples_to_binary(_W,_Header,Data) when is_list(Data) ->
+    iolist_to_binary(Data);
+samples_to_binary(W, #{ format := Format, channels := Channels},
+		  {silence, Len}) ->
+    alsa:make_silence(Format, Channels, len(W,Len)).
+
+
+-type unsigned() :: non_neg_integer().
+%%-type range_start() :: bof | unsigned().
+%%-type range_size() :: eof | unsigned().
+%%-type sample_range() :: [{range_start(), range_size()}].
+-type sample_length() :: integer() | {time,number()}.
+-type sample_position() :: 
+	unsigned() | cur | bof | eof | last | {time,number()} |
+	{cur, sample_length()} |
+	{bof, sample_length()} |
+	{eof, sample_length()}.
+
+%% translate sample_position into absolute sample position
+-spec pos(W::alsa_samples:wavedef(), Pos::sample_position()) -> integer().
+pos(_W,Pos) when is_integer(Pos), Pos >= 0 -> Pos;
+pos(W,{time,T}) -> time_pos(W, T);
+pos(_W,bof) -> 0;
+pos(W,eof) -> pos_eof(W);
+pos(W,last) -> pos_last(W);
+pos(W,cur) -> pos_cur(W);
+pos(W,{cur,Offs}) -> pos_cur(W) + len(W, Offs);
+pos(W,{bof,Offs}) -> len(W, Offs);
+pos(W,{eof,Offs}) -> pos_eof(W) + len(W, Offs).
+
+pos_cur(W) ->
+    round(alsa_samples:wave_get_time(W) * alsa_samples:wave_get_rate(W)).
+
+pos_eof(W) ->
+    alsa_samples:wave_get_num_samples(W, ?DEFAULT_WAVE_NUM).
+
+pos_last(W) ->
+    case pos_eof(W) of
+	0 -> 0;
+	N -> N-1
+    end.
+
+%% translate Len into number of samples
+-spec len(W::alas_samples:wavedef(), Len::sample_length()) -> integer().
+len(_W, Len) when is_integer(Len) -> Len;
+len(W, {time,T}) -> time_pos(W, T).
+
+time_pos(W, T) ->
+    trunc((alsa_samples:wave_get_rate(W) * T) / 1000).
+
+%% translate set/repeat positions
+flags(W, Fs) -> [flag(W, F) || F <- Fs].
+
+flag(_W, restart) -> {set,0};
+flag(W, {set,Pos}) -> {set,pos(W,Pos)};
+flag(W, {repeat,Pos,Count}) -> {repeat,pos(W,Pos),Count};
+flag(_W, F) -> F.
 
 notify([], State) -> 
     State;
 notify([{Channel,Ms}|Marks], State) ->
-    State1 = 
-	lists:foldl(
-	  fun({Ref,{Pid,Pos,Flags,UserData}}, Si) ->
-		  Sj = 
-		      with_buffer(
-			fun(Buf) ->
-				lists:foldl(
-				  fun(stop, Bi) ->
-					  alsa_buffer:stop(Bi);
-				     (once, Bi) ->
-					  alsa_buffer:unmark(Bi, Ref);
-				     (restart,Bi) ->
-					  alsa_buffer:restart(Bi);
-				     ({set,Pos1},Bi) ->
-					  alsa_buffer:set_position(Bi,Pos1);
-				     (notify, Bi) ->
-					  Event = 
-					      {Ref,Channel,Pos,Flags,UserData},
-					  io:format("notify ~p\n", [Event]),
-					  Pid ! Event,
-					  Bi
-				  end, Buf, Flags)
-			end, Channel, Si),
+    %% Note that marks is reversed in RevMs
+    %% W = maps:get(Channel, State#state.channels),
+    lists:foreach(
+      fun({Ref,Pid,Pos,UserData}) ->
+	      Event = {Ref,Channel,Pos,UserData},
+	      io:format("notify ~p\n", [Event]),
+	      Pid ! Event
+      end, Ms),
+    notify(Marks, State).
 
-		  Sj
-	  end, State, Ms),
-    notify(Marks, State1).
-
-with_buffer(Fun, Channel, State) ->
-    ChanMap = State#state.channels,
-    Buf = maps:get(Channel, ChanMap),
-    Buf1 = Fun(Buf),
-    ChanMap1 = ChanMap#{ Channel => Buf1 },
-    State#state { channels = ChanMap1 }.
-
-
+play(State = #state {output=undefined,pause=true}) ->
+    %% io:format("playing=false\n"),
+    State#state{ playing=false };
 play(State = #state {handle=Handle,output=undefined,
-		     params=Params,channels=ChanMap}) ->
+		     params=Params,channels=ChanMap }) ->
     PeriodSize = maps:get(period_size, Params),
     Channels = maps:get(channels, Params),
     Format = maps:get(format, Params),
     case read_buffer_list(ChanMap, Format, Channels, PeriodSize) of
-	{ChanMap1, [], Marks} -> %% nothing to play do internal pause?
+	{[], Marks} ->
 	    State1 = notify(Marks, State),
-	    State1#state{ output=undefined, marks=[], channels=ChanMap1 };
-	{ChanMap1,BufferList,Marks} ->
+	    %% io:format("playing=false\n"),
+	    State1#state{ playing=false, output=undefined, marks=[]};
+	{BufferList,Marks} ->
 	    Bin = alsa_samples:mix(Format, Channels, BufferList, []),
+	    Playing = if State#state.playing =:= false, 
+			 State#state.pause =:= true ->
+			      true;
+			 true ->
+			      State#state.playing
+		      end,
+	    %% io:format("playing=~w, n=~w\n", [Playing,length(BufferList)]),
 	    case alsa:write_(Handle, Bin) of
 		{error, eagain} ->
 		    ?verbose("play: again\n"),
 		    ok = alsa:select_(Handle),
-		    State#state{ output=Bin, marks=Marks, channels=ChanMap1 };
+		    State#state{ playing=Playing, output=Bin, marks=Marks };
 		{error, epipe} -> 
 		    ?verbose("play: epipe\n"),
 		    alsa:recover_(Handle, epipe),
-		    play(State#state{output=Bin,marks=Marks,channels=ChanMap1});
+		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{error, estrpipe} ->
 		    ?verbose("play: estrpipe\n"),
 		    alsa:recover_(Handle, estrpipe),
-		    play(State#state{output=Bin,marks=Marks,channels=ChanMap1});
+		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{error, AlsaError} when is_integer(AlsaError) ->
 		    _Error =  alsa:strerror(AlsaError),
 		    ?verbose("play: error ~s\n", [_Error]),
-		    play(State#state{output=Bin,marks=Marks,channels=ChanMap1});
+		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{ok, Written} ->
 		    ?verbose("play: written ~w, remain=~w\n", 
 			     [Written, byte_size(Bin)]),
 		    if Written =:= byte_size(Bin) ->
 			    State1 = notify(Marks, State),
-			    play(State1#state{output=undefined,
-					     marks=[],
-					     channels=ChanMap1});
+			    play(State1#state{playing=Playing,
+					      output=undefined, marks=[]});
 		       true ->
 			    <<_:Written/binary, Bin1/binary>> = Bin,
-			    play(State#state{output=Bin1,marks=Marks,
-					     channels=ChanMap1 })
+			    play(State#state{playing=Playing,
+					     output=Bin1,marks=Marks})
 		    end
 	    end
     end;
@@ -1075,34 +749,25 @@ read_buffer_list(ChanMap, Format, Channels, PeriodSize) ->
 read_buffer_list_([Channel|Cs], ChanMap, Format, Channels, PeriodSize,
 		  Acc, Marks) ->
     case maps:get(Channel, ChanMap, undefined) of
-	Buf when ?is_buffer(Buf) ->
-	    case alsa_buffer:read_with_marks(Buf#buffer.b, PeriodSize) of
-		{<<>>, B1, Ms} -> %% probably stopped
-		    Buf1 = Buf#buffer { b = B1 },		    
-		    read_buffer_list_(Cs, ChanMap#{ Channel => Buf1}, 
-				      Format, Channels, PeriodSize, Acc, 
-				      add_marks(Channel,Ms,Marks));
-		{Samples,B1,Ms} ->
-		    Buf1 = Buf#buffer { b = B1 },
-		    read_buffer_list_(Cs, ChanMap#{ Channel => Buf1}, 
-				      Format, Channels, PeriodSize, 
-				      [Samples|Acc], 
-				      add_marks(Channel,Ms,Marks))
-	    end;
-	Wave when ?is_wave(Wave) ->
-	    case alsa_samples:wave(Wave#wave.w, Format, Channels,
-				   PeriodSize) of
-		<<>> ->
+	undefined ->
+	    read_buffer_list_(Cs, ChanMap, Format, Channels, 
+			      PeriodSize, Acc, Marks);
+	W ->
+	    case alsa_samples:wave(W, Format, Channels, PeriodSize) of
+		{Ms,<<>>} ->
 		    read_buffer_list_(Cs, ChanMap, Format, Channels, 
-				      PeriodSize, Acc, Marks);
-		Samples ->
+				      PeriodSize, Acc, 
+				      add_marks(Channel,Ms,Marks));
+		{Ms,Samples} ->
+		    %% Ms = alsa_samples:get_marks(W, PeriodSize),
 		    read_buffer_list_(Cs, ChanMap,
 				      Format, Channels, PeriodSize,
-				      [Samples|Acc], Marks)
+				      [Samples|Acc], 
+				      add_marks(Channel,Ms,Marks))
 	    end
     end;
-read_buffer_list_([], ChanMap, _Format, _Channels, _PeriodSize, Acc, Marks) ->
-    {ChanMap, Acc, Marks}.
+read_buffer_list_([], _ChanMap, _Format, _Channels, _PeriodSize, Acc, Marks) ->
+    {Acc, Marks}.
 
 add_marks(_Channel,[],Marks) -> Marks;
 add_marks(Channel,Ms,Marks) -> [{Channel,Ms}|Marks].
@@ -1114,6 +779,7 @@ add_marks(Channel,Ms,Marks) -> [{Channel,Ms}|Marks].
 %% Pos = bof|eof|cur|{bof,Len}|{eof,Len}|{cur,Len}|unsigned()|{time,number()}
 is_pos(bof) -> true;
 is_pos(eof) -> true;
+is_pos(last) -> true;
 is_pos(cur) -> true;
 is_pos(Pos) when is_integer(Pos), Pos >= 0 -> true;
 is_pos({bof,Len}) -> is_len(Len);
@@ -1148,5 +814,9 @@ is_mark_flags([once|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([stop|Fs]) -> is_mark_flags(Fs);
 is_mark_flags([restart|Fs]) -> is_mark_flags(Fs); %% = {set,{pos,bof}}
 is_mark_flags([{set,Pos}|Fs]) -> is_pos(Pos) andalso is_mark_flags(Fs);
+is_mark_flags([{repeat,Pos,Num}|Fs]) -> is_pos(Pos) andalso 
+					is_integer(Num) andalso
+					Num >= 0 andalso
+					is_mark_flags(Fs);
 is_mark_flags([]) -> true;
 is_mark_flags(_) -> false.

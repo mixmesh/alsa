@@ -5,13 +5,13 @@
 // use simple skip and replicate resampling
 // fixme: add some more methods
 void resample(snd_pcm_format_t format, size_t channels, 
-	      size_t src_rate, void* src,
-	      size_t dst_rate, void* dst,
+	      Rate_t src_rate, void* src,
+	      Rate_t dst_rate, void* dst,
 	      size_t nframes, size_t dst_frames)
 {
     ssize_t frame_size = snd_pcm_format_size(format, channels);
-    double dx = (double) dst_rate / (double) src_rate;
-    double x = dx;
+    Float_t dx = dst_rate / src_rate;
+    Float_t x = dx;
     void* src1 = src;
 
     while(nframes--) {

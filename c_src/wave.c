@@ -12,6 +12,12 @@
 
 #include "erl_nif.h"
 
+#ifdef DEBUG
+#define DEBUGF(f,a...) enif_fprintf(stderr, f "\r\n", a)
+#else
+#define DEBUGF(f,a...)
+#endif
+
 static inline Float_t lin(Float_t t, Float_t a, Float_t b)
 {
     return a + (b-a)*t;
@@ -55,12 +61,170 @@ static inline Radian_t clamp2pi(Float_t x)
     return FMOD(x, 2*M_PI);
 }
 
-#if 0
-static Float_t envelope_time(envelope_t* e)
+// generate n sample into sample buffer
+
+static inline Float_t mix2(Float_t a, Float_t b)
 {
-    return e->duration;
+    if ((a < 0.0) && (b < 0.0))
+	return a + b + a*b;
+    else if ((a > 0.0) && (b > 0.0))
+	return a + b - a*b;
+    return a+b;
 }
-#endif
+
+static void init_estate(envelope_t* ep)
+{
+    ep->cur = 0;
+    ep->tsum = 0.0;
+}
+
+// given current time update envelop parameters
+static void set_estate(envelope_t* ep, Float_t t)
+{
+    Float_t dur;
+    Float_t tsum = 0;
+    int cur = 0;
+    int n = ep->n;
+    pt_t* pp = ep->p;
+
+    while (n-- && (t > (dur=pp->t))) {
+	tsum += dur;
+	cur++;
+	t -= dur;
+	pp++;
+    }
+    ep->tsum = tsum;
+    ep->cur = cur;    
+}
+
+
+// update duration and tsum
+static void update_duration(envelope_t* ep)
+{
+    Float_t duration = 0.0;
+    int i = 0;
+
+    while(i < ep->cur)
+	duration += ep->p[i++].t;
+    ep->tsum = duration;
+    while(i < ep->n)
+	duration += ep->p[i++].t;
+    ep->duration = duration;
+}
+
+void default_envelope(wavedef_t* param)
+{
+    param->e.n         = 1;
+    param->e.p[0].t    = (Float_t) (24*60*60);
+    param->e.p[0].mode = 0;
+    param->num_waves = 1;
+    param->w[0].level[0] = 0.9;
+    param->w[0].form[0] = NONE;
+    param->w[0].level[1] = 0.9;
+    param->w[0].form[1] = NONE;
+}
+
+
+void wave_init(wavedef_t* param)
+{
+    memset(param, 0, sizeof(wavedef_t));
+
+    param->t     = 0.0;
+    param->pos   = 0;
+    param->state = 0;  // stopped
+    param->mute  = 0;
+
+    default_envelope(param);
+    init_estate(&param->e);
+    update_duration(&param->e);
+    
+    wave_set_rate(param, DEFAULT_RATE);
+    wave_set_mode(param, 0);
+}
+
+mark_t* alloc_mark()
+{
+    mark_t* mp = malloc(sizeof(mark_t));
+    memset(mp, 0, sizeof(mark_t));
+    mp->env = enif_alloc_env();
+    return mp;
+}
+
+void free_mark(mark_t* mp)
+{
+    DEBUGF(stderr, "free_mark(%p) env=%p\r\n", mp,mp->env);
+    if (mp->env)
+	enif_free_env(mp->env);
+    free(mp);
+}
+
+// resize sample buffer
+static int resize_sample_buffer(wave_t* wp, size_t n, int clear)
+{
+    Float_t* xp;
+    size_t m = wp->num_samples;
+
+    if (n < m) { // shrink
+	if (n == 0) {
+	    if (wp->samples)
+		free(wp->samples);
+	    xp = NULL;
+	}
+	else {
+	    if ((xp=realloc(wp->samples,n*sizeof(Float_t)))==NULL)
+		return -1;
+	}
+	wp->num_samples = n;
+	wp->samples = xp;
+    }
+    else if (n> m) {
+	Float_t* xp;
+	if ((xp = realloc(wp->samples,n*sizeof(Float_t))) == NULL)
+	    return -1;
+	if (clear)
+	    memset(&xp[m], 0, (n-m)*sizeof(Float_t));
+	wp->num_samples = n;
+	wp->samples = xp;
+    }
+    return 0;
+}
+
+
+void wave_reset(wavedef_t* param)
+{
+    int i;
+    size_t n;
+
+    DEBUGF(stderr, "wave_reset\r\n");
+
+    n = MAX_WAVES;
+    param->num_waves = 0;
+    for (i = 0; i < n; i++) {
+	wave_t* wp = &param->w[i];
+	if (wp->samples) {
+	    DEBUGF(stderr, "%d: free samples n=%ld\r\n", i, wp->num_samples);
+	    free(wp->samples);
+	    wp->samples = NULL;
+	}
+	wp->num_samples = 0;
+    }
+    n = param->num_marks;
+    param->num_marks = 0;
+    for (i = 0; i < n; i++) {
+	free_mark(param->markv[i]);
+	param->markv[i] = NULL;
+    }
+    default_envelope(param);
+    param->e.tsum = 0;
+    param->e.cur = 0;
+    param->t = 0.0;
+}
+
+void wave_clear(wavedef_t* param)
+{
+    wave_reset(param);
+}
+
 
 // interpolate return interpolated t'
 // off:        1  p
@@ -71,7 +235,7 @@ static inline Float_t envelope_step(Float_t t, envelope_t* e, int* p, int* q)
 {
     Float_t dur;
     Float_t t0 = t;
-    int i = e->s.cur;
+    int i = e->cur;
     int n = e->n;
 
     if ((n == 0) || (t < 0.0) || (t > e->duration)) {
@@ -79,10 +243,10 @@ static inline Float_t envelope_step(Float_t t, envelope_t* e, int* p, int* q)
 	*q = OFF;
 	return t0;
     }
-    t0 -= e->s.tsum;     // offset t to current segment
+    t0 -= e->tsum;     // offset t to current segment
     while ((i < n) && (t0 > (dur=e->p[i].t))) {
-	e->s.tsum += dur;
-	e->s.cur++;
+	e->tsum += dur;
+	e->cur++;
 	t0 -= dur;
 	i++;
     }
@@ -152,7 +316,7 @@ Float_t envelope_level(Float_t t, int mode, envelope_t* e)
 	t0 -= dur;
 	i++;
     }
-//    enif_fprintf(stderr, "t=%f: cur=%d: t'=%f: i=%d dur=%f, tsum=%f\r\n",
+//    DEBUGF(stderr, "t=%f: cur=%d: t'=%f: i=%d dur=%f, tsum=%f\r\n",
 //		 t, e->cur, t0, i, dur, e->tsum);
     if (dur > 0.0) {
 	int m = n - i;
@@ -204,12 +368,21 @@ static inline Float_t osc(Float_t t, Float_t f, Float_t period,
     }
     case CONST:
 	return 1.0;
-    }
+    case NONE:
+	return 0.0;
+    }    
+    return 0.0;
+}
+
+static inline Float_t sample(int p, wave_t* w)
+{
+    if (p < w->num_samples)
+	return w->samples[p];
     return 0.0;
 }
 
 // get sample in range [-1..1]
-Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
+Float_t wave_sample(Float_t t, int pos, int mode, envelope_t* e, wave_t* w)
 {
     int p, q;
     Float_t ti = envelope_step(t, e, &p, &q);
@@ -219,7 +392,7 @@ Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
     Float_t phase;
     Float_t level;
     Float_t noice;
-    Float_t y;
+    Float_t y, y1;
 
     switch(q) {
     case OFF:
@@ -230,6 +403,8 @@ Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
 	level  = w->level[p];
 	form   = w->form[p];
 	y = osc(t, freq, period, form, phase);
+	if ((y1 = sample(pos,w)))
+	    y = mix2(y, y1);
 	break;
     case LIN:
 	noice  = w->noice[p];
@@ -247,10 +422,12 @@ Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
 	    level = lin(ti,  level,  w->level[p+1]);
 	form = w->form[p];
 	y = osc(t, freq, period, form, phase);
+	if ((y1 = sample(pos,w))) y = mix2(y, y1);
 	if (form != w->form[p+1]) {  // form morph
-	    Float_t y1;
-	    y1 = osc(t, freq, period, w->form[p+1], phase);
-	    y = lin(ti, y, y1);
+	    Float_t yt;
+	    yt = osc(t, freq, period, w->form[p+1], phase);
+	    if (y1) yt = mix2(yt, y1);
+	    y = lin(ti, y, yt);
 	}
 	break;
     case QUAD:
@@ -261,15 +438,18 @@ Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
 	level  = quad(ti, w->level[p],  w->level[p+1],  w->level[p+2]);
 	form = w->form[p];
 	y = osc(t, freq, period, form, phase);
+	if ((y1 = sample(pos,w))) y = mix2(y, y1);
 	if ((form != w->form[p+1]) || (form != w->form[p+2])) {  // form morph
-	    Float_t y1, y2;
-	    y1 = osc(t, freq, period, w->form[p+1], phase);
-	    y2 = osc(t, freq, period, w->form[p+2], phase);
-	    y = quad(ti, y, y1, y2);
+	    Float_t yt, ys;
+	    yt = osc(t, freq, period, w->form[p+1], phase);
+	    if (y1) yt = mix2(yt, y1);
+	    ys = osc(t, freq, period, w->form[p+2], phase);
+	    if (y1) ys = mix2(ys, y1);
+	    y = quad(ti, y, yt, ys);
 	}
 	break;
     }
-    // enif_fprintf(stderr, "t=%f,ti=%f,p=%d,q=%d,y=%f,l=%f\r\n", t, ti, p, q, y,level);
+    // DEBUGF(stderr, "t=%f,ti=%f,p=%d,q=%d,y=%f,l=%f\r\n", t, ti, p, q, y,level);
     
     if (noice > 0.0) {
 	Float_t r = ((Float_t)rand()/(Float_t)(RAND_MAX));
@@ -279,64 +459,32 @@ Float_t wave_sample(Float_t t, int mode, envelope_t* e, wave_t* w)
     return y*level;
 }
 
-// update duration and tsum
-static void update_env_duration(envelope_t* ep)
-{
-    Float_t duration = 0.0;
-    int i = 0;
 
-    while(i < ep->s.cur)
-	duration += ep->p[i++].t;
-    ep->s.tsum = duration;
-    while(i < ep->n)
-	duration += ep->p[i++].t;
-    ep->duration = duration;
-}
-
-static void restart_estate(envelope_t* ep)
-{
-    ep->s.cur = 0;
-    ep->s.tsum = 0.0;
-}
-
-static void reset_estate(envelope_t* ep)
-{
-    ep->s.count = ep->repeat;
-    restart_estate(ep);
-}
 
 // general set envelop values (must reset set repeat/count after)
-int wave_set_envelope(wavedef_t* param, int i,
-		      Float_t* duration, unsigned* mode,
+int wave_set_envelope(wavedef_t* param, Float_t* duration, unsigned* mode,
 		      size_t n)
 {
     int j;
     envelope_t* ep;
     
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    ep = &param->e[i];
+    ep = &param->e;
     for (j = 0; j < n; j++) {
 	ep->p[j].t = duration[j];
 	ep->p[j].mode = mode[j];
     }
     ep->n = n;
-    ep->repeat = 0;
-    reset_estate(ep);
-    update_env_duration(ep);
+    init_estate(ep);
+    update_duration(ep);
     return 0;
 }
 
 // setup ADSR  (must reset set repeat/count after)
-int wave_set_adsr(wavedef_t* param, int i,
+int wave_set_adsr(wavedef_t* param,
 		  Float_t attack, Float_t decay,
 		  Float_t sustain, Float_t release)
 {
-    envelope_t* ep;
-
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    ep = &param->e[i];
+    envelope_t* ep = &param->e;
     ep->p[ATTACK].t = clamp0(attack);
     ep->p[DECAY].t  = clamp0(decay);
     ep->p[SUSTAIN].t = clamp0(sustain);
@@ -344,27 +492,31 @@ int wave_set_adsr(wavedef_t* param, int i,
     ep->p[RELEASE].t = clamp0(release);
     ep->p[DELAY].t   = 0.0;
     ep->n = 5;
-    ep->repeat = 0;
-    // reset fields every restart
-    reset_estate(ep);
-    update_env_duration(ep);
+    init_estate(ep);
+    update_duration(ep);
     return 0;
 }
 
-int wave_set_nwaves(wavedef_t* param, unsigned int n)
+int wave_set_num_waves(wavedef_t* param, unsigned int num_waves)
 {
-    if (n > MAX_WAVES)
+    if (num_waves > MAX_WAVES)
 	return -1;
-    param->n = n;
+    param->num_waves = num_waves;
     return 0;
 }
 
-int wave_set_rate(wavedef_t* param, unsigned int rate)
+int wave_set_rate(wavedef_t* param, Rate_t rate)
 {
     if (rate == 0)
 	return -1;
     param->rate = rate;
-    param->dt = 1.0/((Float_t) rate);
+    param->dt = 1.0/rate;
+    return 0;
+}
+
+int wave_get_rate(wavedef_t* param, Rate_t* rate_ptr)
+{
+    *rate_ptr = param->rate;
     return 0;
 }
 
@@ -374,66 +526,90 @@ int wave_set_mode(wavedef_t* param, unsigned int mode)
     return 0;
 }
 
+int wave_set_mute(wavedef_t* param, unsigned int mute)
+{
+    param->mute = mute;
+    return 0;
+}
+
+int wave_set_state(wavedef_t* param, unsigned int state)
+{
+    param->state = state;
+    return 0;    
+}
+
 int wave_set_time(wavedef_t* param, Float_t t)
 {
-    if (t < 0.0)
-	return -1;
+    if (t < 0.0) return -1;
+    param->pos = param->rate*t;
     param->t = t;
-    // FIXME update cur and tsum!
+    set_estate(&param->e, t);
     return 0;
 }
 
-int wave_set_attack(wavedef_t* param, int i, Float_t duration)
+int wave_get_time(wavedef_t* param, double* time_ptr)
 {
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    param->e[i].p[ATTACK].t = clamp0(duration);
-    update_env_duration(&param->e[i]);
+    *time_ptr = param->t;
     return 0;
 }
 
-int wave_set_decay(wavedef_t* param, int i, Float_t duration)
+// set current sample position
+int wave_set_pos(wavedef_t* param, int pos)
 {
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    param->e[i].p[DECAY].t = clamp0(duration);
-    update_env_duration(&param->e[i]);    
+    Float_t t;
+    if (pos < 0) return -1;
+    param->pos = pos;
+    param->t = t = pos*param->dt;
+    set_estate(&param->e, t);
     return 0;
 }
 
-int wave_set_sustain(wavedef_t* param, int i,Float_t duration)
+// get current sample position
+int wave_get_pos(wavedef_t* param, int* pos_ptr)
 {
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    param->e[i].p[SUSTAIN].t = clamp0(duration);
-    param->e[i].p[SUSTAIN].mode |= SUST;
-    update_env_duration(&param->e[i]);    
+    *pos_ptr = param->pos;
     return 0;
 }
 
-int wave_set_release(wavedef_t* param, int i, Float_t duration)
+int wave_get_duration(wavedef_t* param, double* ptr)
 {
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    param->e[i].p[RELEASE].t = clamp0(duration);
-    update_env_duration(&param->e[i]);    
+    *ptr = param->e.duration;
     return 0;
 }
 
-int wave_set_delay(wavedef_t* param, int i, Float_t duration)
+int wave_set_attack(wavedef_t* param, Float_t duration)
 {
-    if ((i < 0) || (i >= MAX_WAVES))
-	return -1;
-    param->e[i].p[DELAY].t = clamp0(duration);
-    update_env_duration(&param->e[i]);
+    param->e.p[ATTACK].t = clamp0(duration);
+    update_duration(&param->e);
     return 0;
 }
 
-int wave_set_env(wavedef_t* param, int i, int env)
+int wave_set_decay(wavedef_t* param, Float_t duration)
 {
-    if ((i < 0) || (i >= MAX_WAVES)) return -1;
-    if ((env < 0) || (env >= MAX_WAVES)) return -1;
-    param->w[i].env = env;
+    param->e.p[DECAY].t = clamp0(duration);
+    update_duration(&param->e);    
+    return 0;
+}
+
+int wave_set_sustain(wavedef_t* param, Float_t duration)
+{
+    param->e.p[SUSTAIN].t = clamp0(duration);
+    param->e.p[SUSTAIN].mode |= SUST;
+    update_duration(&param->e);    
+    return 0;
+}
+
+int wave_set_release(wavedef_t* param, Float_t duration)
+{
+    param->e.p[RELEASE].t = clamp0(duration);
+    update_duration(&param->e);    
+    return 0;
+}
+
+int wave_set_delay(wavedef_t* param, Float_t duration)
+{
+    param->e.p[DELAY].t = clamp0(duration);
+    update_duration(&param->e);
     return 0;
 }
 
@@ -490,6 +666,84 @@ int wave_set_noice(wavedef_t* param, int i, int j, Float_t noice)
     return 0;
 }
 
+
+// i is the wave number
+// j is the start offset to write samples
+// k is the channel selector within src
+// 
+int wave_set_samples(wavedef_t* param, int i, int j, int k,
+		     Rate_t src_rate, snd_pcm_format_t src_format,
+		     size_t src_channels,
+		     void* src, size_t src_frames)
+{
+    ssize_t sample_size = snd_pcm_format_size(src_format, 1);
+    size_t frame_size = sample_size*src_channels;
+    size_t size;
+    int8_t* sp = src;
+    size_t dst_frames;
+    wave_t* wp;
+    Float_t* xp;
+    Float_t dx = param->rate / src_rate;
+    Float_t x = dx;
+
+    if ((i < 0) || (i >= MAX_WAVES)) return -1;
+    if ((j < 0) || (j >= MAX_SAMPLE_SIZE)) return -1;
+    if ((k < 0) || (k >= src_channels)) return -1;
+    wp = &param->w[i];
+
+    dst_frames = dx * src_frames;
+    size = j + dst_frames;  // make sure we have this size of sample buffer
+
+    if (size > wp->num_samples)
+	resize_sample_buffer(wp, size, 1);
+    xp = &wp->samples[j];
+
+    fprintf(stderr, "i=%d,j=%d,k=%d,sample_size=%ld,frame_size=%ld,src_frames=%ld,dst_frames=%ld\r\n", i, j, k, sample_size, frame_size, src_frames, dst_frames);    
+
+    // load every k'th samples from frames
+    k *= sample_size;
+    
+    while(src_frames--) {
+	if (x < 1.0)
+	    x += dx;
+	else { // x>=1.0
+	    int n = x; // replicate n frames
+	    double y = read_pcm_float(src_format, sp+k);
+
+	    x = (x-n)+dx;
+	    if (n <= dst_frames)
+		dst_frames -= n;
+	    else {
+		n = dst_frames;
+	    }
+	    while(n--) {
+		*xp++ = y;
+	    }
+	}
+	sp += frame_size;
+    }
+    return 0;
+}
+
+// resize sample buffer and reallocate/init if needed
+int wave_set_num_samples(wavedef_t* param, int i, size_t num_samples)
+{
+    wave_t* wp;    
+    if ((i < 0) || (i >= MAX_WAVES)) return -1;
+    wp = &param->w[i];
+    return resize_sample_buffer(wp, num_samples, 1);
+}
+
+int wave_get_num_samples(wavedef_t* param, int i, size_t* num_samples)
+{
+    wave_t* wp;
+    if ((i < 0) || (i >= MAX_WAVES)) return -1;
+    wp = &param->w[i];
+    *num_samples = wp->num_samples;
+    return 0;
+}
+
+
 int wave_set_def(wavedef_t* param, int i, int j,
 		 waveform_t form, Float_t freq,
 		 Float_t phase, Float_t noice)
@@ -504,79 +758,163 @@ int wave_set_def(wavedef_t* param, int i, int j,
     return 0;
 }
 
-void wave_init(wavedef_t* param)
+// find leftmost element
+int wave_find_mark(wavedef_t* param, int pos)
+{
+    int l = 0;
+    int r = param->num_marks;
+    while(l < r) {
+	int m = (l+r)/2;
+	if (param->markv[m]->pos < pos)
+	    l = m+1;
+	else
+	    r = m;
+    }
+    return l;
+}
+
+int wave_add_mark(wavedef_t* param, mark_t* mp)
 {
     int i;
-    param->n = 1;
-    param->t = 0.0;
-    for ( i = 0; i < MAX_WAVES; i++ ) {
-	int j;
-	for (j = 0; j < MAX_PTE; j++) {
-	    param->e[i].p[j].t = 0.5;
-	    param->e[i].p[j].mode = LIN;
-	}
+    if ((i = param->num_marks) >= MAX_MARKS)
+	return -1;
+    // simple swap insert from end, improve this if we insert a bit randomly
+    // and we have alto of marks
+    while((i > 0) && (param->markv[i-1]->pos > mp->pos)) {
+	param->markv[i] = param->markv[i-1];
+	i--;
     }
-    for ( i = 0; i < MAX_WAVES; i++ ) {
-	int j;
-	param->w[i].env = 0;
-	param->w[i].chan = 0;
-	for (j = 0; j < MAX_PTW; j++) {
-	    param->w[i].level[j] = 0.5;
-	    param->w[i].form[j] = SINE;
-	    param->w[i].freq[j] = 440.0;
-	    param->w[i].period[j] = 1/440.0;
-	    param->w[i].phase[j] = 0.0;
-	    param->w[i].noice[j] = 0.0;
-	}
-    }
-    wave_set_rate(param, DEFAULT_RATE);
-    wave_set_mode(param, 0);
+    param->markv[i] = mp;
+    param->num_marks++;
+    return 0;
 }
 
-// generate n sample into sample buffer
-
-static inline Float_t mix2(Float_t a, Float_t b)
+// "unlink" mark struct
+static void wave_remove_mark_i(wavedef_t* param, int i)
 {
-    if ((a < 0.0) && (b < 0.0))
-	return a + b + a*b;
-    else if ((a > 0.0) && (b > 0.0))
-	return a + b - a*b;
-    return a+b;
+    param->num_marks--;
+    while(i < param->num_marks) {
+	param->markv[i] = param->markv[i+1];
+	i++;
+    }
+    param->markv[i] = NULL;
 }
 
-void wave_buffer(wavedef_t* param, snd_pcm_format_t format, unsigned int channels, void* dst, size_t n)
+mark_t* wave_remove_mark(wavedef_t* param, ERL_NIF_TERM ref)
 {
-    Float_t y[MAX_WAVES];
-    Float_t dt = param->dt;
+    int i;
+    for (i = 0; i < param->num_marks; i++) {
+	mark_t* mp = param->markv[i];
+	if (enif_compare(mp->ref, ref) == 0) {
+	    DEBUGF(stderr, "remove mark %T (i=%d,n=%ld)\r\n",
+		   mp->ref, i, param->num_marks);
+	    wave_remove_mark_i(param, i);
+	    return mp;
+	}
+    }
+    DEBUGF(stderr, "mark %T not found\r\n", ref);
+    return NULL;
+}
+
+// make samples buffer, return list of marks contining notifications data
+mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
+		    unsigned int channels, void* dst, size_t n)
+{
     Float_t t  = param->t;
+    Float_t dt = param->dt;
+    int pos = param->pos;
+    int pos1;
+    Float_t y[MAX_CHANNELS];
     int8_t* ptr = dst;
     ssize_t size = snd_pcm_format_size(format, 1);
     int mode = param->mode;
-    
-    memset(y, 0, sizeof(y));
+    envelope_t* ep = &param->e;
+    mark_t* mpl = NULL;
+    int i;
+    int mrk;
 
-    // enif_fprintf(stderr, "t0=%f, dt=%f, n=%d\r\n", t, dt, (int)n);
+    for (i = 0; i < MAX_CHANNELS; i++)
+	y[i] = 0.0;
+
+    mrk = wave_find_mark(param, pos);
+    
+    //enif_fprintf(stderr, "wave(t=%f,pos1=%d,pos2=%d,mrk=%d)\r\n",
+    //  t, pos, pos+n-1, mrk);
     
     while(n--) {
-	int i;
-	for (i = 0; i < param->n; i++) {
-	    Float_t value;
-	    wave_t* wp = &param->w[i];
-	    envelope_t* ep = &param->e[wp->env];
-	    int k = wp->chan;
-	    // fixme advance all 
-	    value = wave_sample(t, mode, ep, wp);
-	    y[k] = mix2(y[k], value);  // fixme! improve
+	if (param->mute || !param->state) {// muted || stopped (silence)
+	    snd_pcm_format_set_silence(format, ptr, channels);
+	    ptr += (channels*size);
 	}
-	for (i = 0; i < channels; i++) {
-	    write_pcm_float(format, (double) clamp(y[i]), ptr);
-	    y[i] = 0.0;
-	    ptr += size;
+	else {	// do wave sample
+	    for (i = 0; i < param->num_waves; i++) {
+		Float_t value;
+		wave_t* wp = &param->w[i];
+		int k = wp->chan;
+		if (t < ep->duration) {
+		    value = wave_sample(t,pos,mode,ep,wp);
+		    y[k] = mix2(y[k], value);  // fixme! improve
+		}
+	    }
+	    for (i = 0; i < channels; i++) {
+		write_pcm_float(format, (double) clamp(y[i]), ptr);
+		y[i] = 0.0;
+		ptr += size;
+	    }
 	}
-	t += dt;
-    }
 
-//    enif_fprintf(stderr, "t1=%f, nn=%d\r\n", t,
-//		 (ptr - (int8_t*)dst)/size);
+	// check marks
+	pos1 = -1;  // the position may be updated
+	while ((mrk < param->num_marks) && (pos > param->markv[mrk]->pos)) {
+	    //enif_fprintf(stderr, "mark-next: %d\r\n", param->markv[mrk]->pos);
+	    mrk++;
+	}
+	while ((mrk < param->num_marks) && (pos == param->markv[mrk]->pos)) {
+	    mark_t* mp = param->markv[mrk];
+	    unsigned int flags = mp->flags0;
+	    //enif_fprintf(stderr, "mark-event: %d, flags=%x\r\n",
+	    // param->markv[mrk]->pos, flags);
+	    if (flags & MARK_SET) {
+		pos1 = mp->set.pos;
+	    }
+	    if (flags & MARK_REPEAT) {
+		if (mp->set.cnt == 0) {
+		    mp->set.cnt = mp->set.rep;
+		}
+		else {
+		    pos1 = mp->set.pos;
+		    mp->set.cnt--;
+		}
+	    }
+	    if (flags & MARK_STOP) {
+		wave_set_state(param, 0);
+	    }
+	    if (flags & MARK_NOTIFY) { // add to notification list
+		mp->next = mpl;
+		mpl = mp;
+	    }
+	    if (flags & MARK_ONCE) {
+		wave_remove_mark_i(param, mrk);
+		if (flags & MARK_NOTIFY)
+		    mp->flags0 |= MARK_FREE;  // mark for free
+		else
+		    free_mark(mp);
+	    }
+	    mrk++;
+	}
+	if (pos1 >= 0) {
+	    wave_set_pos(param, pos1);
+	    mrk = wave_find_mark(param, pos1);
+	    pos = pos1;
+	    t = param->t;
+	    // enif_fprintf(stderr, "set(t=%f,pos=%d,mrk=%d)\r\n", t, pos, mrk);
+	}
+	else {
+	    pos++;
+	    t += dt;
+	}
+    }
     param->t = t;
+    param->pos = pos;
+    return mpl;
 }

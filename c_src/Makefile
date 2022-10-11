@@ -1,14 +1,20 @@
+#@BEGIN-C_SRC-DEFAULT-RULES@
 ERL=$(shell readlink -f `which erl`)
 ERL_TOP=$(ERL:%/bin/erl=%)
+OS=$(shell uname -s)
+CFLAGS= -fPIC -MMD -MP -MF .$<.d -I$(ERL_TOP)/usr/include
+#@END-C_SRC-DEFAULT-RULES@
+
 CC=gcc
-CFLAGS= -Wall -Werror $(shell pkg-config --cflags alsa) -I$(ERL_TOP)/usr/include -D_REENTRANT -fPIC
-ALSA_LIBS=$(shell pkg-config --libs alsa) # $(ERL_TOP)/usr/lib/libei.a
+CFLAGS+= $(shell pkg-config --cflags alsa)
+ALSA_LIBS=$(shell pkg-config --libs alsa)
 NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o filt.o
 SBC_LIBS= -lsbc
 SIMD_FLAGS = # -msse4.1
-LDFLAGS=-shared
 
-# -std=c18 -D_POSIX_C_SOURCE=200809L
+CFLAGS+= -Wall -Werror
+LDFLAGS+= -shared
+
 all: ../priv/alsa_nif.so \
 	../priv/alsa_sbc_nif.so \
 	../priv/alsa_samples_nif.so \
@@ -30,24 +36,12 @@ all: ../priv/alsa_nif.so \
 ../priv/reformat_bench: reformat.c
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS) -DTEST -o$@ reformat.c -lm $(ALSA_LIBS)
 
-mix.o: mix.c mix.h
-	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
-
-resample.o: resample.c resample.h
-	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
-
-reformat.o: reformat.c reformat.h
-	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS)  -c $<
-
-wave.o: wave.c wave.h
-
-filt.o: filt.c filt.h
-
-alsa_samples_nif.o: wave.h reformat.h resample.h mix.h filt.h
-
-
 %.o: %.c
 	$(CC) $(CFLAGS) -c $<
 
 clean:
 	rm -f *.o ../priv/alsa_nif.so
+
+.%.d:	;
+
+-include .*.d

@@ -15,29 +15,35 @@
 -export([filter/4]).
 %% wave
 -export([wave_new/0]).
--export([wave_set_nwaves/2]).
--export([wave_set_rate/2]).
+-export([wave_clear/1]).
+-export([wave_set_num_waves/2]).
+-export([wave_get_rate/1, wave_set_rate/2]).
 -export([wave_set_mode/2]).
--export([wave_set_time/2]).
+-export([wave_get_time/1, wave_set_time/2]).
+-export([wave_get_pos/1, wave_set_pos/2]).
+-export([wave_get_duration/1]).
 -export([wave_set_mute/2]).
 -export([wave_set_state/2]).
 
--export([wave_set_envelope/3]).
--export([wave_set_adsr/6]).
--export([wave_set_attack/3]).
--export([wave_set_decay/3]).
--export([wave_set_sustain/3]).
--export([wave_set_release/3]).
--export([wave_set_delay/3]).
+-export([wave_set_envelope/2]).
+-export([wave_set_adsr/5]).
+-export([wave_set_attack/2]).
+-export([wave_set_decay/2]).
+-export([wave_set_sustain/2]).
+-export([wave_set_release/2]).
+-export([wave_set_delay/2]).
 
 -export([wave_set_wave/3]).
--export([wave_set_env/3]).
 -export([wave_set_chan/3]).
 -export([wave_set_level/3]).
 -export([wave_set_form/3,  wave_set_form/4]).
 -export([wave_set_freq/3,  wave_set_freq/4]).
 -export([wave_set_phase/3, wave_set_phase/4]).
 -export([wave_set_noice/3, wave_set_noice/4]).
+-export([wave_set_samples/8]).
+-export([wave_set_num_samples/3]).
+-export([wave_get_num_samples/2]).
+-export([mark/6, unmark/2, get_marks/3, get_marks/2]).
 -export([wave/4]).
 %% util
 -export([create_wave/2]).
@@ -46,6 +52,7 @@
 
 %% TEST
 -export([test_reformat/0]).
+-export([test_reformat2/0]).
 -export([test_amu_reformat/0]).
 -export([test_play/0, test_play/1]).
 -export([play/1]).
@@ -59,14 +66,11 @@
 -type float01() :: float().               %% float in range 0..1
 -type frequency() :: float().             %% Hertz 0..
 -type waveind() :: 0..(?MAX_WAVE-1).      %% wave index
--type envind()  :: 0..(?MAX_ENV-1).       %% envelope index
 -type channel()  :: 0..(?MAX_CHANNELS-1). %% channel number
 -type wavedef() :: reference().
--type waveform() :: sine | square | pulse | triangle | saw | const.
+-type waveform() :: sine | square | pulse | triangle | saw | const | none.
 -type envmode() :: off|linear|quadratic|sustain.  %% (linear)
--type envelem() :: {Duration::number(), Mode::envmode()} |
-		   {Duration::number()} |
-		   Duration::number().
+-type envelem() :: Duration::number() | {Duration::number(), Mode::envmode()}.
 -type formdef() :: #{ form => waveform(),
 		      freq => string() | number(),
 		      level => float01(),
@@ -77,6 +81,7 @@
 		     Level::float01(),
 		     Phase::float(),
 		     Noice::float01()}].
+-type event() :: {Ref::reference(),Pid::pid(),Pos::integer(),UserData::term()}.
 
 -define(nif_stub,nif_stub_error(?LINE)).
 
@@ -94,7 +99,7 @@ init() ->
 mix(_Format, _Channels, _SrcList, _ControlList) ->
     ?nif_stub.    
 
--spec resample(SrcRate::alsa:unsigned(), DstRate::alsa:unsigned(),
+-spec resample(SrcRate::alsa:sample_rate(), DstRate::alsa:sample_rate(),
 	       Format::alsa:format(), Channels::alsa:unsigned(),
 	       Src::binary()) -> binary().
 
@@ -118,18 +123,52 @@ filter(_SrcFormat, _DstFormat, _Filter, _Src) ->
 wave_new() ->
     ?nif_stub.
 
+-spec mark(W::wavedef(), Pid::pid(), Ref::reference(), Pos::integer(),
+	   Flags::[notify|once|stop|restart|
+		   {set,Pos::integer()}|
+		   {repeat,Pos::integer(),Count::integer()}],
+	   UserData :: term()) ->
+	  ok.
+	  
+mark(_W, _Pid, _Ref, _Pos, _Flags, _UserData) ->
+    ?nif_stub.    
+
+-spec unmark(W::wavedef(), Ref::reference()) -> ok.
+unmark(_W, _Ref) ->
+    ?nif_stub.
+
+-spec get_marks(W::wavedef(), From::integer(), To::integer()) -> 
+	  [{reference(),{pid(),Pos::integer(),[Flag::term()],
+			 UserData::term()}}].
+get_marks(_W, _From, _To) ->
+    ?nif_stub.
+
+-spec get_marks(W::wavedef(), Period::integer()) ->
+	  [{reference(),{pid(),Pos::integer(),[Flag::term()],
+			 UserData::term()}}].
+get_marks(_W, _Period) ->
+    ?nif_stub.
+
 -spec wave(wavedef(), Format::alsa:format(), Channels::alsa:unsigned(),
 	   NumFrames::alsa:unsigned()) ->
-	  binary().
+	  {[event()], Samples::binary()}.
 wave(_WaveDef, _Format, _Channels, _NumFrames) ->
     ?nif_stub.
 
--spec wave_set_nwaves(wavedef(), Num::non_neg_integer()) -> ok.
-wave_set_nwaves(_WaveDef, _Num) ->
+-spec wave_clear(W::wavedef()) -> ok.
+wave_clear(_W) ->
+    ?nif_stub.
+
+-spec wave_set_num_waves(W::wavedef(), Num::non_neg_integer()) -> ok.
+wave_set_num_waves(_W, _Num) ->
+    ?nif_stub.
+
+-spec wave_get_rate(W::wavedef()) -> Rate::alsa:sample_rate().
+wave_get_rate(_W) ->
         ?nif_stub.
 
--spec wave_set_rate(wavedef(), Rate::non_neg_integer()) -> ok.
-wave_set_rate(_WaveDef, _Rate) ->
+-spec wave_set_rate(W::wavedef(), Rate::alsa:sample_rate()) -> ok.
+wave_set_rate(_W, _Rate) ->
         ?nif_stub.
 
 -spec wave_set_mode(W::wavedef(), sustain|off) -> ok.
@@ -145,51 +184,61 @@ wave_set_state(_W, _State) ->
     ?nif_stub.
 
 %% set current time in seconds (typically 0.0 to reset time)
--spec wave_set_time(wavedef(), Time::number()) -> ok.
-wave_set_time(_WaveDef, _Time) ->
+-spec wave_set_time(W::wavedef(), Time::number()) -> ok.
+wave_set_time(_W, _Time) ->
         ?nif_stub.
 
--spec wave_set_envelope(wavedef(), Index::envind(), [envelem()]) -> ok.
-wave_set_envelope(_WaveDef, _Index, _Elems) ->
+-spec wave_get_time(W::wavedef()) -> 
+	  Time::float().
+wave_get_time(_W) ->
     ?nif_stub.
 
--spec wave_set_adsr(wavedef(), Index::envind(), 
+%% set current sample pos
+-spec wave_set_pos(W::wavedef(), Pos::integer()) -> ok.
+wave_set_pos(_W, _Pos) ->
+        ?nif_stub.
+
+-spec wave_get_pos(W::wavedef()) -> Pos::integer().
+wave_get_pos(_W) ->
+    ?nif_stub.
+
+-spec wave_set_envelope(wavedef(), [envelem()]) -> ok.
+wave_set_envelope(_WaveDef, _Elems) ->
+    ?nif_stub.
+
+-spec wave_set_adsr(wavedef(),
 		    Attack::number(), Decay::number(),
 		    Sustain::number(), Relase::number()) -> ok.
-wave_set_adsr(_WaveDef, _Index, _Attach, _Decay, _Sustain, _Release) ->
+wave_set_adsr(_WaveDef, _Attach, _Decay, _Sustain, _Release) ->
     ?nif_stub.
 
 -spec wave_set_level(wavedef(), Index::waveind(), [float01()]) -> ok.
 wave_set_level(_Wavedef, _Index, _Pts) ->
     ?nif_stub.
 
--spec wave_set_attack(wavedef(), Index::envind(), Value::number()) -> ok.
-wave_set_attack(_WaveDef, _Index, _Value) ->
+-spec wave_set_attack(wavedef(), Value::number()) -> ok.
+wave_set_attack(_WaveDef, _Value) ->
     ?nif_stub.
 
--spec wave_set_decay(wavedef(), Index::envind(), Value::number()) -> ok.
-wave_set_decay(_WaveDef, _Index, _Value) ->
+-spec wave_set_decay(wavedef(), Value::number()) -> ok.
+wave_set_decay(_WaveDef, _Value) ->
     ?nif_stub.
 
--spec wave_set_sustain(wavedef(), Index::envind(), Value::number()) -> ok.
-wave_set_sustain(_WaveDef, _Index, _Value) ->
+-spec wave_set_sustain(wavedef(), Value::number()) -> ok.
+wave_set_sustain(_WaveDef, _Value) ->
     ?nif_stub.
 
--spec wave_set_release(wavedef(), Index::envind(), Value::number()) -> ok.
-wave_set_release(_WaveDef, _Index, _Value) ->
+-spec wave_set_release(wavedef(), Value::number()) -> ok.
+wave_set_release(_WaveDef, _Value) ->
     ?nif_stub.
 
--spec wave_set_delay(wavedef(), Index::envind(), Value::number()) -> ok.
-wave_set_delay(_WaveDef, _Index, _Value) ->
+-spec wave_set_delay(wavedef(), Value::number()) -> ok.
+wave_set_delay(_WaveDef, _Value) ->
     ?nif_stub.
 
 -spec wave_set_wave(W::wavedef(), Index::waveind(), [formdef()]) -> ok.
 
 wave_set_wave(_W, _Index, _Ws) ->
-    ?nif_stub.
-
--spec wave_set_env(W::wavedef(), Index::waveind(), Env::envind()) -> ok.
-wave_set_env(_W, _Index, _Env) ->
     ?nif_stub.
 
 -spec wave_set_chan(W::wavedef(), Index::waveind(), Chan::channel()) -> ok.
@@ -210,9 +259,33 @@ wave_set_phase(_W, _Index, _Pos, _Phase) ->
 wave_set_phase(W, Index, Phase) ->
     wave_set_phase(W, Index, 0, Phase).
 
--spec wave_set_noice(wavedef(), Index::waveind(), Pos::integer(),
+-spec wave_set_noice(W::wavedef(), Index::waveind(), Pos::integer(),
 		     Noice::float01()) -> ok.
-wave_set_noice(_WavDef, _Index, _Pos, _Noice) ->
+wave_set_noice(_W, _Index, _Pos, _Noice) ->
+    ?nif_stub.
+
+-spec wave_set_samples(W::wavedef(), Index::waveind(), Offset::alsa:unsigned(),
+		       Channel::integer(),
+		       SrcRate::alsa:sample_rate(), SrcFormat::alsa:format(), 
+		       SrcChannels::alsa:unsigned(), Src::binary()) -> ok.
+
+wave_set_samples(_W, _Index, _Offset, _Channel,
+		 _SrcRate, _SrcFormat, _SrcChannels, _Src) ->
+    ?nif_stub.
+
+-spec wave_set_num_samples(W::wavedef(), Index::waveind(),
+			   Num::alsa:unsigned()) -> ok.
+wave_set_num_samples(_W, _Index, _Num) ->
+    ?nif_stub.
+
+-spec wave_get_num_samples(W::wavedef(), Index::waveind()) -> 
+	  Num::alsa:unsigned().
+wave_get_num_samples(_W, _Index) ->
+    ?nif_stub.
+
+
+-spec wave_get_duration(W::wavedef()) -> Time::float().
+wave_get_duration(_W) ->
     ?nif_stub.
 
 -spec wave_set_noice(wavedef(), Index::waveind(), Noice::float01()) -> ok.
@@ -238,8 +311,7 @@ create_wave(Rate, Def) ->
 
 set_wave(W, Def) ->
     Ni = set_wave(W, Def, 0),
-    wave_set_nwaves(W, Ni),
-    io:format("n waves = ~w\n", [Ni]),
+    wave_set_num_waves(W, Ni),
     Ni.
     
 set_wave(W, [D|Def], Ni) ->
@@ -257,11 +329,11 @@ set_wave_(W,{wave,Wi,Fs}, Ni) ->
 set_wave_(W,{level, Wi, Levels}, Ni) ->
     ok = wave_set_level(W, Wi, Levels),
     max(Wi+1,Ni);
-set_wave_(W,{adsr,J, A,D,S,R}, Ni) ->
-    ok = wave_set_adsr(W,J,A,D,S,R),
+set_wave_(W,{adsr,A,D,S,R}, Ni) ->
+    ok = wave_set_adsr(W,A,D,S,R),
     Ni;
-set_wave_(W,{envelope,J, Elems}, Ni) ->
-    ok = wave_set_envelope(W,J,Elems),
+set_wave_(W,{envelope,Elems}, Ni) ->
+    ok = wave_set_envelope(W,Elems),
     Ni.
 
 duration({adsr,_J, A,D,S,R}) -> A+D+S+R;
@@ -278,6 +350,8 @@ to_frequency(T) when tuple_size(T) >= 2 ->
     setelement(2, T, to_frequency(element(2,T)));
 to_frequency(M=#{ freq := Freq}) ->
     M#{ freq => to_frequency(Freq) };
+to_frequency(M=#{ form := const}) ->
+    M;
 to_frequency(Name) when is_list(Name) ->
     Note = alsa_util:midi_name_to_note(Name),
     alsa_util:midi_note_to_frequency(Note);
@@ -378,7 +452,33 @@ test_reformat() ->
 	      io:format("Data1 = ~p\n", [Data1]),
 	      Data = reformat(F, s8, 1, 1, Data1)
       end, Fs).
-    
+
+%% check format conversions over float
+test_reformat2() ->
+    Fs = [s8, s16_le, s16_be, s32_le, s32_be, s24_le, s24_be,
+	  u8, u16_le, u16_be, u32_le, u32_be, u24_le, u24_be ],
+
+    Gs = [float_le, float_be,
+	  float64_le, float64_be],
+    lists:foreach(
+      fun(Value) ->
+	      lists:foreach(
+		fun(F) ->
+			lists:foreach(
+			  fun(G) ->
+				  io:format("~w ~w ~w\n", [F, G, Value]),
+				  Bin = alsa_util:encode_sample(F, Value),
+				  Bin1 = reformat(F, G, 1, 1, Bin),
+				  Bin2 = reformat(G, F, 1, 1, Bin1),
+				  Value1 = alsa_util:decode_sample(F, Bin2),
+				  io:format("Value1 = ~p\n", [Value1]),
+				  case  Value1 of
+				      Value -> ok
+				  end
+			  end, Gs)
+		end, Fs)
+      end, lists:seq(-100,100)).
+
 %%	
 test_amu_reformat() ->
     Fs = [ mu_law, a_law ],

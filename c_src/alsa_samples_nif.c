@@ -65,6 +65,7 @@ static void unload(ErlNifEnv* env, void* priv_data);
 DECL_ATOM(ok);
 DECL_ATOM(error);
 DECL_ATOM(undefined);
+DECL_ATOM(enoent);
 DECL_ATOM(true);
 DECL_ATOM(false);
 // state
@@ -81,14 +82,20 @@ DECL_ATOM(freq);
 DECL_ATOM(level);
 DECL_ATOM(phase);
 DECL_ATOM(noice);
-
 // forms
+DECL_ATOM(none);
 DECL_ATOM(const);
 DECL_ATOM(sine);
 DECL_ATOM(square);
 DECL_ATOM(pulse);
 DECL_ATOM(triangle);
 DECL_ATOM(saw);
+// mark flags
+DECL_ATOM(notify);
+DECL_ATOM(once);
+DECL_ATOM(stop);
+DECL_ATOM(set);
+DECL_ATOM(repeat);
 
 // format
 DECL_ATOM(s8);
@@ -164,28 +171,41 @@ DECL_ATOM(g723_40_1b);
     NIF("reformat", 5, nif_reformat)	  \
     NIF("filter", 4, nif_filter)	  \
     NIF("wave_new", 0, nif_wave_new)				\
+    NIF("wave_clear", 1, nif_wave_clear)			\
     NIF("wave",     4, nif_wave)				\
-    NIF("wave_set_envelope", 3, nif_wave_set_envelope)		\
-    NIF("wave_set_adsr", 6, nif_wave_set_adsr)			\
+    NIF("wave_set_envelope", 2, nif_wave_set_envelope)		\
+    NIF("wave_set_adsr", 5, nif_wave_set_adsr)			\
     NIF("wave_set_level", 3, nif_wave_set_level)		\
     NIF("wave_set_wave", 3, nif_wave_set_wave)			\
     NIF("wave_set_rate", 2, nif_wave_set_rate)			\
+    NIF("wave_get_rate", 1, nif_wave_get_rate)			\
     NIF("wave_set_mode", 2, nif_wave_set_mode)			\
     NIF("wave_set_state", 2, nif_wave_set_state)		\
     NIF("wave_set_mute", 2, nif_wave_set_mute)			\
-    NIF("wave_set_nwaves", 2, nif_wave_set_nwaves)		\
+    NIF("wave_set_num_waves", 2, nif_wave_set_num_waves)	\
     NIF("wave_set_time", 2, nif_wave_set_time)			\
-    NIF("wave_set_attack", 3, nif_wave_set_attack)		\
-    NIF("wave_set_decay", 3, nif_wave_set_decay)		\
-    NIF("wave_set_sustain", 3, nif_wave_set_sustain)		\
-    NIF("wave_set_release", 3, nif_wave_set_release)		\
-    NIF("wave_set_delay", 3, nif_wave_set_delay)		\
+    NIF("wave_get_time", 1, nif_wave_get_time)			\
+    NIF("wave_set_pos", 2, nif_wave_set_pos)			\
+    NIF("wave_get_pos", 1, nif_wave_get_pos)			\
+    NIF("wave_set_attack", 2, nif_wave_set_attack)		\
+    NIF("wave_set_decay", 2, nif_wave_set_decay)		\
+    NIF("wave_set_sustain", 2, nif_wave_set_sustain)		\
+    NIF("wave_set_release", 2, nif_wave_set_release)		\
+    NIF("wave_set_delay", 2, nif_wave_set_delay)		\
+    NIF("wave_get_duration", 1, nif_wave_get_duration)		\
     NIF("wave_set_form", 3, nif_wave_set_form)			\
-    NIF("wave_set_env", 3, nif_wave_set_env)			\
     NIF("wave_set_chan", 3, nif_wave_set_chan)			\
     NIF("wave_set_freq", 4, nif_wave_set_freq)			\
     NIF("wave_set_phase", 4, nif_wave_set_phase)		\
-    NIF("wave_set_noice", 4, nif_wave_set_noice)
+    NIF("wave_set_noice", 4, nif_wave_set_noice)		\
+    NIF("wave_set_samples", 8, nif_wave_set_samples)		\
+    NIF("wave_set_num_samples", 3, nif_wave_set_num_samples)	\
+    NIF("wave_get_num_samples", 2, nif_wave_get_num_samples)	\
+    NIF("mark", 6, nif_mark)					\
+    NIF("unmark", 2, nif_unmark)				\
+    NIF("get_marks", 2, nif_get_marks)				\
+    NIF("get_marks", 3, nif_get_marks)
+
 
 typedef struct _helem_t {
     struct _helem_t* next;  // next in chain    
@@ -297,7 +317,6 @@ typedef struct {
     helem_t* format_hash[FORMAT_HASH_SIZE];
 } nif_ctx_t;
 
-
 // Declare all nif functions
 #undef NIF
 #ifdef NIF_TRACE
@@ -332,6 +351,17 @@ static ERL_NIF_TERM make_error(ErlNifEnv* env, int err)
 			    enif_make_atom(env, erl_errno_id(err)));
 }
 */
+
+static int get_boolean(ErlNifEnv* env, ERL_NIF_TERM arg, unsigned int* bool)
+{
+    if (arg == ATOM(true))
+	*bool = 1;
+    else if (arg == ATOM(false))
+	*bool = 0;
+    else
+	return 0;
+    return 1;
+}
 
 static int get_size_t(ErlNifEnv* env, ERL_NIF_TERM arg, size_t* sizep)
 {
@@ -391,10 +421,61 @@ static int get_form(ErlNifEnv* env, ERL_NIF_TERM arg, waveform_t* formp)
 	*formp = SAW;
     else if (arg == ATOM(const))
 	*formp = CONST;
+    else if (arg == ATOM(none))
+	*formp = NONE;
     else
 	return 0;
     return 1;
 }
+
+static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
+			  unsigned int* mark_flags_ptr,
+			  mark_set_t* mark_set_ptr)
+{
+    ERL_NIF_TERM hd, tl;
+    unsigned int flags = 0;
+    mark_set_t set;
+
+    memset(&set, 0, sizeof(set));
+    
+    while(enif_get_list_cell(env, list, &hd, &tl)) {
+	int arity;
+	const ERL_NIF_TERM* elem;
+	
+	if (hd == ATOM(notify))
+	    flags |= MARK_NOTIFY;
+	else if (hd == ATOM(once))
+	    flags |= MARK_ONCE;
+	else if (hd == ATOM(stop))
+	    flags |= MARK_STOP;
+	else if (enif_get_tuple(env, hd, &arity, &elem)) {
+	    if ((arity == 2) && (elem[0] == ATOM(set))) {
+		flags |= MARK_SET;
+		if (!enif_get_int(env, elem[1], &set.pos) || (set.pos < 0))
+		    return 0;
+		set.rep = 0;
+		set.cnt = 0;
+	    }
+	    else if ((arity == 3) && (elem[0] == ATOM(repeat))) {
+		flags |= MARK_REPEAT;
+		if (!enif_get_int(env, elem[1], &set.pos) || (set.pos < 0))
+		    return 0;
+		if (!enif_get_int(env, elem[2], &set.rep) || (set.rep < 0))
+		    return 0;
+		set.cnt = set.rep;
+	    }
+	    else
+		return 0;
+	}
+	else
+	    return 0;	
+	list = tl;
+    }
+    *mark_flags_ptr = flags;
+    *mark_set_ptr = set;
+    return 1;
+}
+
 
 // mix(Format, Channels, [binary()], [control()]) -> binary()
 static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
@@ -443,7 +524,7 @@ static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
     list = argv[3];
     if (!enif_get_list_length(env, list, &num_controls))
 	return enif_make_badarg(env);
-    frame_size = num_channels * snd_pcm_format_size(format, 1);
+    frame_size = snd_pcm_format_size(format, num_channels);
     num_frames = voice_size / frame_size;
 
     dst = enif_make_new_binary(env, voice_size, &dst_bin);
@@ -458,8 +539,8 @@ static ERL_NIF_TERM nif_resample(ErlNifEnv* env, int argc,
 				 const ERL_NIF_TERM argv[])
 {
     snd_pcm_format_t format;
-    size_t src_rate;
-    size_t dst_rate;
+    double src_rate;
+    double dst_rate;
     size_t frame_size;
     size_t dst_size;
     size_t src_frames;
@@ -470,9 +551,9 @@ static ERL_NIF_TERM nif_resample(ErlNifEnv* env, int argc,
     ERL_NIF_TERM dst_bin;    
     void* dst;
     
-    if (!get_size_t(env, argv[0], &src_rate))
+    if (!get_number(env, argv[0], &src_rate) || (src_rate <= 0.0))
 	return enif_make_badarg(env);
-    if (!get_size_t(env, argv[1], &dst_rate))
+    if (!get_number(env, argv[1], &dst_rate) || (dst_rate <= 0.0))
 	return enif_make_badarg(env);
     if (!get_format(env, argv[2], &format))
 	return enif_make_badarg(env);
@@ -483,9 +564,9 @@ static ERL_NIF_TERM nif_resample(ErlNifEnv* env, int argc,
     if (!enif_inspect_binary(env, argv[4], &src))
 	return enif_make_badarg(env);
         
-    frame_size = num_channels * snd_pcm_format_size(format, 1);
+    frame_size = snd_pcm_format_size(format, num_channels);
     src_frames = src.size / frame_size;
-    dx = (double) dst_rate / (double) src_rate;
+    dx = dst_rate / src_rate;
     dst_frames = dx * src_frames;
     dst_size = dst_frames * frame_size;
     dst = enif_make_new_binary(env, dst_size, &dst_bin);
@@ -525,9 +606,9 @@ static ERL_NIF_TERM nif_reformat(ErlNifEnv* env, int argc,
     if (!enif_inspect_binary(env, argv[4], &src))
 	return enif_make_badarg(env);    
 
-    frame_size = src_channels * snd_pcm_format_size(src_format, 1);
+    frame_size = snd_pcm_format_size(src_format, src_channels);
     num_frames = src.size / frame_size;
-    dst_size = num_frames * dst_channels * snd_pcm_format_size(dst_format, 1);
+    dst_size = num_frames * snd_pcm_format_size(dst_format, dst_channels);
 
     dst = enif_make_new_binary(env, dst_size, &dst_bin);
 
@@ -594,27 +675,35 @@ static ERL_NIF_TERM nif_wave_new(ErlNifEnv* env, int argc,
     return term;
 }
 
+static ERL_NIF_TERM nif_wave_clear(ErlNifEnv* env, int argc,
+				   const ERL_NIF_TERM argv[])
+{
+    wavedef_t *param;
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    wave_clear(param);
+    return ATOM(ok);
+}
+
+
 // set enelope ADSR params
 static ERL_NIF_TERM nif_wave_set_adsr(ErlNifEnv* env, int argc,
 				      const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double attack, decay, sustain, release;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!enif_get_double(env, argv[1], &attack))
 	return enif_make_badarg(env);
-    if (!enif_get_double(env, argv[2], &attack))
+    if (!enif_get_double(env, argv[2], &decay))
 	return enif_make_badarg(env);
-    if (!enif_get_double(env, argv[3], &decay))
+    if (!enif_get_double(env, argv[3], &sustain))
 	return enif_make_badarg(env);
-    if (!enif_get_double(env, argv[4], &sustain))
+    if (!enif_get_double(env, argv[4], &release))
 	return enif_make_badarg(env);
-    if (!enif_get_double(env, argv[5], &release))
-	return enif_make_badarg(env);
-    if (wave_set_adsr(param, index, attack, decay, sustain, release) < 0)
+    if (wave_set_adsr(param, attack, decay, sustain, release) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -627,7 +716,6 @@ static ERL_NIF_TERM nif_wave_set_envelope(ErlNifEnv* env, int argc,
 					  const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     ERL_NIF_TERM list, head, tail;
     size_t n = 0;
     Float_t duration[MAX_PTE];
@@ -635,9 +723,7 @@ static ERL_NIF_TERM nif_wave_set_envelope(ErlNifEnv* env, int argc,
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
-	return enif_make_badarg(env);
-    list = argv[2];
+    list = argv[1];
     while(enif_get_list_cell(env, list, &head, &tail) && (n < MAX_PTE)) {
 	double d;
 	unsigned m = LIN;
@@ -673,7 +759,7 @@ static ERL_NIF_TERM nif_wave_set_envelope(ErlNifEnv* env, int argc,
     }
     if (!enif_is_empty_list(env, list))
 	return enif_make_badarg(env);
-    if (wave_set_envelope(param, index, duration, mode, n) < 0)
+    if (wave_set_envelope(param, duration, mode, n) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -742,7 +828,7 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
     list = argv[2];
 
     while(enif_get_list_cell(env, list, &head, &tail) && (n < MAX_PTW)) {
-	Float_t value;
+	double value;
 	mask[n] = 0;
 	
 	if (enif_is_map(env, head)) {
@@ -847,7 +933,7 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
     }
     // fill last values in rest of the slots with defaults
     while(j < MAX_PTW) {
-	if (wave_set_form(param, index, j, SINE) < 0)
+	if (wave_set_form(param, index, j, NONE) < 0)
 	    return enif_make_badarg(env);
 	if (wave_set_freq(param, index, j, 440.0) < 0)
 	    return enif_make_badarg(env);
@@ -862,15 +948,28 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
     return ATOM(ok);
 }
 
+static ERL_NIF_TERM nif_wave_get_rate(ErlNifEnv* env, int argc,
+				      const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    Rate_t rate;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (wave_get_rate(param, &rate) < 0)
+	return enif_make_badarg(env);
+    return enif_make_double(env, rate);
+}
+
 static ERL_NIF_TERM nif_wave_set_rate(ErlNifEnv* env, int argc,
 				      const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    unsigned int rate;
+    double rate;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_uint(env, argv[1], &rate))
+    if (!get_number(env, argv[1], &rate))
 	return enif_make_badarg(env);
     if (wave_set_rate(param, rate) < 0)
 	return enif_make_badarg(env);
@@ -904,11 +1003,7 @@ static ERL_NIF_TERM nif_wave_set_mute(ErlNifEnv* env, int argc,
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (argv[1] == ATOM(true))
-	mute = 1;
-    else if (argv[1] == ATOM(false))
-	mute = 0;
-    else
+    if (!get_boolean(env, argv[1], &mute))
 	return enif_make_badarg(env);
     if (wave_set_mute(param, mute) < 0)
 	return enif_make_badarg(env);
@@ -934,17 +1029,17 @@ static ERL_NIF_TERM nif_wave_set_state(ErlNifEnv* env, int argc,
     return ATOM(ok);
 }
 
-static ERL_NIF_TERM nif_wave_set_nwaves(ErlNifEnv* env, int argc,
-					const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM nif_wave_set_num_waves(ErlNifEnv* env, int argc,
+					   const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    unsigned int nwaves;
+    size_t n;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_uint(env, argv[1], &nwaves))
+    if (!get_size_t(env, argv[1], &n))
 	return enif_make_badarg(env);
-    if (wave_set_nwaves(param, nwaves) < 0)
+    if (wave_set_num_waves(param, n) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -969,16 +1064,13 @@ static ERL_NIF_TERM nif_wave_set_attack(ErlNifEnv* env, int argc,
 				     const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double value;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_number(env, argv[1], &value))
 	return enif_make_badarg(env);
-    if (!get_number(env, argv[2], &value))
-	return enif_make_badarg(env);
-    if (wave_set_attack(param, index, value) < 0)
+    if (wave_set_attack(param, value) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -987,16 +1079,13 @@ static ERL_NIF_TERM nif_wave_set_decay(ErlNifEnv* env, int argc,
 				       const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double value;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_number(env, argv[1], &value))
 	return enif_make_badarg(env);
-    if (!get_number(env, argv[2], &value))
-	return enif_make_badarg(env);
-    if (wave_set_decay(param, index, value) < 0)
+    if (wave_set_decay(param, value) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -1005,16 +1094,13 @@ static ERL_NIF_TERM nif_wave_set_sustain(ErlNifEnv* env, int argc,
 					 const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double value;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_number(env, argv[1], &value))
 	return enif_make_badarg(env);
-    if (!get_number(env, argv[2], &value))
-	return enif_make_badarg(env);
-    if (wave_set_sustain(param, index, value) < 0)
+    if (wave_set_sustain(param, value) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -1023,16 +1109,13 @@ static ERL_NIF_TERM nif_wave_set_release(ErlNifEnv* env, int argc,
 					 const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double value;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_number(env, argv[1], &value))
 	return enif_make_badarg(env);
-    if (!get_number(env, argv[2], &value))
-	return enif_make_badarg(env);
-    if (wave_set_release(param, index, value) < 0)
+    if (wave_set_release(param, value) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -1041,16 +1124,13 @@ static ERL_NIF_TERM nif_wave_set_delay(ErlNifEnv* env, int argc,
 				       const ERL_NIF_TERM argv[])
 {
     wavedef_t* param;
-    int index;
     double value;
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_number(env, argv[1], &value))
 	return enif_make_badarg(env);
-    if (!get_number(env, argv[2], &value))
-	return enif_make_badarg(env);
-    if (wave_set_delay(param, index, value) < 0)
+    if (wave_set_delay(param, value) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -1069,24 +1149,6 @@ static ERL_NIF_TERM nif_wave_set_form(ErlNifEnv* env, int argc,
     if (!get_form(env, argv[2], &form))
 	return enif_make_badarg(env);
     if (wave_set_form(param, index, 0, form) < 0)
-	return enif_make_badarg(env);
-    return ATOM(ok);
-}
-
-static ERL_NIF_TERM nif_wave_set_env(ErlNifEnv* env, int argc,
-				    const ERL_NIF_TERM argv[])
-{
-    wavedef_t* param;
-    int index;
-    unsigned int env_index;
-    
-    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
-	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
-	return enif_make_badarg(env);
-    if (!enif_get_uint(env, argv[2], &env_index))
-	return enif_make_badarg(env);
-    if (wave_set_env(param, index, env_index) < 0)
 	return enif_make_badarg(env);
     return ATOM(ok);
 }
@@ -1169,7 +1231,139 @@ static ERL_NIF_TERM nif_wave_set_noice(ErlNifEnv* env, int argc,
     return ATOM(ok);
 }
 
-// wave(WaveDef,Format,Channels,NumFrames::non_neg_integer()) -> Dst:binary().
+static ERL_NIF_TERM nif_wave_set_samples(ErlNifEnv* env, int argc,
+					 const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int index, pos, chan;
+    double src_rate;
+    snd_pcm_format_t src_format;
+    size_t src_channels;
+    ErlNifBinary src;
+    size_t frame_size;
+    size_t src_frames;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[1], &index))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[2], &pos))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[3], &chan))
+	return enif_make_badarg(env);
+    if (!get_number(env, argv[4], &src_rate) || (src_rate <= 0.0))
+	return enif_make_badarg(env);
+    if (!get_format(env, argv[5], &src_format))
+	return enif_make_badarg(env);
+    if (!get_size_t(env, argv[6], &src_channels))
+	return enif_make_badarg(env);
+    if ((src_channels < 1) || (src_channels > MAX_CHANNELS))
+	return enif_make_badarg(env);    
+    if (!enif_inspect_binary(env, argv[7], &src))
+	return enif_make_badarg(env);
+
+    frame_size = snd_pcm_format_size(src_format, src_channels);
+    src_frames = src.size / frame_size;
+    if (wave_set_samples(param, index, pos, chan,
+			 src_rate, src_format, src_channels,
+			 src.data, src_frames) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
+static ERL_NIF_TERM nif_wave_set_num_samples(ErlNifEnv* env, int argc,
+					     const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int index;    
+    size_t n;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[1], &index))
+	return enif_make_badarg(env);
+    if (!get_size_t(env, argv[2], &n))
+	return enif_make_badarg(env);
+    if (wave_set_num_samples(param, index, n) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
+static ERL_NIF_TERM nif_wave_get_num_samples(ErlNifEnv* env, int argc,
+					     const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int index;    
+    size_t n;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[1], &index))
+	return enif_make_badarg(env);
+    if (wave_get_num_samples(param, index, &n) < 0)
+	return enif_make_badarg(env);
+    return enif_make_ulong(env, (unsigned long) n);
+}
+
+static ERL_NIF_TERM nif_wave_get_duration(ErlNifEnv* env, int argc,
+					  const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    double duration;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (wave_get_duration(param, &duration) < 0)
+	return enif_make_badarg(env);
+    return enif_make_double(env, duration);
+}
+
+static ERL_NIF_TERM nif_wave_get_time(ErlNifEnv* env, int argc,
+				      const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    double tm;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (wave_get_time(param, &tm) < 0)
+	return enif_make_badarg(env);
+    return enif_make_double(env, tm);
+}
+
+
+static ERL_NIF_TERM nif_wave_set_pos(ErlNifEnv* env, int argc,
+				     const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int pos;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[1], &pos))
+	return enif_make_badarg(env);
+    if (wave_set_pos(param, pos) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
+static ERL_NIF_TERM nif_wave_get_pos(ErlNifEnv* env, int argc,
+				     const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int pos;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (wave_get_pos(param, &pos) < 0)
+	return enif_make_badarg(env);
+    return enif_make_int(env, pos);
+}
+
+//
+// wave(WaveDef,Format,Channels,NumFrames::non_neg_integer()) ->
+//  {[event()],Dst:binary()}
+//
 static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
 {
@@ -1177,10 +1371,8 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
     snd_pcm_format_t format;
     size_t num_channels;
     size_t num_frames;
-    size_t frame_size;
-    size_t size;
     ERL_NIF_TERM dst_bin;
-    void* dst;
+    ERL_NIF_TERM list = enif_make_list(env, 0);
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
@@ -1192,20 +1384,137 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[3], &num_frames))
 	return enif_make_badarg(env);
-    if (param->state == 0) { // not running
+    if ((param->state == 0) || (param->num_waves == 0))
 	enif_make_new_binary(env, 0, &dst_bin);
+    else {
+	mark_t* mpl;
+	size_t frame_size = snd_pcm_format_size(format, num_channels);
+	size_t size = frame_size*num_frames;
+	void* dst = enif_make_new_binary(env, size, &dst_bin);
+	mpl = wave_buffer(param, format, num_channels, dst, num_frames);
+	while(mpl) {
+	    ERL_NIF_TERM event;
+	    mark_t* mpn = mpl->next;
+	    event = enif_make_tuple4(env,
+				     enif_make_copy(env, mpl->ref),
+				     enif_make_pid(env, &mpl->pid),
+				     enif_make_int(env, mpl->pos),
+				     enif_make_copy(env, mpl->user_data));
+	    list = enif_make_list_cell(env, event, list);
+	    if (mpl->flags0 & MARK_FREE)
+		free_mark(mpl);
+	    mpl = mpn;
+	}
+    }
+    return enif_make_tuple2(env, list, dst_bin);
+}
+
+//-spec mark(W::wavedef(), Pid::pid(), Ref::reference(), Pos::integer(),
+//	   Flags::[notify|once|stop|restart (={set,0})
+//		   {set,Pos::integer()}|
+//		   {repeat,Pos::integer(),Count::integer()}],
+//	   UserData :: term()) ->
+//	  ok.
+static ERL_NIF_TERM nif_mark(ErlNifEnv* env, int argc,
+			     const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    ErlNifPid pid;
+    int pos;
+    mark_t* mp;
+    unsigned int mark_flags;
+    mark_set_t mark_set;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_local_pid(env, argv[1], &pid))
+	return enif_make_badarg(env);
+    if (!enif_is_ref(env, argv[2]))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[3], &pos) || (pos < 0))
+	return enif_make_badarg(env);
+    if (!get_mark_flags(env, argv[4], &mark_flags, &mark_set))
+	return enif_make_badarg(env);
+//    enif_fprintf(stderr, "mark: pos=%d\r\n", pos);    
+//    enif_fprintf(stderr, "      flags=%x\r\n", mark_flags);
+//    enif_fprintf(stderr, "      set: pos=%d,cnt=%d,rep=%d\r\n",
+//		 mark_set.pos,mark_set.cnt, mark_set.rep);
+    mp = alloc_mark();
+    mp->pos = pos;
+    mp->pid = pid;
+    mp->flags0 = mark_flags; // interpreted flags
+    mp->set    = mark_set;   // set/repeat params
+    mp->flags = enif_make_copy(mp->env, argv[4]);
+    mp->ref = enif_make_copy(mp->env, argv[2]);
+    mp->user_data = enif_make_copy(mp->env, argv[5]);
+    if (wave_add_mark(param, mp) < 0) {
+	free_mark(mp);
+	return enif_make_badarg(env);
+    }
+    return ATOM(ok);
+}
+
+static ERL_NIF_TERM nif_unmark(ErlNifEnv* env, int argc,
+			       const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    mark_t* mp;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_is_ref(env, argv[1]))
+	return enif_make_badarg(env);
+    if ((mp = wave_remove_mark(param, argv[1])) != NULL) {
+	free_mark(mp);
+	return ATOM(ok);
+    }
+    return enif_make_tuple2(env, ATOM(error), ATOM(enoent));
+}
+
+static ERL_NIF_TERM nif_get_marks(ErlNifEnv* env, int argc,
+				  const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int from, to;
+    ERL_NIF_TERM list;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (argc == 2) {
+	int period;
+	if (!enif_get_int(env, argv[1], &period) || (period < 0))
+	    return enif_make_badarg(env);
+	from = (param->t * param->rate);
+	to   = from + period - 1;
     }
     else {
-	frame_size = num_channels * snd_pcm_format_size(format, 1);
-	size = frame_size*num_frames;
-	dst = enif_make_new_binary(env, size, &dst_bin);
-//  enif_fprintf(stderr, "num_frames=%d, frame_size=%d, size=%d\r\n",
-//		 (int)num_frames, (int)frame_size, (int)size);
-	wave_buffer(param, format, num_channels, dst, num_frames);
+	if (!enif_get_int(env, argv[1], &from) || (from < 0))
+	    return enif_make_badarg(env);
+	if (!enif_get_int(env, argv[2], &to) || (to < 0))
+	    return enif_make_badarg(env);
     }
-    return dst_bin;
+    list = enif_make_list(env, 0);
+    if (from <= to) {
+	// create notification messages [{pid,pos,flags,user_data}]
+	// REVERSED!
+	int i = wave_find_mark(param, from);
+	while ((i < param->num_marks) && (param->markv[i]->pos <= to)) {
+	    ERL_NIF_TERM event;
+	    mark_t* mp = param->markv[i];
+	    event = enif_make_tuple4(env,
+				     enif_make_copy(env, mp->ref),
+				     enif_make_pid(env, &mp->pid),
+				     enif_make_int(env, mp->pos),
+				     enif_make_copy(env, mp->user_data));
+	    list = enif_make_list_cell(env, event, list);
+	    i++;
+	}
+    }
+    return list;
 }
-    
+
+
+
     
 // create all tracing NIFs
 #ifdef NIF_TRACE
@@ -1251,6 +1560,7 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(ok);
     LOAD_ATOM(error);
     LOAD_ATOM(undefined);
+    LOAD_ATOM(enoent);    
     LOAD_ATOM(true);
     LOAD_ATOM(false);
     // state
@@ -1266,16 +1576,21 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(freq);
     LOAD_ATOM(level);
     LOAD_ATOM(phase);
-    LOAD_ATOM(noice);
-    
+    LOAD_ATOM(noice);    
     // form
+    LOAD_ATOM(none);
     LOAD_ATOM(const);
     LOAD_ATOM(sine);
     LOAD_ATOM(square);
     LOAD_ATOM(pulse);
     LOAD_ATOM(triangle);
-    LOAD_ATOM(saw); 
-
+    LOAD_ATOM(saw);
+    // mark flags
+    LOAD_ATOM(notify);
+    LOAD_ATOM(once);
+    LOAD_ATOM(stop);
+    LOAD_ATOM(set);
+    LOAD_ATOM(repeat);
     // format
     LOAD_ATOM(s8);
     LOAD_ATOM(u8);
@@ -1334,8 +1649,8 @@ static int load_atoms(ErlNifEnv* env)
 
 void wave_dtor(ErlNifEnv *env, void *obj)
 {
-    wavedef_t *wp = (wavedef_t *)obj;
-    (void) wp;
+    wavedef_t *param = (wavedef_t *)obj;
+    wave_clear(param);
     DEBUGF("dtor wavdef%s", "");
 }
 
@@ -1359,14 +1674,11 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 				   &tried)) == NULL) {
         return -1;
     }
-
     if ((ctx = (nif_ctx_t*) enif_alloc(sizeof(nif_ctx_t))) == NULL)
 	return -1;    
-
     if (load_atoms(env) < 0)
 	return -1;
-
-    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);    
+    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);
     *priv_data = ctx;
     return 0;
 }
@@ -1393,12 +1705,9 @@ static int upgrade(ErlNifEnv* env, void** priv_data,
 				   &tried)) == NULL) {
 	return -1;
     }
-
     if (load_atoms(env) < 0)
 	return -1;
-
-    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);
-    
+    hash_helems("format", ctx->format_hash, FORMAT_HASH_SIZE, format_elems);    
     *priv_data = *old_priv_data;
     return 0;
 }

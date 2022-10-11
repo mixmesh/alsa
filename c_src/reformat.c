@@ -161,7 +161,7 @@ int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
     case SND_PCM_FORMAT_S8:
 	return (int32_t) *((int8_t*)ptr) << 24;
     case SND_PCM_FORMAT_U8:
-	return (int32_t)(*((uint8_t*)ptr)-0x80) << 24;
+	return ((int32_t)(*((uint8_t*)ptr))-0x80) << 24;
     case SND_PCM_FORMAT_S16_LE:
 	return (int32_t) le16toh(*((uint16_t*)ptr)) << 16;
     case SND_PCM_FORMAT_S16_BE:

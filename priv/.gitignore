@@ -1,1 +1,3 @@
 *.so
+mix_bench
+reformat_bench

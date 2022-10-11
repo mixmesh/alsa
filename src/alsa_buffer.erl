@@ -11,9 +11,9 @@
 -export([read/2, read_with_marks/2]).
 -export([skip/2]).
 -export([delete/2, copy/2]).
--export([insert/2, insert/3, insert/4]).
+-export([insert/4]).
 -export([insert_file/2, insert_file/3]).
--export([append/2, append/3]).
+-export([append/3]).
 -export([append_file/2]).
 -export([setopts/2, getopts/2]).
 -export([get_position/1, get_position/2]).
@@ -401,38 +401,22 @@ len(#sample_buffer{rate=R}, {time,T}) -> trunc((R * T) / 1000).
 silence(Cb=#sample_buffer{format=Format,channels=Channels}, Len) ->
     alsa:make_silence(Format, Channels, len(Cb,Len)).
 
-%% insert raw data (assumed in current format) at current position
--spec insert(Cb::sample_buffer(), Data::iodata()|{silence,sample_length()}) ->
-	  Cb1::sample_buffer().
-insert(Cb, Data) ->
-    insert(Cb, cur, Data).
-
-%% insert raw data (assumed in current format) at position Pos
--spec insert(Cb::sample_buffer(), Pos::sample_position(), 
-	     Data::iodata()|{silence,sample_length()}) ->
-	  Cb1::sample_buffer().
-insert(Cb=#sample_buffer{bpf=Bpf,buf=Buf},Pos,Data) ->
-    Pos1 = pos(Cb,Pos)*Bpf,
-    Data1 = samples_to_binary(Cb,Data),
-    <<Buf0:Pos1/binary,Buf1/binary>> = Buf,
-    Cb#sample_buffer{buf = <<Buf0/binary,Data1/binary,Buf1/binary>>}.
-
 -spec insert(Cb::sample_buffer(), Pos::sample_position(), 
 	     Header::map(), Data::iodata()) ->
 	  Cb1::sample_buffer().
-insert(Cb=#sample_buffer{bpf=Bpf,buf=Buf},Pos,Header,Data) when 
-      is_map(Header) ->
+insert(Cb=#sample_buffer{bpf=Bpf,buf=Buf},Pos,Header,Data) 
+  when is_map(Header) ->
     Pos1 = pos(Cb,Pos)*Bpf,
     Data1 = samples_to_binary(Cb,Header,Data),
     <<Buf0:Pos1/binary,Buf1/binary>> = Buf,
     Cb#sample_buffer{buf = <<Buf0/binary,Data1/binary,Buf1/binary>>}.
 
-samples_to_binary(_Cb,Data) when is_binary(Data) ->
-    Data;
-samples_to_binary(_Cb,Data) when is_list(Data) ->
-    iolist_to_binary(Data);
-samples_to_binary(Cb, {silence, Len}) ->
-    silence(Cb, Len).
+%% samples_to_binary(_Cb,Data) when is_binary(Data) ->
+%%     Data;
+%% samples_to_binary(_Cb,Data) when is_list(Data) ->
+%%     iolist_to_binary(Data);
+%% samples_to_binary(Cb, {silence, Len}) ->
+%%     silence(Cb, Len).
 
 samples_to_binary(Cb,Header,Data) when is_binary(Data) ->
     transform_data(Cb,Header,Data);
@@ -446,7 +430,7 @@ insert_file(Cb, Filename) ->
     insert_file(Cb, cur, Filename).
 
 insert_file(Cb, Pos, Filename) ->
-    case read_file(Filename) of    
+    case alsa_util:read_file(Filename) of    
 	{ok,{Header,Data}} ->
 	    insert(Cb, Pos, Header, Data);
 	Error ->
@@ -454,49 +438,13 @@ insert_file(Cb, Pos, Filename) ->
 	    Cb
     end.
 
-append(Cb, Data) ->
-    insert(Cb, eof, Data).
-
 append(Cb, Header, Data) ->
     insert(Cb, eof, Header, Data).
 
 append_file(Cb, Filename) ->
     insert_file(Cb, eof, Filename).
 
-read_file(Filename) ->
-    case file:open(Filename, [read, binary]) of
-	{ok, Fd} ->
-	    try alsa_playback:read_header(Fd) of
-		Header ->
-		    Format = maps:get(format, Header),
-		    Channels = maps:get(channels, Header),
-		    Size = alsa:format_size(Format, 1)*Channels,
-		    case read_file_data(Fd, Size) of
-			{ok,Data} ->
-			    {ok,{Header, Data}};
-			Error ->
-			    Error
-		    end
-	    after
-		file:close(Fd)
-	    end;
-	Error ->
-	    Error
-    end.
 
-read_file_data(Fd, Align) ->
-    {ok,Cur} = file:position(Fd, cur),
-    {ok,End} = file:position(Fd, eof),
-    Size = End - Cur,
-    AlignedDataSize = align_down(Size, Align),
-    %% AlignedMaxDataSize = align_up(MaxDataSize, Align),
-    DataSize = AlignedDataSize, %% min(AlignedMaxDataSize, AlignedDataSize),
-    file:position(Fd, Cur),
-    file:read(Fd, DataSize).
-
-%% align X to nearest lower multiple of align
-align_down(X, Align) ->
-    X - (X rem Align).
 
 %% align X to nearest greater multiple of Align
 %%align_up(X, Align) ->

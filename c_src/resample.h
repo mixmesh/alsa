@@ -5,11 +5,11 @@
 #include <byteswap.h>
 #include <alsa/asoundlib.h>
 
-#include "resample.h"
+#include "wave.h"
 
-extern void resample(snd_pcm_format_t format, size_t channels, 
-		     size_t src_rate, void* src,
-		     size_t dst_rate, void* dst,
+extern void resample(snd_pcm_format_t format, size_t channels,
+		     Rate_t src_rate, void* src,
+		     Rate_t dst_rate, void* dst,
 		     size_t nframes, size_t dst_frames);
 
 #endif

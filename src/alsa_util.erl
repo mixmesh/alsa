@@ -23,16 +23,53 @@
 -export([chunks_of_len/4, chunks_of_time/5, energy/3]).
 -export([energy_norm/3, power_norm/3]).
 -export([kaiserord/2, kaiser_beta/1, kaiser_atten/2]).
+-export([read_file/1]).
 %% testing
 -export([test/0]).
 -export([test_a_law/0, test_mu_law/0]).
 -export([test_float/0, test_float64/0]).
 -export([test_mix/0]).
+-export([encode_sample/2]).
+-export([decode_sample/2]).
 
 -include("../include/alsa_log.hrl").
 
 -type float01() :: float().  %% range -1.0 ... 1.0
 
+read_file(Filename) ->
+    case file:open(Filename, [read, binary]) of
+	{ok, Fd} ->
+	    try alsa_playback:read_header(Fd) of
+		Header ->
+		    Format = maps:get(format, Header),
+		    Channels = maps:get(channels, Header),
+		    Size = alsa:format_size(Format, 1)*Channels,
+		    case read_file_data(Fd, Size) of
+			{ok,Data} ->
+			    {ok,{Header, Data}};
+			Error ->
+			    Error
+		    end
+	    after
+		file:close(Fd)
+	    end;
+	Error ->
+	    Error
+    end.
+
+read_file_data(Fd, Align) ->
+    {ok,Cur} = file:position(Fd, cur),
+    {ok,End} = file:position(Fd, eof),
+    Size = End - Cur,
+    AlignedDataSize = align_down(Size, Align),
+    %% AlignedMaxDataSize = align_up(MaxDataSize, Align),
+    DataSize = AlignedDataSize, %% min(AlignedMaxDataSize, AlignedDataSize),
+    file:position(Fd, Cur),
+    file:read(Fd, DataSize).
+
+%% align X to nearest lower multiple of align
+align_down(X, Align) ->
+    X - (X rem Align).
 
 mono_to_stereo(s16_le, Bin) ->
     mono_to_stereo(s16_le, Bin, 0.5).
@@ -263,17 +300,18 @@ decode_frame(Frame, SrcFormat) ->
 encode_frame(Xs, DstFormat) ->
     case DstFormat of
 	s8 -> << <<(trunc(X*16#7f)):8/signed>> || X <- Xs>>;
-	u8 -> << <<(trunc(X*16#7f)+16#80):8/unsigned>> || X <- Xs>>;
 	s16_le -> << <<(trunc(X*16#7fff)):16/signed-little>> || X <- Xs >>;
 	s16_be -> << <<(trunc(X*16#7fff)):16/signed-big>> || X <- Xs >>;
-	u16_le -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-little>> || X <- Xs >>;
-	u16_be -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-big>> || X <- Xs >>;
 	s24_le -> << <<(trunc(X*16#7fffffff)):32/signed-little>> || X <- Xs >>;
 	s24_be -> << <<(trunc(X*16#7fffffff)):32/signed-big>> || X <- Xs >>;
-	u24_le -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-little>> || X <- Xs >>;
-	u24_be -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-big>> || X <- Xs >>;
 	s32_le -> << <<X:32/signed-little>> || X <- Xs >>;
 	s32_be -> << <<X:32/signed-big>> || X <- Xs >>;
+
+	u8 -> << <<(trunc(X*16#7f)+16#80):8/unsigned>> || X <- Xs>>;
+	u16_le -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-little>> || X <- Xs >>;
+	u16_be -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-big>> || X <- Xs >>;
+	u24_le -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-little>> || X <- Xs >>;
+	u24_be -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-big>> || X <- Xs >>;
 	u32_le -> << <<(X+16#80000000):32/unsigned-little>> || X <- Xs >>;
 	u32_be -> << <<(X+16#80000000):32/unsigned-big>> || X <- Xs >>;
 	mu_law -> << <<(mu_law_encode(trunc(X*16#7fff)))>> || X <- Xs >>;
@@ -282,6 +320,62 @@ encode_frame(Xs, DstFormat) ->
 	float_be -> << <<X:32/float-big>>    || X <- Xs >>;
 	float64_le -> << <<X:64/float-little>> || X <- Xs >>;
 	float64_be -> << <<X:64/float-big>>    || X <- Xs >>
+    end.
+
+
+encode_sample(Format, X) ->
+    case Format of
+	s8 -> <<X:8/signed>> ;
+	u8 -> <<(X+16#80)>> ;
+	s16_le -> <<X:16/signed-little>> ;
+	s16_be -> <<X:16/signed-big>> ;
+	s24_le -> <<(X band 16#ffffff):32/little>> ;
+	s24_be -> <<(X band 16#ffffff):32/big>> ;
+	s32_le -> <<X:32/signed-little>> ;
+	s32_be -> <<X:32/signed-big>> ;
+
+	u16_le -> <<(X+16#8000):16/unsigned-little>> ;
+	u16_be -> <<(X+16#8000):16/unsigned-big>> ;
+	u24_le -> <<(X+16#800000):32/unsigned-little>> ;
+	u24_be -> <<(X+16#800000):32/unsigned-big>> ;
+	u32_le -> <<(X+16#80000000):32/unsigned-little>> ;
+	u32_be -> <<(X+16#80000000):32/unsigned-big>> ;
+	mu_law -> <<(mu_law_encode(X))>> ;
+	a_law -> <<(a_law_encode(X))>> ;
+	float_le -> <<X:32/float-little>> ;
+	float_be -> <<X:32/float-big>>    ;
+	float64_le -> <<X:64/float-little>> ;
+	 float64_be -> <<X:64/float-big>>
+    end.
+
+decode_sample(Format, Bin) ->
+    case Format of
+	s8 -> <<X:8/signed>> = Bin, X;
+	s16_le -> <<X:16/signed-little>> = Bin, X;
+	s16_be -> <<X:16/signed-big>> = Bin, X;
+	s24_le -> <<X:32/signed-little>> = Bin,
+		  <<Y:24/signed>> = <<X:24/signed>>,
+		  Y;
+	s24_be -> <<X:32/signed-big>> = Bin,
+		  <<Y:24/signed>> = <<X:24/signed>>,
+		  Y;
+	s32_le -> <<X:32/signed-little>> = Bin, X;
+	s32_be -> <<X:32/signed-big>> = Bin, X;
+
+	u8 -> <<X>> = Bin, X - 16#80;
+	u16_le -> <<X:16/unsigned-little>> = Bin, X-16#8000;
+	u16_be -> <<X:16/unsigned-big>> = Bin, X-16#8000;
+	u24_le -> <<X:32/unsigned-little>> = Bin, X-16#800000;
+	u24_be -> <<X:32/unsigned-big>> = Bin, X-16#800000;
+	u32_le -> <<X:32/unsigned-little>> = Bin, X-16#80000000;
+	u32_be -> <<X:32/unsigned-big>> = Bin, X-16#80000000;
+
+	mu_law -> <<X:8>> = Bin, mu_law_decode(X);
+	a_law ->  <<X:8>> = Bin, a_law_decode(X);
+	float_le -> <<X:32/float-little>> = Bin, X;
+	float_be -> <<X:32/float-big>>  = Bin, X;
+	float64_le -> <<X:64/float-little>> = Bin, X;
+	float64_be -> <<X:64/float-big>>  = Bin, X
     end.
 
 
