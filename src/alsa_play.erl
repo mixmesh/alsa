@@ -573,11 +573,11 @@ handle_insert(Channel, Pos, Header, Samples, State) ->
 	    Pos1 = pos(W, Pos),
 	    Samples1 = samples_to_binary(W, Header, Samples),
 	    %% FIXME: handle multi channel! use wave index!
-	    io:format("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
+	    ?verbose("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
 		      [Channel, SrcRate, SrcFormat, SrcChannels, Pos1]),
-	    io:format("#samples = ~w\n", [byte_size(Samples1) div
-					      alsa:format_size(SrcFormat,
-							       SrcChannels)]),
+	    ?verbose("#samples = ~w\n", [byte_size(Samples1) div
+					     alsa:format_size(SrcFormat,
+							      SrcChannels)]),
 	    ok = alsa_samples:wave_set_samples(W, ?DEFAULT_WAVE_NUM,
 					       Pos1, 0,
 					       SrcRate, SrcFormat, SrcChannels, 
@@ -653,7 +653,7 @@ notify([{Channel,Ms}|Marks], State) ->
     lists:foreach(
       fun({Ref,Pid,Pos,UserData}) ->
 	      Event = {Ref,Channel,Pos,UserData},
-	      io:format("notify ~p\n", [Event]),
+	      ?verbose("notify ~p\n", [Event]),
 	      Pid ! Event
       end, Ms),
     notify(Marks, State).
