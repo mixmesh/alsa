@@ -17,7 +17,11 @@ static int is_int_format(snd_pcm_format_t format)
     case SND_PCM_FORMAT_S24_LE:
     case SND_PCM_FORMAT_S24_BE:
     case SND_PCM_FORMAT_U24_LE:
-    case SND_PCM_FORMAT_U24_BE:	
+    case SND_PCM_FORMAT_U24_BE:
+    case SND_PCM_FORMAT_S24_3LE:
+    case SND_PCM_FORMAT_S24_3BE:
+    case SND_PCM_FORMAT_U24_3LE:
+    case SND_PCM_FORMAT_U24_3BE:
     case SND_PCM_FORMAT_S32_LE:
     case SND_PCM_FORMAT_S32_BE:
     case SND_PCM_FORMAT_U32_LE:
@@ -154,6 +158,31 @@ static inline uint32_t i32_u24(int32_t x)
     return ((x >> 8) + 0x800000) & 0xffffff;
 }
 
+static inline uint32_t rd_3le(uint8_t* ptr)
+{
+    return (ptr[0] | (ptr[1]<<8) | (ptr[2]<<16));
+}
+
+static inline uint32_t rd_3be(uint8_t* ptr)
+{
+    return (ptr[2] | (ptr[1]<<8) | (ptr[0]<<16));
+}
+
+static inline void wr_3le(uint8_t* ptr, uint32_t val)
+{
+    ptr[0] = val;
+    ptr[1] = val >> 8;
+    ptr[2] = val >> 16;
+}
+
+static inline void wr_3be(uint8_t* ptr, uint32_t val)
+{
+    ptr[2] = val;
+    ptr[1] = val >> 8;
+    ptr[0] = val >> 16;
+}
+
+
 // read pcm sample and return as 32 bit signed integer
 int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 {
@@ -170,6 +199,7 @@ int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 	return ((int32_t)(le16toh(*((uint16_t*)ptr))-0x8000)) << 16;
     case SND_PCM_FORMAT_U16_BE:
 	return ((int32_t)(be16toh(*((uint16_t*)ptr))-0x8000)) << 16;
+	
     case SND_PCM_FORMAT_S24_LE:
 	return i24_i32(le32toh(*((uint32_t*)ptr)));
     case SND_PCM_FORMAT_S24_BE:
@@ -178,6 +208,16 @@ int32_t read_pcm_int(snd_pcm_format_t format, int8_t* ptr)
 	return u24_i32(le32toh(*((uint32_t*)ptr)));
     case SND_PCM_FORMAT_U24_BE:
 	return u24_i32(be32toh(*((uint32_t*)ptr)));
+
+    case SND_PCM_FORMAT_S24_3LE:
+	return i24_i32(rd_3le((uint8_t*)ptr));
+    case SND_PCM_FORMAT_S24_3BE:
+	return i24_i32(rd_3be((uint8_t*)ptr));
+    case SND_PCM_FORMAT_U24_3LE:
+	return u24_i32(rd_3le((uint8_t*)ptr));
+    case SND_PCM_FORMAT_U24_3BE:
+	return u24_i32(rd_3be((uint8_t*)ptr));
+
     case SND_PCM_FORMAT_S32_LE:
 	return (int32_t) le32toh(*((uint32_t*)ptr));
     case SND_PCM_FORMAT_S32_BE:
@@ -301,6 +341,7 @@ void write_pcm_int(snd_pcm_format_t format, int32_t val, int8_t* ptr)
     case SND_PCM_FORMAT_U16_BE:
 	*((uint16_t*)ptr) = htobe16((int16_t) (val>>16) + 0x8000);
 	break;
+	
     case SND_PCM_FORMAT_S24_LE:
 	*((uint32_t*)ptr) = htole32(i32_i24(val));
 	break;
@@ -312,6 +353,18 @@ void write_pcm_int(snd_pcm_format_t format, int32_t val, int8_t* ptr)
 	break;
     case SND_PCM_FORMAT_U24_BE:
 	*((uint32_t*)ptr) = htobe32(i32_u24(val));
+	break;
+    case SND_PCM_FORMAT_S24_3LE:
+	wr_3le((uint8_t*)ptr, i32_i24(val));
+	break;
+    case SND_PCM_FORMAT_S24_3BE:
+	wr_3be((uint8_t*)ptr, i32_i24(val));
+	break;
+    case SND_PCM_FORMAT_U24_3LE:
+	wr_3le((uint8_t*)ptr, i32_u24(val));
+	break;
+    case SND_PCM_FORMAT_U24_3BE:
+	wr_3be((uint8_t*)ptr, i32_u24(val));
 	break;	
     case SND_PCM_FORMAT_S32_LE:
 	*((uint32_t*)ptr) = htole32((int32_t) val);

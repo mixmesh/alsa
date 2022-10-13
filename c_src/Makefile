@@ -8,7 +8,7 @@ CFLAGS= -fPIC -MMD -MP -MF .$<.d -I$(ERL_TOP)/usr/include
 CC=gcc
 CFLAGS+= $(shell pkg-config --cflags alsa)
 ALSA_LIBS=$(shell pkg-config --libs alsa)
-NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o filt.o
+NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o filt.o sample.o
 SBC_LIBS= -lsbc
 SIMD_FLAGS = # -msse4.1
 

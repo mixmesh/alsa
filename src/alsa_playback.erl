@@ -96,7 +96,7 @@ read_header(Fd) ->
 read_header(Fd, Options) ->
     case alsa_wav:read_header(Fd) of
 	{ok, Params} ->
-	    ?dbg("wav header: ~w\n", [Params]),
+	    ?dbg("wav header: pos=~w, ~w\n", [Pos,Params]),
 	    maps:merge(Options, Params);
 	_ ->
 	    file:position(Fd, 0),

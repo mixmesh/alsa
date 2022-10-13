@@ -28,9 +28,9 @@
 -export([set_wave/2]).
 -export([mute/2]).
 -export([insert/4]).
--export([insert_file/2, insert_file/3]).
--export([append/2, append/3]).
--export([append_file/2]).
+-export([insert_file/3, insert_file/4]).
+-export([append/3, append/4]).
+-export([append_file/3]).
 -export([mark/2, mark/3, mark/4]).
 -export([unmark/2]).
 -export([delete/2]).
@@ -78,53 +78,57 @@ new(Channel) when ?is_channel(Channel) ->
 set_wave(Channel, WaveDef) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {set_wave, Channel, WaveDef}).
 
-insert(Channel, Pos, Header, Samples) ->
+insert(Channel, Index, Pos, Header, Samples) ->
     case is_channel(Channel) andalso
 	is_pos(Pos) andalso
 	is_header(Header) andalso
 	is_data(Samples) of
 	true ->
-	    gen_server:call(?SERVER, {insert,Channel,Pos,Header,Samples});
+	    gen_server:call(?SERVER, {insert,Channel,Index,Pos,Header,Samples});
 	false ->
 	    error(badarg)
     end.
 
-insert(Channel, Pos, Samples) ->
+insert(Channel,Index, Pos, Samples) ->
     case is_channel(Channel) andalso
 	is_pos(Pos) andalso
 	is_data(Samples) of
 	true ->
-	    gen_server:call(?SERVER, {insert,Channel,Pos,Samples});
+	    gen_server:call(?SERVER, {insert,Channel,Index,Pos,Samples});
 	false ->
 	    error(badarg)
     end.
 
-insert_file(Channel, Filename) ->
-    insert_file(Channel, cur, Filename).
+insert_file(Channel, Index, Filename) ->
+    insert_file(Channel, Index, cur, Filename).
 
-insert_file(Channel, Pos, Filename) ->
+insert_file(Channel, Index, Pos, Filename) ->
     case is_channel(Channel) andalso 
 	is_pos(Pos) andalso 
 	is_filename(Filename) of
 	true ->
 	    case alsa_util:read_file(Filename) of
 		{ok,{Header,Samples}} ->
-		    gen_server:call(?SERVER, {insert,Channel,Pos,Header,Samples});
+		    io:format("load ~w samples format=~p\n",
+			      [byte_size(Samples), Header]),
+		    gen_server:call(?SERVER, {insert,Channel,Index,
+					      Pos,Header,Samples});
 		Error ->
+		    io:format("file error: ~p\n", [Error]),
 		    Error
 	    end;
 	false ->
 	    error(badarg)
     end.
 
-append(Channel, Samples) ->
-    insert(Channel, eof, Samples).
+append(Channel, Index, Samples) ->
+    insert(Channel, Index, eof, Samples).
 
-append(Channel, Header, Samples) ->
-    insert(Channel, eof, Header, Samples).
+append(Channel, Index, Header, Samples) ->
+    insert(Channel, Index, eof, Header, Samples).
 
-append_file(Channel, Filename) ->
-    insert_file(Channel, eof, Filename).
+append_file(Channel, Index, Filename) ->
+    insert_file(Channel, Index, eof, Filename).
 
 -spec mark(Channel::channel(), UserData::term()) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
@@ -298,11 +302,11 @@ handle_call({set_wave,Channel,WaveDef}, _From, State) ->
 	    {reply, ok, State}
     end;
 
-handle_call({insert,Channel,Pos,Samples}, _From, State) ->
-    handle_insert(Channel, Pos, State#state.params, Samples, State);
+handle_call({insert,Channel,Index,Pos,Samples}, _From, State) ->
+    handle_insert(Channel, Index, Pos, State#state.params, Samples, State);
 
-handle_call({insert,Channel,Pos,Header,Samples}, _From, State) ->
-    handle_insert(Channel, Pos, Header, Samples, State);
+handle_call({insert,Channel,Index,Pos,Header,Samples}, _From, State) ->
+    handle_insert(Channel, Index, Pos, Header, Samples, State);
 
 handle_call({mark,Pid,Channel,Pos,Flags,UserData}, _From, State) ->
     ChanMap = State#state.channels,
@@ -572,7 +576,7 @@ continue_playing(State) ->
        true -> play(State#state{playing=true})
     end.
 
-handle_insert(Channel, Pos, Header, Samples, State) ->
+handle_insert(Channel, Index, Pos, Header, Samples, State) ->
     ChanMap = State#state.channels,
     case maps:get(Channel, ChanMap, undefined) of
 	undefined ->
@@ -589,7 +593,7 @@ handle_insert(Channel, Pos, Header, Samples, State) ->
 	    ?verbose("#samples = ~w\n", [byte_size(Samples1) div
 					     alsa:format_size(SrcFormat,
 							      SrcChannels)]),
-	    ok = alsa_samples:wave_set_samples(W, ?DEFAULT_WAVE_NUM,
+	    ok = alsa_samples:wave_set_samples(W, Index,
 					       Pos1, 0,
 					       SrcRate, SrcFormat, SrcChannels, 
 					       Samples1),
@@ -649,8 +653,6 @@ flag(_W, F) -> F.
 notify([], State) -> 
     State;
 notify([{Channel,Ms}|Marks], State) ->
-    %% Note that marks is reversed in RevMs
-    %% W = maps:get(Channel, State#state.channels),
     lists:foreach(
       fun({Ref,Pid,Pos,UserData}) ->
 	      Event = {Ref,Channel,Pos,UserData},

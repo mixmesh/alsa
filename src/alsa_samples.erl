@@ -65,10 +65,12 @@
 
 -type float01() :: float().               %% float in range 0..1
 -type frequency() :: float().             %% Hertz 0..
--type waveind() :: 0..(?MAX_WAVE-1).      %% wave index
+-type custom() :: custom1|custom2|custom3|custom4.
+-type waveind() :: 0..(?MAX_WAVE-1).
 -type channel()  :: 0..(?MAX_CHANNELS-1). %% channel number
 -type wavedef() :: reference().
--type waveform() :: sine | square | pulse | triangle | saw | const | none.
+-type waveform() :: sine | square | pulse | triangle | saw | 
+		    const | none | custom().
 -type envmode() :: off|linear|quadratic|sustain.  %% (linear)
 -type envelem() :: Duration::number() | {Duration::number(), Mode::envmode()}.
 -type formdef() :: #{ form => waveform(),
@@ -255,7 +257,7 @@ wave_set_wave(_W, _Index, _Ws) ->
 wave_set_chan(_W, _Index, _Chan) ->
     ?nif_stub.
 
--spec wave_set_form(W::wavedef(), Index::waveind(), Pt::integer(), 
+-spec wave_set_form(W::wavedef(), Index::waveind(),Pt::integer(), 
 		    Form::waveform()) -> ok.
 wave_set_form(_W, _Index, _Pt, _Form) ->
     ?nif_stub.
@@ -274,8 +276,8 @@ wave_set_phase(W, Index, Phase) ->
 wave_set_noice(_W, _Index, _Pos, _Noice) ->
     ?nif_stub.
 
--spec wave_set_samples(W::wavedef(), Index::waveind(), Offset::alsa:unsigned(),
-		       Channel::integer(),
+-spec wave_set_samples(W::wavedef(), Index::waveind()|custom(),
+		       Offset::alsa:unsigned(), Channel::integer(),
 		       SrcRate::alsa:sample_rate(), SrcFormat::alsa:format(), 
 		       SrcChannels::alsa:unsigned(), Src::binary()) -> ok.
 
@@ -283,12 +285,12 @@ wave_set_samples(_W, _Index, _Offset, _Channel,
 		 _SrcRate, _SrcFormat, _SrcChannels, _Src) ->
     ?nif_stub.
 
--spec wave_set_num_samples(W::wavedef(), Index::waveind(),
+-spec wave_set_num_samples(W::wavedef(), Index::waveind()|custom(),
 			   Num::alsa:unsigned()) -> ok.
 wave_set_num_samples(_W, _Index, _Num) ->
     ?nif_stub.
 
--spec wave_get_num_samples(W::wavedef(), Index::waveind()) -> 
+-spec wave_get_num_samples(W::wavedef(), Index::waveind()|custom()) -> 
 	  Num::alsa:unsigned().
 wave_get_num_samples(_W, _Index) ->
     ?nif_stub.

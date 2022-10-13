@@ -20,6 +20,7 @@
 -export([test_mem/0]).
 -export([test_repeat_music/0]).
 -export([test_goto1/0, test_goto2/0]).
+-export([shape_file/1, shape_files/0]).
 
 test1() ->	 
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
@@ -27,7 +28,7 @@ test1() ->
     alsa_play:remove(),
 
     alsa_play:new(1),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Center.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Center.wav")),
     alsa_play:mark(1, last, [{set,bof}], undefined),
     erlang:start_timer(5000, self(), stop),
     alsa_play:run(),
@@ -45,10 +46,10 @@ test3() ->
     alsa_play:new(2),
     alsa_play:new(3),
 
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    alsa_play:append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    alsa_play:append_file(2, filename:join(Sounds, "Front_Right.wav")),
-    alsa_play:append_file(3, filename:join(Sounds, "Rear_Right.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Center.wav")),
+    alsa_play:append_file(2,0,filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append_file(2,0,filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append_file(3,0,filename:join(Sounds, "Rear_Right.wav")),
 
     alsa_play:mark(1, last, [{set,bof}], undefined),
     alsa_play:mark(2, last, [{set,bof}], undefined),
@@ -71,13 +72,13 @@ test_pong() ->
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
     alsa_play:new(1),
     alsa_play:mute(1, true),
-    alsa_play:append_file(1, filename:join(Sounds, "plop.wav")),   
+    alsa_play:append_file(1,0,filename:join(Sounds, "plop.wav")),   
     alsa_play:new(2),
     alsa_play:mute(2, true),
-    alsa_play:append_file(2, filename:join(Sounds, "beep.wav")),
+    alsa_play:append_file(2,0,filename:join(Sounds, "beep.wav")),
     alsa_play:new(3),
     alsa_play:mute(3, true),
-    alsa_play:append_file(3, filename:join(Sounds, "Side_Left.wav")),
+    alsa_play:append_file(3,0,filename:join(Sounds, "Side_Left.wav")),
     alsa_play:run(),
     alsa_play:resume(),
     timer:sleep(500),
@@ -132,7 +133,7 @@ test_goto1() ->
     alsa_play:remove(),
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
     alsa_play:new(1),
-    alsa_play:append(1, {silence, {time,100}}),
+    alsa_play:append(1,0,{silence, {time,100}}),
 
     %% REPEAT A 1
     alsa_play:mark(1, eof, [{label,?A},notify], a),
@@ -140,24 +141,24 @@ test_goto1() ->
 	%% REPEAT PLOP 2
 	alsa_play:mark(1, eof, [{label,?PLOP},notify], plop),
 	begin
-	    alsa_play:append_file(1, filename:join(Sounds, "plop.wav")),
-	    alsa_play:append(1, {silence, {time,500}})		
+	    alsa_play:append_file(1,0,filename:join(Sounds, "plop.wav")),
+	    alsa_play:append(1,0,{silence, {time,500}})		
 	end,
 	alsa_play:mark(1, eof, [{repeat,{label,?PLOP},2}], []),
 	    
 	%% REPEAT BEEP 2
 	alsa_play:mark(1, eof, [{label,?BEEP},notify], beep),
 	begin
-	    alsa_play:append_file(1, filename:join(Sounds, "beep.wav")),
-	    alsa_play:append(1, {silence, {time,500}})
+	    alsa_play:append_file(1,0,filename:join(Sounds, "beep.wav")),
+	    alsa_play:append(1,0,{silence, {time,500}})
 	end,
 	alsa_play:mark(1, eof, [{repeat,{label,?BEEP},2}], []),
 	    
 	%% REPEAT PEEP 2
 	alsa_play:mark(1, eof, [{label,?PEEP},notify], peep),
 	begin
-	    alsa_play:append_file(1, filename:join(Sounds, "peep.wav")),
-	    alsa_play:append(1, {silence, {time,500}})
+	    alsa_play:append_file(1,0,filename:join(Sounds, "peep.wav")),
+	    alsa_play:append(1,0,{silence, {time,500}})
 	end,
 	alsa_play:mark(1, eof, [{repeat,{label,?PEEP},2}], [])
     end,
@@ -178,7 +179,7 @@ test_goto2() ->
     alsa_play:remove(),
     Sounds = filename:join(code:lib_dir(alsa), "sounds"),
     alsa_play:new(1),
-    alsa_play:append(1, {silence, {time,100}}),
+    alsa_play:append(1,0,{silence, {time,100}}),
 
     %% REPEAT A 2 times
     alsa_play:mark(1, eof, [{label,?A}], []),
@@ -189,24 +190,24 @@ test_goto2() ->
 	    %% REPEAT PLOP 2
 	    alsa_play:mark(1, eof, [{label,?PLOP}], []),
 	    begin
-		alsa_play:append_file(1, filename:join(Sounds, "plop.wav")),
-		alsa_play:append(1, {silence, {time,100}})		
+		alsa_play:append_file(1,0,filename:join(Sounds, "plop.wav")),
+		alsa_play:append(1,0,{silence, {time,100}})		
 	    end,
 	    alsa_play:mark(1, eof, [{repeat,{label,?PLOP},2}], []),
 	    
 	    %% REPEAT BEEP 2
 	    alsa_play:mark(1, eof, [{label,?BEEP}], []),
 	    begin
-		alsa_play:append_file(1, filename:join(Sounds, "beep.wav")),
-		alsa_play:append(1, {silence, {time,100}})
+		alsa_play:append_file(1,0,filename:join(Sounds, "beep.wav")),
+		alsa_play:append(1,0,{silence, {time,100}})
 	    end,
 	    alsa_play:mark(1, eof, [{repeat,{label,?BEEP},2}], []),
 	    
 	    %% REPEAT PEEP 2
 	    alsa_play:mark(1, eof, [{label,?PEEP}], []),
 	    begin
-		alsa_play:append_file(1, filename:join(Sounds, "peep.wav")),
-		alsa_play:append(1, {silence, {time,100}})
+		alsa_play:append_file(1,0,filename:join(Sounds, "peep.wav")),
+		alsa_play:append(1,0,{silence, {time,100}})
 	    end,
 	    alsa_play:mark(1, eof, [{repeat,{label,?PEEP},3}], [])
 	end,
@@ -217,11 +218,11 @@ test_goto2() ->
 	begin
 	    %% skip "Front"
 	    alsa_play:mark(1, eof, [{set,{eof,{time,500}}}], undefined), 
-	    alsa_play:append_file(1, filename:join(Sounds, "Front_Left.wav")),
+	    alsa_play:append_file(1,0,filename:join(Sounds,"Front_Left.wav")),
 	    
 	    %% skip "Front"
 	    alsa_play:mark(1, eof, [{set,{eof,{time,500}}}], undefined),
-	    alsa_play:append_file(1, filename:join(Sounds, "Front_Right.wav"))
+	    alsa_play:append_file(1,0,filename:join(Sounds,"Front_Right.wav"))
 	end,
 	alsa_play:mark(1, eof, [{repeat,{label,?C},1}], [])
     end,
@@ -245,12 +246,12 @@ test_notify() ->
     alsa_play:new(1),
     alsa_play:new(2),
     alsa_play:new(3),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    alsa_play:append(1, {silence, {time,100}}),
-    alsa_play:append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    alsa_play:append(2, {silence, {time,100}}),
-    alsa_play:append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    alsa_play:append(3, {silence, {time,100}}),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Center.wav")),
+    alsa_play:append(1,0,{silence, {time,100}}),
+    alsa_play:append_file(2,0,filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append(2,0,{silence, {time,100}}),
+    alsa_play:append_file(3,0,filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append(3,0,{silence, {time,100}}),
     {ok,Ref1} = alsa_play:mark(1, last, [notify], center_done),
     {ok,Ref2} = alsa_play:mark(2, last, [notify], left_done),
     {ok,Ref3} = alsa_play:mark(3, last, [notify], right_done),
@@ -287,12 +288,12 @@ test_notify_once() ->
     alsa_play:new(1),
     alsa_play:new(2),
     alsa_play:new(3),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Center.wav")),
-    alsa_play:append(1, {silence, {time,100}}),
-    alsa_play:append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    alsa_play:append(2, {silence, {time,100}}),
-    alsa_play:append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    alsa_play:append(3, {silence, {time,100}}),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Center.wav")),
+    alsa_play:append(1,0,{silence, {time,100}}),
+    alsa_play:append_file(2,0,filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append(2,0,{silence, {time,100}}),
+    alsa_play:append_file(3,0,filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append(3,0,{silence, {time,100}}),
 
     {ok,Ref1} = alsa_play:mark(1, last, [notify,once], sample_played),
     alsa_play:run(1),
@@ -330,14 +331,14 @@ test_notify_once_one() ->
     alsa_play:remove(),
 
     alsa_play:new(1),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Center.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Center.wav")),
     %% append(1, {silence, {time,100}}),
     {ok,Ref1} = alsa_play:mark(1, last, [notify,once,stop], sample1_played),
 
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Left.wav")),
     %% append(2, {silence, {time,100}}),
     {ok,Ref2} = alsa_play:mark(1, last, [notify,once,stop], sample2_played),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Right.wav")),
     %% append(3, {silence, {time,100}}),
     {ok,Ref3} = alsa_play:mark(1, last, [notify,once,stop], sample3_played),
 
@@ -370,7 +371,7 @@ test_music() ->
     alsa_play:remove(),
 
     alsa_play:new(1),
-    alsa_play:append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "POL-super-match-short.wav")),
     {ok,Ref1} = alsa_play:mark(1, last, [notify, stop], music_done),
     alsa_play:run(),
     alsa_play:resume(),
@@ -386,17 +387,17 @@ test_notify_music() ->
     alsa_play:remove(),
 
     alsa_play:new(1),
-    alsa_play:append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "POL-super-match-short.wav")),
     {ok,Ref1} = alsa_play:mark(1, last, [notify,restart], "Music"),
     alsa_play:new(2),
-    alsa_play:append(2, {silence, {time,500}}),
-    alsa_play:append_file(2, filename:join(Sounds, "Front_Left.wav")),
-    alsa_play:append(2, {silence, {time,1500}}),
+    alsa_play:append(2,0,{silence, {time,500}}),
+    alsa_play:append_file(2,0,filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append(2,0,{silence, {time,1500}}),
     {ok,Ref2} = alsa_play:mark(2, {time,2000}, [restart], "Left"),
     alsa_play:new(3),
-    alsa_play:append(3, {silence, {time,1000}}),
-    alsa_play:append_file(3, filename:join(Sounds, "Front_Right.wav")),
-    alsa_play:append(3, {silence, {time,1000}}),
+    alsa_play:append(3,0,{silence, {time,1000}}),
+    alsa_play:append_file(3,0,filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append(3,0,{silence, {time,1000}}),
     {ok,Ref3} = alsa_play:mark(3, {time,2000}, [restart], "Right"),
 
     erlang:start_timer(15000, self(), stop),
@@ -417,7 +418,7 @@ test_repeat_music() ->
     alsa_play:remove(),
 
     alsa_play:new(1),
-    alsa_play:append_file(1, filename:join(Sounds, "POL-super-match-short.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "POL-super-match-short.wav")),
     {ok,_} = alsa_play:mark(1, {time,500},   [notify, {set,{time,700}}], jump_1),
     {ok,_} = alsa_play:mark(1, {time,1000},  [notify, {set,{time,1200}}], jump_2),
     {ok,_} = alsa_play:mark(1, {time,1500},  [notify, {set,{time,2300}}], jump_3),
@@ -444,16 +445,16 @@ test_left_right() ->
 
     alsa_play:new(1),
 
-    alsa_play:append(1, {silence, {time,100}}),
+    alsa_play:append(1,0,{silence, {time,100}}),
     alsa_play:mark(1, last, [{set,{eof,{time,500}}}], undefined),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Left.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Left.wav")),
 
-    alsa_play:append(1, {silence, {time,100}}),
+    alsa_play:append(1,0,{silence, {time,100}}),
     alsa_play:mark(1, last, [{set,{eof,{time,550}}}], undefined),
-    alsa_play:append_file(1, filename:join(Sounds, "Front_Right.wav")),
+    alsa_play:append_file(1,0,filename:join(Sounds, "Front_Right.wav")),
 
     alsa_play:mark(1, last, [{repeat,bof,2}], undefined),
-    alsa_play:append(1, {silence, 1}),
+    alsa_play:append(1,0,{silence, 1}),
     alsa_play:mark(1, last, [notify,stop], stop),
     alsa_play:run(),
     alsa_play:resume(),
@@ -493,13 +494,108 @@ test_wave() ->
     test_notify_loop(),
     alsa_play:remove(1).
 
+shape_files() ->
+    Float32 = [
+	       "Angle Square.wav",
+	       "Arc Saw.wav",
+	       "EDM Bass.wav",
+	       "Flat Saw Wave.wav",
+	       "FM8 Buzz Lead.wav",
+	       "Gritty Triangle.wav",
+	       "Gritty.wav",
+	       "Jagged Saw.wav",
+	       "K5000.wav",
+	       "KOSpad2.wav",
+	       "KOSpad.wav",
+	       "Krusty Bass.wav",
+	       "Organic Bass.wav",
+	       "Saw Wave.wav",
+	       "SeaSine.wav",
+	       "SineStep.wav",
+	       "Sine Wave.wav",
+	       "SquaredOffSine1.wav",
+	       "SquaredOffSine2.wav",
+	       "SquaredOffSine3.wav",
+	       "Square Wave.wav",
+	       "Triangle Wave.wav"
+	      ],
+    Pcm24 = [
+	     "Bass.wav",
+	     "Bell1.wav",
+	     "Bell2.wav",
+	     "Msv2.wav",
+	     "Organ1.wav",
+	     "Organ2.wav",
+	     "Organ3.wav"
+	    ],
+    Pcm16 = [
+	     "BigTime.wav"
+	    ],
+    Other = [
+	     "4088.wav",
+	     "Acid1.wav",
+	     "Acid2.wav",
+	     "Arp2600Saw.wav",
+	     "Cycle.wav",
+	     "Dirty Bass.wav",
+	     "Dirty.wav",
+	     "Fat Bass.wav",
+	     "Fuzzy.wav",
+	     "Grit.wav",
+	     "Harmonic.wav",
+	     "Hypa2.wav",
+	     "Hypa.wav",
+	     "Pulse.wav",
+	     "PWM Juno.wav",
+	     "Quad Saw.wav",
+	     "RetroSpeaking1.wav",
+	     "RetroSpeaking2.wav",
+	     "Tiny Saw.wav",
+	     "Warm.wav"
+	    ],
+    %% lists:foreach(fun(File) -> shape_file(File) end, Pcm24),
+    %% lists:foreach(fun(File) -> shape_file(File) end, Pcm16),
+    lists:foreach(fun(File) -> shape_file(File) end, Other),
+    %%lists:foreach(fun(File) -> shape_file(File) end, Float32),
+    ok.
+
+%% listen to shape files
+shape_file(Filename) ->
+    io:format("shape: ~p\n", [Filename]),
+    Sounds = filename:join([code:lib_dir(alsa), "waves", "Waveshapes"]),
+    alsa_play:start(#{ rate => 16000 }),
+    alsa_play:remove(),
+
+    alsa_play:new(1),
+
+    E = [0.2, 2.0, 0.2],
+    D = trunc(1000*lists:sum(E)),
+
+    alsa_play:append_file(1,custom1,filename:join(Sounds, Filename)),
+
+    alsa_play:set_wave(1, [{envelope,E},
+			   {wave,0, [#{ form=>custom1, freq=>"A3", level=>0.0},
+				     #{ form=>custom1, freq=>"A3", level=>0.9},
+				     #{ form=>custom1, freq=>"A3", level=>0.9},
+				     #{ form=>custom1, freq=>"A3", level=>0.0}
+				    ]}]),
+
+    alsa_play:mark(1, {time,D}, [notify,stop], stop),
+    %% erlang:start_timer(D, self(), stop),
+    alsa_play:run(),
+    alsa_play:resume(),
+    test_notify_loop(),
+    alsa_play:remove(1).
+
+    
+
 test_mem() ->
     %%Sounds = filename:join(code:lib_dir(alsa), "sounds"),    
     alsa_play:start(#{ rate => 16000 }),
     alsa_play:remove(),
 
     alsa_play:new(1),
-    %% alsa_play:append_file(1, filename:join(Sounds, "Front_Left.wav")),
+    %% alsa_play:append_file(1,0,filename:join(Sounds, "Front_Left.wav")),
     {ok,Ref1} = alsa_play:mark(1, last, [notify, stop], music_done),
     alsa_play:unmark(1, Ref1),
 

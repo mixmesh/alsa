@@ -158,38 +158,6 @@ void free_mark(mark_t* mp)
     free(mp);
 }
 
-// resize sample buffer
-static int resize_sample_buffer(wave_t* wp, size_t n, int clear)
-{
-    Float_t* xp;
-    size_t m = wp->num_samples;
-
-    if (n < m) { // shrink
-	if (n == 0) {
-	    if (wp->samples)
-		free(wp->samples);
-	    xp = NULL;
-	}
-	else {
-	    if ((xp=realloc(wp->samples,n*sizeof(Float_t)))==NULL)
-		return -1;
-	}
-	wp->num_samples = n;
-	wp->samples = xp;
-    }
-    else if (n> m) {
-	Float_t* xp;
-	if ((xp = realloc(wp->samples,n*sizeof(Float_t))) == NULL)
-	    return -1;
-	if (clear)
-	    memset(&xp[m], 0, (n-m)*sizeof(Float_t));
-	wp->num_samples = n;
-	wp->samples = xp;
-    }
-    return 0;
-}
-
-
 void wave_reset(wavedef_t* param)
 {
     int i;
@@ -200,13 +168,12 @@ void wave_reset(wavedef_t* param)
     n = MAX_WAVES;
     param->num_waves = 0;
     for (i = 0; i < n; i++) {
-	wave_t* wp = &param->w[i];
-	if (wp->samples) {
-	    DEBUGF(stderr, "%d: free samples n=%ld\r\n", i, wp->num_samples);
-	    free(wp->samples);
-	    wp->samples = NULL;
-	}
-	wp->num_samples = 0;
+	samples_t* sp = &param->w[i].s;
+	free_sample_buffer(sp);
+    }
+    for (i = 0; i < MAX_WAVE_FORMS; i++) {
+	samples_t* sp = &param->custom[i];
+	free_sample_buffer(sp);
     }
     n = param->num_marks;
     param->num_marks = 0;
@@ -224,7 +191,6 @@ void wave_clear(wavedef_t* param)
 {
     wave_reset(param);
 }
-
 
 // interpolate return interpolated t'
 // off:        1  p
@@ -339,80 +305,89 @@ Float_t envelope_level(Float_t t, int mode, envelope_t* e)
 }
 #endif
 
-static inline Float_t osc(Float_t t, Float_t f, Float_t period,
-			  waveform_t form, Float_t phase)
+// fmod(x,y) == (x - trunc(x / y)*y)
+// fmod(t,period) == fmod(t, 1/f) = (t - floor(t*f)*period)
+// f*fmod(t,period) = (t*f - floor(t*f))
+
+static inline Float_t frac(Float_t tf)
+{
+    return tf - floor(tf);
+}
+
+static inline Float_t shape(Float_t x,samples_t* sp)
+{
+    size_t n = sp->num_samples;
+    if (n == 0) {
+	return 0.0;
+    }
+    else {
+	int i = x*(n-1);
+	return sp->samples[i];
+    }
+}
+
+// period = 1/f
+// triangle:
+//        t        0.00 < t < 0.25
+// y(t)  -t + 0.5  0.25 < t < 0.75
+//        t - 1.0  0.75 < t < 1.00
+static inline Float_t osc(Float_t x, waveform_t form, Float_t phase,
+			  samples_t* custom)
 {
     switch(form) {
-    case SINE: // optimise!
-	return SINE(2*M_PI*f*t + phase);
-
-    case SQUARE: {
-	Float_t x = f*FMOD(t, period);
-	return ((x < 0.5) ? 1.0 : -1.0);
+    case CUSTOM1: return shape(x, &custom[0]);
+    case CUSTOM2: return shape(x, &custom[1]);
+    case CUSTOM3: return shape(x, &custom[2]);
+    case CUSTOM4: return shape(x, &custom[3]);
+    case SINE: return SINE(2*M_PI*x + phase);
+    case SQUARE: return ((x < 0.5) ? 1.0 : -1.0);
+    case PULSE: return ((x < 0.5) ? 1.0 : 0.0);
+    case TRIANGLE: return 4*((x <= 0.25) ? x :
+			     ((x <= 0.75) ? (-x + 0.5) : (x - 1.0)));
+    case SAW: return 2*((x <= 0.5) ? x : (x - 1));
+    case CONST: return 1.0;
+    case NONE: return 0.0;
     }
-    case PULSE: {
-	Float_t x = f*FMOD(t, period);
-	return ((x < 0.5) ? 1.0 : 0.0);
-    }
-    //        t        0.00 < t < 0.25
-    // y(t)  -t + 0.5  0.25 < t < 0.75
-    //        t - 1.0  0.75 < t < 1.00
-    case TRIANGLE: {
-	Float_t x = f*FMOD(t, period);
-	return 4*((x <= 0.25) ? x :
-		  ((x <= 0.75) ? (-x + 0.5) : (x - 1.0)));
-    }
-    case SAW: {
-	Float_t x = f*FMOD(t, period);
-	return 2*((x <= 0.5) ? x : (x - 1));
-    }
-    case CONST:
-	return 1.0;
-    case NONE:
-	return 0.0;
-    }    
     return 0.0;
 }
 
 static inline Float_t sample(int p, wave_t* w)
 {
-    if (p < w->num_samples)
-	return w->samples[p];
+    if (p < w->s.num_samples)
+	return w->s.samples[p];
     return 0.0;
 }
 
+// x = f*FMOD(t, period); //  0 <= x <= 1
+//   = f*t - floor(f*t) = frac(t*f)
 // get sample in range [-1..1]
-Float_t wave_sample(Float_t t, int pos, int mode, envelope_t* e, wave_t* w)
+Float_t wave_sample(Float_t t, int pos, int mode, envelope_t* e,
+		    wave_t* w, samples_t* custom)
 {
     int p, q;
     Float_t ti = envelope_step(t, e, &p, &q);
     waveform_t form;
     Float_t freq;
-    Float_t period;
     Float_t phase;
     Float_t level;
     Float_t noice;
-    Float_t y, y1;
+    Float_t x, y, y1;
 
     switch(q) {
     case OFF:
-	noice  = w->noice[p];
-	freq   = w->freq[p];
-	period = w->period[p];
-	phase  = w->phase[p];
-	level  = w->level[p];
-	form   = w->form[p];
-	y = osc(t, freq, period, form, phase);
+	freq = w->freq[p];
+	phase = w->phase[p];
+	level = w->level[p];
+	form = w->form[p];
+	x = frac(t*freq);
+	y = osc(x, form, phase, custom);
 	if ((y1 = sample(pos,w)))
 	    y = mix2(y, y1);
 	break;
     case LIN:
-	noice  = w->noice[p];
-	freq   = w->freq[p];
-	period = w->period[p];
+	freq = w->freq[p];
 	if (freq != w->freq[p+1]) {
 	    freq = lin(ti, freq,  w->freq[p+1]);
-	    period = lin(ti, period, w->period[p+1]); // or calc?
 	}
 	phase = w->phase[p];
 	if (phase != w->phase[p+1])
@@ -421,45 +396,41 @@ Float_t wave_sample(Float_t t, int pos, int mode, envelope_t* e, wave_t* w)
 	if (level != w->level[p+1])
 	    level = lin(ti,  level,  w->level[p+1]);
 	form = w->form[p];
-	y = osc(t, freq, period, form, phase);
+	x = frac(t*freq);
+	y = osc(x, form, phase, custom);
 	if ((y1 = sample(pos,w))) y = mix2(y, y1);
 	if (form != w->form[p+1]) {  // form morph
 	    Float_t yt;
-	    yt = osc(t, freq, period, w->form[p+1], phase);
+	    yt = osc(x, w->form[p+1], phase, custom);
 	    if (y1) yt = mix2(yt, y1);
 	    y = lin(ti, y, yt);
 	}
 	break;
     case QUAD:
-	noice = w->noice[p];
 	freq   = quad(ti, w->freq[p],   w->freq[p+1],   w->freq[p+2]);
-	period = quad(ti, w->period[p], w->period[p+1], w->period[p+2]);
 	phase  = quad(ti, w->phase[p],  w->phase[p+1],  w->phase[p+2]);
 	level  = quad(ti, w->level[p],  w->level[p+1],  w->level[p+2]);
 	form = w->form[p];
-	y = osc(t, freq, period, form, phase);
+	x = frac(t*freq);	
+	y = osc(x, form, phase, custom);
 	if ((y1 = sample(pos,w))) y = mix2(y, y1);
 	if ((form != w->form[p+1]) || (form != w->form[p+2])) {  // form morph
 	    Float_t yt, ys;
-	    yt = osc(t, freq, period, w->form[p+1], phase);
+	    yt = osc(x, w->form[p+1], phase, custom);
 	    if (y1) yt = mix2(yt, y1);
-	    ys = osc(t, freq, period, w->form[p+2], phase);
+	    ys = osc(x, w->form[p+2], phase, custom);
 	    if (y1) ys = mix2(ys, y1);
 	    y = quad(ti, y, yt, ys);
 	}
 	break;
     }
-    // DEBUGF(stderr, "t=%f,ti=%f,p=%d,q=%d,y=%f,l=%f\r\n", t, ti, p, q, y,level);
-    
-    if (noice > 0.0) {
+    if ((noice = w->noice[p]) > 0.0) {
 	Float_t r = ((Float_t)rand()/(Float_t)(RAND_MAX));
 	y += 2*(0.5 - r)*noice;
 	y = clamp(y);
     }
     return y*level;
 }
-
-
 
 // general set envelop values (must reset set repeat/count after)
 int wave_set_envelope(wavedef_t* param, Float_t* duration, unsigned* mode,
@@ -666,8 +637,7 @@ int wave_set_noice(wavedef_t* param, int i, int j, Float_t noice)
     return 0;
 }
 
-
-// i is the wave number
+// i is the wave number i < 0 wave form  i>= 0 samples
 // j is the start offset to write samples
 // k is the channel selector within src
 // 
@@ -678,68 +648,52 @@ int wave_set_samples(wavedef_t* param, int i, int j, int k,
 {
     ssize_t sample_size = snd_pcm_format_size(src_format, 1);
     size_t frame_size = sample_size*src_channels;
-    size_t size;
-    int8_t* sp = src;
     size_t dst_frames;
-    wave_t* wp;
-    Float_t* xp;
+    size_t size;
+    samples_t* sp;
     Float_t dx = param->rate / src_rate;
-    Float_t x = dx;
 
-    if ((i < 0) || (i >= MAX_WAVES)) return -1;
+    if ((i < -MAX_WAVE_FORMS) || (i >= MAX_WAVES)) return -1;
     if ((j < 0) || (j >= MAX_SAMPLE_SIZE)) return -1;
     if ((k < 0) || (k >= src_channels)) return -1;
-    wp = &param->w[i];
+
+    if (i < 0)  // -1,-2,-3,-4 ... -MAX_WAVE_FORMS
+	sp = &param->custom[-i-1];
+    else
+	sp = &param->w[i].s;
 
     dst_frames = dx * src_frames;
     size = j + dst_frames;  // make sure we have this size of sample buffer
 
-    if (size > wp->num_samples)
-	resize_sample_buffer(wp, size, 1);
-    xp = &wp->samples[j];
-
-    // enif_fprintf(stderr, "i=%d,j=%d,k=%d,sample_size=%ld,frame_size=%ld,src_frames=%ld,dst_frames=%ld\r\n", i, j, k, sample_size, frame_size, src_frames, dst_frames);
-
-    // load every k'th samples from frames
-    k *= sample_size;
-    
-    while(src_frames--) {
-	if (x < 1.0)
-	    x += dx;
-	else { // x>=1.0
-	    int n = x; // replicate n frames
-	    double y = read_pcm_float(src_format, sp+k);
-
-	    x = (x-n)+dx;
-	    if (n <= dst_frames)
-		dst_frames -= n;
-	    else {
-		n = dst_frames;
-	    }
-	    while(n--) {
-		*xp++ = y;
-	    }
-	}
-	sp += frame_size;
-    }
+    if (size > sp->num_samples)
+	resize_sample_buffer(sp, size, 1);
+    set_sample_buffer(sp, j, k, dx,
+		      sample_size, frame_size,
+		      src_format, src, src_frames, dst_frames);
     return 0;
 }
 
 // resize sample buffer and reallocate/init if needed
 int wave_set_num_samples(wavedef_t* param, int i, size_t num_samples)
 {
-    wave_t* wp;    
-    if ((i < 0) || (i >= MAX_WAVES)) return -1;
-    wp = &param->w[i];
-    return resize_sample_buffer(wp, num_samples, 1);
+    samples_t* sp;    
+    if ((i < -MAX_WAVE_FORMS) || (i >= MAX_WAVES)) return -1;
+    if (i < 0)  // -1,-2,-3,-4 ... -MAX_WAVE_FORMS
+	sp = &param->custom[-i-1];
+    else
+	sp = &param->w[i].s;
+    return resize_sample_buffer(sp, num_samples, 1);
 }
 
 int wave_get_num_samples(wavedef_t* param, int i, size_t* num_samples)
 {
-    wave_t* wp;
-    if ((i < 0) || (i >= MAX_WAVES)) return -1;
-    wp = &param->w[i];
-    *num_samples = wp->num_samples;
+    samples_t* sp;    
+    if ((i < -MAX_WAVE_FORMS) || (i >= MAX_WAVES)) return -1;
+    if (i < 0)  // -1,-2,-3,-4 ... -MAX_WAVE_FORMS
+	sp = &param->custom[-i-1];
+    else
+	sp = &param->w[i].s;    
+    *num_samples = sp->num_samples;
     return 0;
 }
 
@@ -866,12 +820,13 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 	    ptr += (channels*size);
 	}
 	else {	// do wave sample
+	    samples_t* custom = param->custom;  // custom wave forms
 	    for (i = 0; i < param->num_waves; i++) {
 		Float_t value;
 		wave_t* wp = &param->w[i];
 		int k = wp->chan;
 		if (t < ep->duration) {
-		    value = wave_sample(t,pos,mode,ep,wp);
+		    value = wave_sample(t,pos,mode,ep,wp,custom);
 		    y[k] = mix2(y[k], value);  // fixme! improve
 		}
 	    }

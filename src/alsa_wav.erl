@@ -11,24 +11,32 @@
 -include("alsa_wav.hrl").
 
 -export([read_header/1, write_header/2]).
+-export([read_data_tag/1]).
 -export([read_file_info/1, read_info/1]).
 -export([encode_header/1]).
 -export([read_file_header/1]).
--export([to_snd/2, from_snd/1]).
+-export([to_snd/4, from_snd/1]).
 -export([poke_file_length/1]).  %% fixme: extended header?
 
 -define(dbg(F,A), ok).
-%%-define(dbg(F,A), io:format((F), (A))).
+%% -define(dbg(F,A), io:format((F), (A))).
 
 -define(ALIGN(Len), (((Len)+1) band -2)).
 -define(PAD(Len),  (?ALIGN(Len)-(Len))).
 
-to_snd(AudioFormat, BitsPerChannel) ->	
+to_snd(AudioFormat, BitsPerChannel, NumChannels, FrameSize) ->	
     case AudioFormat of
 	?WAVE_FORMAT_PCM ->
 	    case BitsPerChannel of
 		8 -> u8;
 		16 -> s16_le;
+		24 ->
+		    SampleSize = FrameSize div NumChannels,
+		    if SampleSize =:= 3 ->
+			    s24_3le;
+		       SampleSize =:= 4 ->
+			    s24_le
+		    end;
 		32 -> s32_le;
 		_ -> unknown
 	    end;
@@ -49,6 +57,7 @@ from_snd(Format) ->
     case Format of
 	u8     -> {?WAVE_FORMAT_PCM, 8};
 	s16_le -> {?WAVE_FORMAT_PCM, 16};
+	s24_le -> {?WAVE_FORMAT_PCM, 24};
 	s32_le -> {?WAVE_FORMAT_PCM, 32};
 	float_le -> {?WAVE_FORMAT_IEEE_FLOAT, 32};
 	float64_le -> {?WAVE_FORMAT_IEEE_FLOAT, 64};
@@ -85,6 +94,8 @@ read_file_header(Filename) ->
 	    Error
     end.
 
+
+
 -spec read_header(Fd::file:io_device()) ->
 	  {ok, map()} | {error, term()}.
 
@@ -105,6 +116,13 @@ read_header(Fd) ->
 	Err = {error,_} -> Err
     end.
 
+%% skip until data tag, return length
+read_data_tag(Fd) ->
+    case find_tag_(Fd, ?WAV_ID_DATA) of
+	{ok, _Tag, Len} -> {ok, Len};
+	false -> {error, no_data_found};
+	Error -> Error
+    end.
 
 read_file_info(Filename) ->
     case file:open(Filename, [read, binary]) of
@@ -146,6 +164,8 @@ read_info_(Fd) ->
 		eof -> {error, file_too_short};
 		Err = {error,_} -> Err
 	    end;
+	false ->
+	    #{};
 	Error -> Error
     end.
 
@@ -180,13 +200,15 @@ read_header_fmt(Fd) ->
 	{ok,?WAV_ID_FMT, HdrLen} ->
 	    ?dbg("Tag ~p len=~p\n", [?WAV_ID_FMT, HdrLen]),
 	    case read_header_(Fd, ?ALIGN(HdrLen)) of
-		{ok,Header} ->
-		    case read_taglen(Fd) of
+		{ok,Header, _Tail} ->
+		    ?dbg("Header tail=~p\n", [_Tail]),
+		    {ok, Pos} = file:position(Fd, cur),
+		    case find_tag_(Fd, ?WAV_ID_DATA) of
 			{ok, ?WAV_ID_DATA, _DataLength} ->
-			    ?dbg("DataLength = ~w\n",
-				 [_DataLength]),
-			    {ok,Header};
+			    ?dbg("DataLength = ~w\n", [_DataLength]),
+			    {ok,Header#{ data_length => _DataLength}};
 			_ ->
+			    file:position(Fd, Pos),
 			    {ok,Header}
 			    %%{error, missing_data}
 		    end;
@@ -217,6 +239,8 @@ find_tag_(Fd, Tag) ->
 	    {ok,_Pos} = file:position(Fd, {cur, ?ALIGN(HdrLen)}),
 	    ?dbg("skipped: pos = ~p\n", [_Pos]),
 	    find_tag_(Fd, Tag);
+	{error, file_too_short} ->
+	    false;
 	Err = {error, _} -> Err
     end.
 
@@ -312,8 +336,9 @@ decode_header(Bin) ->
 					      ValidBitsPerChannel,
 					      ChannelMask,
 					      AudioFormat1),
-			  _/binary>> ->
-			    SndFormat = to_snd(AudioFormat1, BitsPerChannel),
+			  XBin1/binary>> ->
+			    SndFormat = to_snd(AudioFormat1, BitsPerChannel,
+					       NumChannels, FrameSize),
 			    {ok,
 			     #{format=>SndFormat,
 			       audio_format=>AudioFormat1,
@@ -323,19 +348,20 @@ decode_header(Bin) ->
 			       channel_mask=>ChannelMask,
 			       rate=>Rate,
 			       frame_size=>FrameSize,
-			       byte_rate=>ByteRate}};
+			       byte_rate=>ByteRate}, XBin1};
 			_ ->
 			    {error, too_short}
 		    end;
 	       true ->
-		    SndFormat = to_snd(AudioFormat, BitsPerChannel),
+		    SndFormat = to_snd(AudioFormat, BitsPerChannel,
+				       NumChannels, FrameSize),
 		    {ok, #{format=>SndFormat,
 			   audio_format=>AudioFormat,
 			   channels=>NumChannels,
 			   bits_per_channel=>BitsPerChannel,
 			   rate=>Rate,
 			   frame_size=>FrameSize,
-			   byte_rate=>ByteRate }}
+			   byte_rate=>ByteRate }, XBin}
 	    end;
 	<<_/binary>> ->
 	    {error, header_too_short}

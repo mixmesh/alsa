@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <alsa/asoundlib.h>
 
-extern void mix(snd_pcm_format_t format, void** srcp, size_t num_channels,
-		void* dst, size_t num_frames);
+extern void mix(snd_pcm_format_t format, void** srcp, size_t num_voices,
+		void* dst, size_t num_samples);
 
 #endif

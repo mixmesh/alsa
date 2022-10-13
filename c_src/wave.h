@@ -9,18 +9,11 @@
 #define DEFAULT_RATE 16000.0
 #define MAX_CHANNELS 8
 #define MAX_WAVES 8
+#define MAX_WAVE_FORMS 4
 // #define USE_DOUBLE
 #define MAX_SAMPLE_SIZE 158760000  // 1 hour in 44.1kHz
 
-#ifdef USE_DOUBLE
-typedef double Float_t;
-#define FMOD(x,y) fmod((x),(y))
-#define SINE(x) sin((x))
-#else
-typedef float Float_t;
-#define FMOD(x,y) fmodf((x),(y))
-#define SINE(x) sinf((x))
-#endif
+#include "sample.h"
 
 #define MAX_PTE 15
 #define MAX_PTW (MAX_PTE+1)
@@ -59,7 +52,11 @@ typedef enum {
     SQUARE,
     PULSE,
     TRIANGLE,
-    SAW
+    SAW,
+    CUSTOM1,
+    CUSTOM2,
+    CUSTOM3,
+    CUSTOM4
 } waveform_t;
 
 typedef float Radian_t;  // 0.0 - 2*3.14
@@ -67,8 +64,7 @@ typedef float Rate_t;    // Hz
 
 typedef struct {
     int chan;                  // output audio channel
-    size_t   num_samples;      // number of samples
-    Float_t* samples;          // raw samples
+    samples_t s;               // samples
     Float_t  level[MAX_PTW];   // volume
     waveform_t form[MAX_PTW];  // form to use
     Float_t  freq[MAX_PTW];    // frequency
@@ -126,6 +122,7 @@ typedef struct {
     int     mode;           // SUST (pedal)
     envelope_t e;           // the envelope
     wave_t w[MAX_WAVES];
+    samples_t custom[MAX_WAVE_FORMS];
     size_t num_marks;
     mark_t* markv[MAX_MARKS];
 } wavedef_t;

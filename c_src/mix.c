@@ -256,110 +256,110 @@ static inline double mix2_double(double a, double b)
 #include "mix_v.i"
 
 // mix samples from *src[i] and store in *dst
-void mix(snd_pcm_format_t format, void** srcp, size_t channels, void* dst,
+void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
 	 size_t n)
 {
     switch(format) {
     case SND_PCM_FORMAT_S8:
-	mix_pcm_int8((int8_t**)srcp, channels, (int8_t*) dst, n);
+	mix_pcm_int8((int8_t**)srcp, num_voices, (int8_t*) dst, n);
 	break;
     case SND_PCM_FORMAT_U8:
-	mix_pcm_uint8((uint8_t**)srcp, channels, (uint8_t*) dst, n);
+	mix_pcm_uint8((uint8_t**)srcp, num_voices, (uint8_t*) dst, n);
 	break;
     case SND_PCM_FORMAT_S16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int16((int16_t**)srcp, channels, (int16_t*) dst, n);
+	mix_native_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
 	break;
 #else
-	mix_swap_pcm_int16((int16_t**)srcp, channels, (int16_t*) dst, n);
+	mix_swap_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int16((int16_t**)srcp, channels, (int16_t*) dst, n);
+	mix_swap_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
 	break;
 #else
-	mix_native_pcm_int16((int16_t**)srcp, channels, (int16_t*) dst, n);
+	mix_native_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_U16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint16((uint16_t**)srcp, channels, (uint16_t*) dst, n);
+	mix_native_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
 	break;
 #else
-	mix_swap_pcm_uint16((uint16_t**)srcp, channels, (uint16_t*) dst, n);
+	mix_swap_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_U16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint16((uint16_t**)srcp, channels, (uint16_t*) dst, n);	
+	mix_swap_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);	
 	break;
 #else
-	mix_native_pcm_uint16((uint16_t**)srcp, channels, (uint16_t*) dst, n);
+	mix_native_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int32((int32_t**)srcp, channels, (int32_t*) dst, n);
+	mix_native_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
 	break;
 #else
-	mix_swap_pcm_int32((int32_t**)srcp, channels, (int32_t*) dst, n);
+	mix_swap_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_S32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int32((int32_t**)srcp, channels, (int32_t*) dst, n);
+	mix_swap_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
 	break;
 #else
-v	mix_native_pcm_int32((int32_t**)srcp, channels, (int32_t*) dst, n);	
+v	mix_native_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);	
 	break;
 #endif	
     case SND_PCM_FORMAT_U32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint32((uint32_t**)srcp, channels, (uint32_t*) dst, n);
+	mix_native_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
 	break;
 #else
-	mix_swap_pcm_uint32((uint32_t**)srcp, channels, (uint32_t*) dst, n);
+	mix_swap_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
 	break;
 #endif		
     case SND_PCM_FORMAT_U32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint32((uint32_t**)srcp, channels, (uint32_t*) dst, n);	
+	mix_swap_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);	
 	break;
 #else
-	mix_native_pcm_uint32((uint32_t**)srcp, channels, (uint32_t*) dst, n);
+	mix_native_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
 	break;
 #endif			
     case SND_PCM_FORMAT_FLOAT_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_float((float**)srcp, channels, (float*) dst, n);
+	mix_native_pcm_float((float**)srcp, num_voices, (float*) dst, n);
 	break;
 #else
-	mix_swap_pcm_float((float**)srcp, channels, (float*) dst, n);
+	mix_swap_pcm_float((float**)srcp, num_voices, (float*) dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_float((float**)srcp, channels, (float*) dst, n);
+	mix_swap_pcm_float((float**)srcp, num_voices, (float*) dst, n);
 	break;
 #else
-	mix_native_pcm_float((float**)srcp, channels, (float*) dst, n);
+	mix_native_pcm_float((float**)srcp, num_voices, (float*) dst, n);
 	break;
 #endif			
     case SND_PCM_FORMAT_FLOAT64_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_double((double**)srcp, channels, (double*) dst, n);
+	mix_native_pcm_double((double**)srcp, num_voices, (double*) dst, n);
 	break;
 #else
-	mix_swap_pcm_double((double**)srcp, channels, (double*) dst, n);
+	mix_swap_pcm_double((double**)srcp, num_voices, (double*) dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_FLOAT64_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_double((double**)srcp, channels, (double*) dst, n);	
+	mix_swap_pcm_double((double**)srcp, num_voices, (double*) dst, n);	
 	break;
 #else
-	mix_native_pcm_double((double**)srcp, channels, (double*) dst, n);
+	mix_native_pcm_double((double**)srcp, num_voices, (double*) dst, n);
 	break;
 #endif		
     default:

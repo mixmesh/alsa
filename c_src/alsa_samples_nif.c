@@ -90,6 +90,11 @@ DECL_ATOM(square);
 DECL_ATOM(pulse);
 DECL_ATOM(triangle);
 DECL_ATOM(saw);
+DECL_ATOM(custom);
+DECL_ATOM(custom1);
+DECL_ATOM(custom2);
+DECL_ATOM(custom3);
+DECL_ATOM(custom4);
 // mark flags
 DECL_ATOM(notify);
 DECL_ATOM(once);
@@ -97,6 +102,7 @@ DECL_ATOM(stop);
 DECL_ATOM(set);
 DECL_ATOM(repeat);
 DECL_ATOM(label);
+
 
 // format
 DECL_ATOM(s8);
@@ -424,7 +430,31 @@ static int get_form(ErlNifEnv* env, ERL_NIF_TERM arg, waveform_t* formp)
 	*formp = CONST;
     else if (arg == ATOM(none))
 	*formp = NONE;
+    else if (arg == ATOM(custom))
+	*formp = CUSTOM1;
+    else if (arg == ATOM(custom1))
+	*formp = CUSTOM1;
+    else if (arg == ATOM(custom2))
+	*formp = CUSTOM2;
+    else if (arg == ATOM(custom3))
+	*formp = CUSTOM3;
+    else if (arg == ATOM(custom4))
+	*formp = CUSTOM4;
     else
+	return 0;
+    return 1;
+}
+
+// get custom wave form index or samples index
+// -1,-2,-3,-4 -MAX_WAVE_FORMS for wave form index
+// 0, 1, 2 ... MAX_WAVES-1 for sample 
+static int get_samples_index(ErlNifEnv* env, ERL_NIF_TERM arg, int* index)
+{
+    if (arg == ATOM(custom1))      *index = -1;
+    else if (arg == ATOM(custom2)) *index = -2;
+    else if (arg == ATOM(custom3)) *index = -3;
+    else if (arg == ATOM(custom4)) *index = -4;
+    else if (!enif_get_int(env, arg, index) || (*index < 0))
 	return 0;
     return 1;
 }
@@ -1272,8 +1302,8 @@ static ERL_NIF_TERM nif_wave_set_samples(ErlNifEnv* env, int argc,
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
-	return enif_make_badarg(env);
+    if (!get_samples_index(env, argv[1], &index))
+	return enif_make_badarg(env);	
     if (!enif_get_int(env, argv[2], &pos))
 	return enif_make_badarg(env);
     if (!enif_get_int(env, argv[3], &chan))
@@ -1307,7 +1337,7 @@ static ERL_NIF_TERM nif_wave_set_num_samples(ErlNifEnv* env, int argc,
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_samples_index(env, argv[1], &index))
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[2], &n))
 	return enif_make_badarg(env);
@@ -1325,7 +1355,7 @@ static ERL_NIF_TERM nif_wave_get_num_samples(ErlNifEnv* env, int argc,
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
-    if (!enif_get_int(env, argv[1], &index))
+    if (!get_samples_index(env, argv[1], &index))    
 	return enif_make_badarg(env);
     if (wave_get_num_samples(param, index, &n) < 0)
 	return enif_make_badarg(env);
@@ -1612,6 +1642,11 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(pulse);
     LOAD_ATOM(triangle);
     LOAD_ATOM(saw);
+    LOAD_ATOM(custom);
+    LOAD_ATOM(custom1);
+    LOAD_ATOM(custom2);
+    LOAD_ATOM(custom3);
+    LOAD_ATOM(custom4);
     // mark flags
     LOAD_ATOM(notify);
     LOAD_ATOM(once);
