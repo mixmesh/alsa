@@ -39,6 +39,7 @@
 -export([restart/1, clear/1, remove/1]).
 -export([restart/0, clear/0, remove/0]).
 -export([pause/0, resume/0]).
+-export([set_callback/1]).
 
 -type channel() :: non_neg_integer().
 -type unsigned() :: non_neg_integer().
@@ -67,8 +68,10 @@
 	 pause = true :: boolean(),     %% user call pause
 	 playing = false :: boolean(),  %% alsa is playing
 	 channels :: #{ integer() => alsa_samples:wavedef() },
-	 output = undefined :: undefine | binary(),
-	 marks = []      %% current marks
+	 output = undefined :: undefined | binary(),
+	 marks = [],     %% current marks
+	 callback :: undefined | 
+		     fun((binary(), NumBytes::integer(), Params::map()) -> ok)
 	}).
 
 
@@ -204,6 +207,8 @@ resume() ->
 pause() ->
     gen_server:call(?SERVER, pause).
 
+set_callback(Fun) when is_function(Fun, 3) ->
+    gen_server:call(?SERVER, {set_callback, Fun}).
 
 %%%===================================================================
 %%% API
@@ -255,9 +260,11 @@ init(Options) ->
     case alsa_playback:open(Options) of
 	{ok,H,Params} ->
 	    ?verbose("Alsa open: params = ~p\n", [Params]),
+	    Fun = maps:get(callback, Options, undefined),
 	    {ok, #state{ handle = H,
 			 params = Params,
-			 channels = #{}
+			 channels = #{},
+			 callback = Fun
 		       }};
 	{error, Reason} ->
 	    {stop, {error, Reason}}
@@ -459,6 +466,9 @@ handle_call(resume, _From, State) ->
 	    {reply, ok, State}
     end;
 
+handle_call({set_callback, Fun}, _From, State) ->
+    {reply, ok, State#state { callback = Fun }};
+
 handle_call(_Request, _From, State) ->
     Reply = {error,{bad_call,_Request}},
     {reply, Reply, State}.
@@ -512,6 +522,7 @@ handle_info({select,Handle,undefined,_Ready}, State) when
 	    State1 = play(State#state{output = undefined}),
 	    {noreply, State1};
 	{ok, Written} ->
+	    user_callback(State#state.output, Written, State),
 	    Size = byte_size(State#state.output),
 	    if Written =:= Size ->
 		    State1 = notify(State#state.marks, State),
@@ -703,6 +714,7 @@ play(State = #state {handle=Handle,output=undefined,
 		{ok, Written} ->
 		    ?verbose("play: written ~w, remain=~w\n", 
 			     [Written, byte_size(Bin)]),
+		    user_callback(Bin, Written, State),
 		    if Written =:= byte_size(Bin) ->
 			    State1 = notify(Marks, State),
 			    play(State1#state{playing=Playing,
@@ -734,6 +746,7 @@ play(State = #state {handle=Handle,marks=Marks,output=Bin}) ->
 	    ?verbose("play1: error ~s\n", [_Error]),	    
 	    play(State);
 	{ok, Written} ->
+	    user_callback(Bin, Written, State),
 	    ?verbose("play1: written ~w, remain=~w\n", 
 		     [Written, byte_size(Bin)]),
 	    if Written =:= byte_size(Bin) ->
@@ -744,6 +757,11 @@ play(State = #state {handle=Handle,marks=Marks,output=Bin}) ->
 		    play(State#state{output=Bin1})
 	    end
     end.
+
+user_callback(_Data, _NumBytes, #state{ callback=undefined}) ->
+    ok;
+user_callback(Data, NumBytes, #state{ callback=Fun, params=Params}) ->
+    Fun(Data, NumBytes, Params).
 
 read_buffer_list(ChanMap, Format, Channels, PeriodSize) ->
     read_buffer_list_(maps:keys(ChanMap), ChanMap, 

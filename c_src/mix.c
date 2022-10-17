@@ -18,241 +18,550 @@
 
 #define TYPE_ZERO   CAT2(TYPE,_zero)
 
-static inline float clamp_float01(float x)
-{
-    if (x >  1.0) return 1.0;
-    if (x < -1.0) return -1.0;
-    return x;
-}
-
-static inline float clamp_float_s16(float x)
-{
-    if (x >  32767.0) return 32767.0;
-    if (x < -32767.0) return -32767.0;
-    return x;
-}
-
 static inline int8_t clamp_int16_int8(int16_t x)
 {
-    if (x >  0x7f) return 0x7f;
+    if (x >  0x7f) return  0x7f;
     if (x < -0x7f) return -0x7f;
     return (int8_t) x;
 }
 
+static inline int32_t clamp_int32_int24(int32_t x)
+{
+    if (x >  0x7fffff) return  0x7fffff;
+    if (x < -0x7fffff) return -0x7fffff;
+    return (int32_t) x;
+}
+
+
 static inline int16_t clamp_int32_int16(int32_t x)
 {
-    if (x >  0x7fff) return 0x7fff;
+    if (x >  0x7fff) return  0x7fff;
     if (x < -0x7fff) return -0x7fff;
     return (int16_t) x;
 }
 
 static inline int32_t clamp_int64_int32(int64_t x)
 {
-    if (x >  0x7fffffff) return 0x7fffffff;
+    if (x >  0x7fffffff) return  0x7fffffff;
     if (x < -0x7fffffff) return -0x7fffffff;
     return (int32_t) x;
 }
 
 static inline float clamp_double_float(double x)
 {
-    if (x > 1.0) return 1.0;
+    if (x > 1.0)  return  1.0;
     if (x < -1.0) return -1.0;
     return (float) x;
 }
 
 static inline double clamp_double_double(double x)
 {
-    if (x > 1.0) return 1.0;
+    if (x > 1.0)  return  1.0;
     if (x < -1.0) return -1.0;
     return (double) x;
 }
 
-static inline int8_t mix2_int8(int8_t a, int8_t b)
+// read two-complement integer samples 8,16,24,32
+static inline int8_t rd_int8(uint8_t* ptr)
 {
-    if ((a < 0) && (b < 0))
-	return (int16_t)a + (int16_t)b + ((int16_t)a * (int16_t)b)/127;
-    else if ((a > 0) && (b > 0))
-	return (int16_t)a + (int16_t)b - ((int16_t)a * (int16_t)b)/127;
-    return a+b;    
+    return *((int8_t*)ptr);
 }
 
-static inline int16_t mix2_int16(int16_t a, int16_t b)
+static inline int16_t rd_int16(uint8_t* ptr)
 {
-    if ((a < 0) && (b < 0))
-	return (int32_t)a + (int32_t)b + ((int32_t)a * (int32_t)b)/32767;
-    else if ((a > 0) && (b > 0))
-	return (int32_t)a + (int32_t)b - ((int32_t)a * (int32_t)b)/32767;
+    return *((int16_t*)ptr);
+}
+
+static inline int16_t rd_int16_swap(uint8_t* ptr)
+{
+    return (int16_t) bswap_16(*((uint16_t*)ptr));
+}
+
+static inline int32_t rd_int24(uint8_t* ptr)
+{
+    return (*((int32_t*)ptr) << 8) >> 8;
+}
+
+static inline int32_t rd_int24_swap(uint8_t* ptr)
+{
+    return (((int32_t) bswap_32(*((uint32_t*)ptr)))<<8)>>8;
+}
+
+static inline int32_t rd_int32(uint8_t* ptr)
+{
+    return *((int32_t*)ptr);
+}
+
+static inline int32_t rd_int32_swap(uint8_t* ptr)
+{
+    return (int32_t) bswap_32(*((uint32_t*)ptr));
+}
+
+static inline float rd_float(uint8_t* ptr)
+{
+    return *((float*)ptr);
+}
+
+static inline float rd_float_swap(uint8_t* ptr)
+{
+    union {
+	uint32_t x;
+	float f;
+    } u;
+    u.x = bswap_32(*(uint32_t*)ptr);
+    return u.f;
+}
+
+static inline double rd_double(uint8_t* ptr)
+{
+    return *((double*)ptr);
+}
+
+static inline double rd_double_swap(uint8_t* ptr)
+{
+    union {
+	uint64_t x;
+	double f;
+    } u;
+    u.x = bswap_64(*(uint64_t*)ptr);
+    return u.f;
+}
+
+// read one-complement integer samples 8,16,24,32
+static inline int8_t rd_uint8(uint8_t* ptr)
+{
+    return *((uint8_t*)ptr)-0x80;
+}
+
+static inline int16_t rd_uint16(uint8_t* ptr)
+{
+    return *((uint16_t*)ptr)-0x8000;
+}
+
+static inline int16_t rd_uint16_swap(uint8_t* ptr)
+{
+    return (bswap_16(*((uint16_t*)ptr))-0x8000);
+}
+
+static inline int32_t rd_uint24(uint8_t* ptr)
+{
+    return *((uint32_t*)ptr) - 0x800000; // mask?
+}
+
+static inline int32_t rd_uint24_swap(uint8_t* ptr)
+{
+    return bswap_32(*((uint32_t*)ptr)) - 0x800000; // mask?
+}
+
+static inline int32_t rd_uint32(uint8_t* ptr)
+{
+    return *((uint32_t*)ptr)-0x80000000;
+}
+
+static inline int32_t rd_uint32_swap(uint8_t* ptr)
+{
+    return bswap_32(*((uint32_t*)ptr))-0x80000000;
+}
+
+static inline void wr_int8(uint8_t* ptr, int16_t a)
+{
+    *((int8_t*)ptr) = clamp_int16_int8(a);
+}
+
+static inline void wr_int16(uint8_t* ptr, int32_t a)
+{
+    *((int16_t*)ptr) = clamp_int32_int16(a);
+}
+
+static inline void wr_int16_swap(uint8_t* ptr, int32_t a)
+{
+    *((int16_t*)ptr) = bswap_16(clamp_int32_int16(a));
+}
+
+static inline void wr_int24(uint8_t* ptr, int32_t a)
+{
+    *((int32_t*)ptr) = clamp_int32_int24(a);
+}
+
+static inline void wr_int24_swap(uint8_t* ptr, int32_t a)
+{
+    *((int32_t*)ptr) = bswap_32(clamp_int32_int24(a));
+}
+
+static inline void wr_int32(uint8_t* ptr, int64_t a)
+{
+    *((int32_t*)ptr) = clamp_int64_int32(a);
+}
+
+static inline void wr_int32_swap(uint8_t* ptr, int64_t a)
+{
+    *((int32_t*)ptr) = bswap_32(clamp_int64_int32(a));
+}
+
+static inline void wr_float(uint8_t* ptr, double a)
+{
+    *((float*)ptr) = clamp_double_float(a);
+}
+
+static inline void wr_float_swap(uint8_t* ptr, double a)
+{
+    union {
+	uint32_t x;
+	float f;
+    } u;
+    u.f = clamp_double_float(a);
+    *((uint32_t*)ptr) = bswap_32(u.x);
+}
+
+static inline void wr_double(uint8_t* ptr, double a)
+{    
+    *((double*)ptr) = clamp_double_double(a);
+}
+
+static inline void wr_double_swap(uint8_t* ptr, double a)
+{
+    union {
+	uint64_t x;
+	double f;
+    } u;
+    u.f = clamp_double_double(a);
+    *((uint32_t*)ptr) = bswap_64(u.x);
+}
+
+static inline void wr_uint8(uint8_t* ptr, int16_t a)
+{
+    *((uint8_t*)ptr) = clamp_int16_int8(a)+0x80;
+}
+
+static inline void wr_uint16(uint8_t* ptr, int32_t a)
+{
+    *((uint16_t*)ptr) = clamp_int32_int16(a) + 0x8000;
+}
+
+static inline void wr_uint16_swap(uint8_t* ptr, int32_t a)
+{
+    *((uint16_t*)ptr) = bswap_16(clamp_int32_int16(a) + 0x8000);
+}
+
+static inline void wr_uint24(uint8_t* ptr, int32_t a)
+{
+    *((uint32_t*)ptr) = clamp_int32_int24(a) + 0x800000;
+}
+
+static inline void wr_uint24_swap(uint8_t* ptr, int32_t a)
+{
+    *((uint32_t*)ptr) = bswap_32(clamp_int32_int24(a) + 0x800000);
+}
+
+static inline void wr_uint32(uint8_t* ptr, int64_t a)
+{
+    *((uint32_t*)ptr) = clamp_int64_int32(a) + 0x80000000;
+}
+
+static inline void wr_uint32_swap(uint8_t* ptr, int64_t a)
+{
+    *((uint32_t*)ptr) = bswap_32(clamp_int64_int32(a) + 0x80000000);
+}
+
+static inline uint32_t rd_3le(uint8_t* ptr)
+{
+    return (ptr[0] | (ptr[1]<<8) | (ptr[2]<<16));
+}
+
+static inline uint32_t rd_3be(uint8_t* ptr)
+{
+    return (ptr[2] | (ptr[1]<<8) | (ptr[0]<<16));
+}
+
+static inline void wr_3le(uint8_t* ptr, uint32_t val)
+{
+    ptr[0] = val;
+    ptr[1] = val >> 8;
+    ptr[2] = val >> 16;
+}
+
+static inline void wr_3be(uint8_t* ptr, uint32_t val)
+{
+    ptr[2] = val;
+    ptr[1] = val >> 8;
+    ptr[0] = val >> 16;
+}
+
+static inline int16_t add_int8(int16_t a, int16_t b)
+{
     return a+b;
 }
 
-static inline int32_t mix2_int32(int32_t a, int32_t b)
+static inline int32_t add_int16(int32_t a, int32_t b)
 {
-    if ((a < 0) && (b < 0))
-	return (int64_t)a + (int64_t)b + ((int64_t)a * (int64_t)b)/2147483647;
-    else if ((a > 0) && (b > 0))
-	return (int64_t)a + (int64_t)b - ((int64_t)a * (int64_t)b)/2147483647;
     return a+b;
 }
 
-
-static inline float mix2_float(float a, float b)
+static inline int32_t add_int24(int32_t a, int32_t b)
 {
-    if ((a < 0.0) && (b < 0.0))
-	return a + b + a*b;
-    else if ((a > 0.0) && (b > 0.0))
-	return a + b - a*b;
     return a+b;
 }
 
-static inline double mix2_double(double a, double b)
+static inline int32_t add_int32(int32_t a, int32_t b)
 {
-    if ((a < 0.0) && (b < 0.0))
-	return a + b + a*b;
-    else if ((a > 0.0) && (b > 0.0))
-	return a + b - a*b;
     return a+b;
 }
+
+static inline float add_float(float a, float b)
+{
+    return a+b;
+}
+
+static inline double add_double(double a, double b)
+{
+    return a+b;
+}
+
 
 #define PROCEDURE mix_pcm_int8
-#define TYPE   int8_t
-#define TYPE_R int16_t
+#define SAMPLE_SIZE 1
+#define TYPE  int8_t
+#define ITYPE int16_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) *(ptr)
-#define CLAMP(sum) clamp_int16_int8(sum)
-#define MIX2(a,b)  mix2_int8((a),(b))
-
+#define READ(ptr)    rd_int8((ptr))
+#define WRITE(ptr,a) wr_int8((ptr),(a))
+#define MIX2(a,b)    add_int8((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_pcm_uint8
-#define TYPE   uint8_t
-#define TYPE_R int16_t
+#define SAMPLE_SIZE 1
+#define TYPE  uint8_t
+#define ITYPE int16_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) (*(ptr)-0x80)
-#define CLAMP(sum) (uint8_t) (clamp_int16_int8(sum)+0x80)
-#define MIX2(a,b)  mix2_int8((a),(b))
+#define READ(ptr)    rd_uint8((ptr))
+#define WRITE(ptr,a) wr_uint8((ptr),(a))
+#define MIX2(a,b)    add_int8((a),(b))
 #include "mix_v.i"
 
 
 #define PROCEDURE mix_native_pcm_int16
-#define TYPE   int16_t
-#define TYPE_R int32_t
+#define SAMPLE_SIZE 2
+#define TYPE  int16_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) *(ptr)
-#define CLAMP(sum) clamp_int32_int16(sum)
-#define MIX2(a,b)  mix2_int16((a),(b))
+#define READ(ptr)    rd_int16((ptr))
+#define WRITE(ptr,a) wr_int16((ptr),(a))
+#define MIX2(a,b)    add_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_int16
-#define TYPE   int16_t
-#define TYPE_R int32_t
+#define SAMPLE_SIZE 2
+#define TYPE  int16_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) bswap_16(*(ptr))
-#define CLAMP(sum) clamp_int32_int16(sum)
-#define MIX2(a,b)  mix2_int16((a),(b))
+#define READ(ptr)    rd_int16_swap((ptr))
+#define WRITE(ptr,a) wr_int16_swap((ptr),(a))
+#define MIX2(a,b)    add_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_uint16
-#define TYPE   uint16_t
-#define TYPE_R int32_t
+#define SAMPLE_SIZE 2
+#define TYPE  uint16_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) (*(ptr)-0x8000)
-#define CLAMP(sum) (uint16_t)(clamp_int32_int16(sum)+0x8000)
-#define MIX2(a,b)  mix2_int16((a),(b))
+#define READ(ptr)    rd_uint16((ptr))
+#define WRITE(ptr,a) wr_uint16((ptr),(a))
+#define MIX2(a,b)    add_int16((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_uint16
-#define TYPE   uint16_t
-#define TYPE_R int32_t
+#define SAMPLE_SIZE 2
+#define TYPE  uint16_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) (bswap_16(*(ptr))-0x8000)
-#define CLAMP(sum) (uint16_t)(clamp_int32_int16(sum)+0x8000)
-#define MIX2(a,b)  mix2_int16((a),(b))
+#define READ(ptr)     rd_uint16_swap((ptr))
+#define WRITE(ptr,a)  wr_uint16_swap((ptr),(a))
+#define MIX2(a,b)     add_int16((a),(b))
 #include "mix_v.i"
 
-#define PROCEDURE mix_native_pcm_uint32
-#define TYPE   uint32_t
-#define TYPE_R int64_t
+#define PROCEDURE mix_pcm_int24_3le
+#define SAMPLE_SIZE 3
+#define TYPE  int32_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) (*(ptr)-0x80000000)
-#define CLAMP(sum) (uint32_t)(clamp_int64_int32(sum)+0x80000000)
-#define MIX2(a,b)  mix2_int32((a),(b))
+#define READ(ptr)   (((int32_t)rd_3le((ptr))<<8)>>8)
+#define WRITE(ptr,a) wr_3le((ptr),(uint32_t)((a)))
+#define MIX2(a,b)    add_int32((a),(b))
 #include "mix_v.i"
 
-#define PROCEDURE mix_swap_pcm_uint32
-#define TYPE   uint32_t
-#define TYPE_R int64_t
+#define PROCEDURE mix_pcm_int24_3be
+#define SAMPLE_SIZE 3
+#define TYPE  int32_t
+#define ITYPE int32_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) (bswap_32(*(ptr))-0x80000000)
-#define CLAMP(sum) (uint32_t)(clamp_int64_int32(sum)+0x80000000)
-#define MIX2(a,b)  mix2_int32((a),(b))
+#define READ(ptr)   (((int32_t)rd_3be((ptr))<<8)>>8)
+#define WRITE(ptr,a) wr_3be((ptr),(uint32_t)((a)))
+#define MIX2(a,b)    add_int32((a),(b))
 #include "mix_v.i"
+
+#define PROCEDURE mix_pcm_uint24_3le
+#define SAMPLE_SIZE 3
+#define TYPE  int32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)   (((int32_t)(rd_3le((ptr))-0x80000)<<8)>>8)
+#define WRITE(ptr,a) wr_3le((ptr),(uint32_t)((a)+0x800000))
+#define MIX2(a,b)    add_int32((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_pcm_uint24_3be
+#define SAMPLE_SIZE 3
+#define TYPE  int32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)   (((int32_t)(rd_3be((ptr))-0x800000)<<8)>>8)
+#define WRITE(ptr,a) wr_3be((ptr),(uint32_t)((a)+0x800000))
+#define MIX2(a,b)    add_int32((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_native_pcm_int24
+#define SAMPLE_SIZE 4
+#define TYPE  int32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_int24((ptr))
+#define WRITE(ptr,a) wr_int24((ptr),(a))
+#define MIX2(a,b)    add_int24((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_swap_pcm_int24
+#define SAMPLE_SIZE 4
+#define TYPE  int32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_int24_swap((ptr))
+#define WRITE(ptr,a) wr_int24_swap((ptr),(a))
+#define MIX2(a,b)    add_int24((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_native_pcm_uint24
+#define SAMPLE_SIZE 4
+#define TYPE  uint32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_uint24((ptr))
+#define WRITE(ptr,a) wr_uint24((ptr),(a))
+#define MIX2(a,b)    add_int24((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_swap_pcm_uint24
+#define SAMPLE_SIZE 4
+#define TYPE  uint32_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_uint24_swap((ptr))
+#define WRITE(ptr,a) wr_uint24_swap((ptr),(a))
+#define MIX2(a,b)    add_int24((a),(b))
+#include "mix_v.i"
+
+
 
 #define PROCEDURE mix_native_pcm_int32
-#define TYPE   int32_t
-#define TYPE_R int64_t
+#define SAMPLE_SIZE 4
+#define TYPE  int32_t
+#define ITYPE int64_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) *(ptr)
-#define CLAMP(sum) clamp_int64_int32(sum)
-#define MIX2(a,b)  mix2_int32((a),(b))
+#define READ(ptr)    rd_int32((ptr))
+#define WRITE(ptr,a) wr_int32((ptr),(a))
+#define MIX2(a,b)    add_int32((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_int32
-#define TYPE   int32_t
-#define TYPE_R int64_t
+#define SAMPLE_SIZE 4
+#define TYPE  int32_t
+#define ITYPE int64_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) bswap_32(*(ptr))
-#define CLAMP(sum) clamp_int64_int32(sum)
-#define MIX2(a,b)  mix2_int32((a),(b))
+#define READ(ptr)    rd_int32_swap((ptr))
+#define WRITE(ptr,a) wr_int32_swap((ptr),(a))
+#define MIX2(a,b)    add_int32((a),(b))
 #include "mix_v.i"
 
-#define PROCEDURE mix_native_pcm_float
-#define TYPE   float
-#define TYPE_R double
+#define PROCEDURE mix_native_pcm_uint32
+#define SAMPLE_SIZE 4
+#define TYPE  uint32_t
+#define ITYPE int64_t
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) *(ptr)
-#define CLAMP(sum) clamp_double_float(sum)
-#define MIX2(a,b)  mix2_float((a),(b))
+#define READ(ptr)    rd_uint32((ptr))
+#define WRITE(ptr,a) wr_uint32((ptr),(a))
+#define MIX2(a,b)    add_int32((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_swap_pcm_uint32
+#define SAMPLE_SIZE 4
+#define TYPE  uint32_t
+#define ITYPE int64_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_uint32_swap((ptr))
+#define WRITE(ptr,a) wr_uint32_swap((ptr),(a))
+#define MIX2(a,b)    add_int32((a),(b))
+#include "mix_v.i"
+
+
+#define PROCEDURE mix_native_pcm_float
+#define SAMPLE_SIZE 4
+#define TYPE  float
+#define ITYPE float
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    rd_float((ptr))
+#define WRITE(ptr,a) wr_float((ptr),(a))
+#define MIX2(a,b)    add_float((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_float
-#define TYPE   float
-#define TYPE_R double
+#define SAMPLE_SIZE 4
+#define TYPE  float
+#define ITYPE float
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) bswap_32(*(ptr))
-#define CLAMP(sum) clamp_double_float(sum)
-#define MIX2(a,b)  mix2_float((a),(b))
+#define READ(ptr)    rd_float_swap((ptr))
+#define WRITE(ptr,a) wr_float_swap((ptr),(a))
+#define MIX2(a,b)    add_float((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_native_pcm_double
-#define TYPE   double
-#define TYPE_R double
+#define SAMPLE_SIZE 8
+#define TYPE  double
+#define ITYPE double
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) *(ptr)
-#define CLAMP(sum) clamp_double_double(sum)
-#define MIX2(a,b)  mix2_double((a),(b))
+#define READ(ptr)    rd_double((ptr))
+#define WRITE(ptr,a) wr_double((ptr),(a))
+#define MIX2(a,b)    add_double((a),(b))
 #include "mix_v.i"
 
 #define PROCEDURE mix_swap_pcm_double
-#define TYPE   double
-#define TYPE_R double
+#define SAMPLE_SIZE 8
+#define TYPE  double
+#define ITYPE double
 #define PARAMS_DECL
 #define LOCALS_DECL
-#define READ(ptr) bswap_64(*(ptr))
-#define CLAMP(sum) clamp_double_double(sum)
-#define MIX2(a,b)  mix2_double((a),(b))
+#define READ(ptr)    rd_double_swap((ptr))
+#define WRITE(ptr,a) wr_double_swap((ptr),(a))
+#define MIX2(a,b)    add_double((a),(b))
 #include "mix_v.i"
 
 // mix samples from *src[i] and store in *dst
@@ -260,106 +569,158 @@ void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
 	 size_t n)
 {
     switch(format) {
+	// 8-bit
     case SND_PCM_FORMAT_S8:
-	mix_pcm_int8((int8_t**)srcp, num_voices, (int8_t*) dst, n);
+	mix_pcm_int8((uint8_t**)srcp, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_U8:
-	mix_pcm_uint8((uint8_t**)srcp, num_voices, (uint8_t*) dst, n);
+	mix_pcm_uint8((uint8_t**)srcp, num_voices, dst, n);
 	break;
+	// 16-bit
     case SND_PCM_FORMAT_S16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
+	mix_native_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
+	mix_swap_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
+	mix_swap_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_native_pcm_int16((int16_t**)srcp, num_voices, (int16_t*) dst, n);
+	mix_native_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_U16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
+	mix_native_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
+	mix_swap_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_U16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);	
+	mix_swap_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_uint16((uint16_t**)srcp, num_voices, (uint16_t*) dst, n);
+	mix_native_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
-    case SND_PCM_FORMAT_S32_LE:
+
+	// 24-bit (int 32 bit)
+
+    case SND_PCM_FORMAT_S24_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
+	mix_native_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
+	mix_swap_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#endif
+    case SND_PCM_FORMAT_S24_BE:
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+	mix_swap_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#else
+	mix_native_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#endif
+    case SND_PCM_FORMAT_U24_LE:
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+	mix_native_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#else
+	mix_swap_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#endif	
+    case SND_PCM_FORMAT_U24_BE:
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+	mix_swap_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);	
+	break;
+#else
+	mix_native_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#endif
+
+    case SND_PCM_FORMAT_S24_3LE:
+	mix_pcm_int24_3le((uint8_t**)srcp, num_voices, dst, n);
+	break;
+    case SND_PCM_FORMAT_S24_3BE:
+	mix_pcm_int24_3be((uint8_t**)srcp, num_voices, dst, n);
+	break;
+    case SND_PCM_FORMAT_U24_3LE:
+	mix_pcm_uint24_3le((uint8_t**)srcp, num_voices, dst, n);
+	break;
+    case SND_PCM_FORMAT_U24_3BE:
+	mix_pcm_uint24_3be((uint8_t**)srcp, num_voices, dst, n);
+	break;		
+	
+	// 32-bit
+    case SND_PCM_FORMAT_S32_LE:
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
+	break;
+#else
+	mix_swap_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_S32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);
+	mix_swap_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-v	mix_native_pcm_int32((int32_t**)srcp, num_voices, (int32_t*) dst, n);	
+v	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);	
 	break;
 #endif	
     case SND_PCM_FORMAT_U32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
+	mix_native_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
+	mix_swap_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif		
     case SND_PCM_FORMAT_U32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);	
+	mix_swap_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_uint32((uint32_t**)srcp, num_voices, (uint32_t*) dst, n);
+	mix_native_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif			
     case SND_PCM_FORMAT_FLOAT_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_float((float**)srcp, num_voices, (float*) dst, n);
+	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_float((float**)srcp, num_voices, (float*) dst, n);
+	mix_swap_pcm_float((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_float((float**)srcp, num_voices, (float*) dst, n);
+	mix_swap_pcm_float((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_native_pcm_float((float**)srcp, num_voices, (float*) dst, n);
+	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif			
     case SND_PCM_FORMAT_FLOAT64_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_double((double**)srcp, num_voices, (double*) dst, n);
+	mix_native_pcm_double((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_double((double**)srcp, num_voices, (double*) dst, n);
+	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_FLOAT64_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_double((double**)srcp, num_voices, (double*) dst, n);	
+	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_double((double**)srcp, num_voices, (double*) dst, n);
+	mix_native_pcm_double((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif		
     default:
@@ -397,60 +758,418 @@ uint64_t time_tick(void)
 
 void test_mix_native(int16_t** smv, int16_t* dst, size_t n)
 {
-    int16_t* smv_tmp[NUM_VOICES];
     while(n--) {
-	memcpy(smv_tmp, smv, sizeof(int16_t*)*NUM_VOICES);
 	mix(SND_PCM_FORMAT_S16_NATIVE,
-	    (void**) smv_tmp, NUM_VOICES,
+	    (void**) smv, NUM_VOICES,
 	    (void*) dst, NUM_FRAMES*NUM_CHANNELS);
     }
 }
 
 void test_mix_swap(int16_t** smv, int16_t* dst, size_t n)
 {
-    int16_t* smv_tmp[NUM_VOICES];
     while(n--) {
-	memcpy(smv_tmp, smv, sizeof(int16_t*)*NUM_VOICES);
 	mix(SND_PCM_FORMAT_S16_SWAP,
-	    (void**) smv_tmp, NUM_VOICES,
+	    (void**) smv, NUM_VOICES,
 	    (void*) dst, NUM_FRAMES*NUM_CHANNELS);
     }
 }
 
-void validate_mix(int16_t** smv, int16_t* dst)
+#define VVOICE 4
+#define VSAMP 128
+
+void validate_s8()
 {
-    int16_t* smv_tmp[NUM_VOICES];
-    int i;
+    int8_t  src[VSAMP];
+    int8_t  dst[VSAMP];
+    int8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 1;
+
+    mix(SND_PCM_FORMAT_S8, (void**) smv, VVOICE, (void*) dst, VSAMP);
     
-    memcpy(smv_tmp, smv, sizeof(int16_t*)*NUM_VOICES);
-    mix(SND_PCM_FORMAT_S16_NATIVE,
-	(void**) smv_tmp, NUM_VOICES,
-	(void*) dst, NUM_FRAMES*NUM_CHANNELS);
-    for (i = 0; i < NUM_FRAMES*NUM_CHANNELS; i++) {
-	if (dst[i] != (0x0001 + 0x0002 + 0x0003 + 0x0004)) {
-	    printf("error: samples %d not mixed %d\n", i, dst[i]);
-	    exit(1);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 4) {
+	    printf("error: S8 samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
 	}
     }
-
-    memcpy(smv_tmp, smv, sizeof(int16_t*)*NUM_VOICES);    
-    mix(SND_PCM_FORMAT_S16_SWAP,
-	(void**) smv_tmp, NUM_VOICES,
-	(void*) dst, NUM_FRAMES*NUM_CHANNELS);
-    for (i = 0; i < NUM_FRAMES*NUM_CHANNELS; i++) {
-	if (dst[i] != (0x0100 + 0x0200 + 0x0300 + 0x0400)) {
-	    printf("error: swapped samples %d not mixed %d\n", i, dst[i]);
-	    exit(1);
-	}
-    }    
 }
+
+void validate_u8()
+{
+    uint8_t  src[VSAMP];
+    uint8_t  dst[VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x81;
+    mix(SND_PCM_FORMAT_U8, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {
+	if (dst[j] != 0x84) {
+	    printf("error: U8 samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s16_le()
+{
+    int16_t  src[VSAMP];
+    int16_t  dst[VSAMP];
+    int16_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x0001;
+    mix(SND_PCM_FORMAT_S16_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x0004) {
+	    printf("error: S16_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s16_be()
+{
+    int16_t  src[VSAMP];
+    int16_t  dst[VSAMP];
+    int16_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x0100;
+    mix(SND_PCM_FORMAT_S16_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x0400) {
+	    printf("error: S16_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_u16_le()
+{
+    uint16_t  src[VSAMP];
+    uint16_t  dst[VSAMP];
+    uint16_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x8001;
+    mix(SND_PCM_FORMAT_U16_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x8004) {
+	    printf("error: U16_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_u16_be()
+{
+    uint16_t  src[VSAMP];
+    uint16_t  dst[VSAMP];
+    uint16_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x0081;
+    mix(SND_PCM_FORMAT_U16_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x0084) {
+	    printf("error: U16_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s24_le()
+{
+    int32_t  src[VSAMP];
+    int32_t  dst[VSAMP];
+    int32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x000001;
+    mix(SND_PCM_FORMAT_S24_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x000004) {
+	    printf("error: S24_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s24_be()
+{
+    int32_t  src[VSAMP];
+    int32_t  dst[VSAMP];
+    int32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x000100;
+    mix(SND_PCM_FORMAT_S24_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x000400) {
+	    printf("error: S24_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+
+void validate_u24_le()
+{
+    uint32_t  src[VSAMP];
+    uint32_t  dst[VSAMP];
+    uint32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x800001;
+    mix(SND_PCM_FORMAT_U24_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x800004) {
+	    printf("error: U24_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_u24_be()
+{
+    int32_t  src[VSAMP];
+    int32_t  dst[VSAMP];
+    int32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x00008100;
+    mix(SND_PCM_FORMAT_U24_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x00008400) {
+	    printf("error: U24_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s24_3le()
+{
+    uint8_t  src[3*VSAMP];
+    uint8_t  dst[3*VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j += 3) {
+	src[j]   = 0x01; src[j+1] = 0x00; src[j+2] = 0x00;
+    }
+    mix(SND_PCM_FORMAT_S24_3LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j += 3) {
+	if ((dst[j] != 0x04) && (dst[j+1] != 0x00) && (dst[j+2] != 0x00)) {
+	    printf("error: S24_3LE samples %d not mixed %02x%02x%02x\n",
+		   j/3, dst[j],dst[j+1],dst[j+2]);
+	    break;
+	}
+    }
+}
+
+void validate_s24_3be()
+{
+    uint8_t  src[3*VSAMP];
+    uint8_t  dst[3*VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j += 3) {
+	src[j]   = 0x00; src[j+1] = 0x00; src[j+2] = 0x01;
+    }
+    mix(SND_PCM_FORMAT_S24_3BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j += 3) {
+	if ((dst[j] != 0x00) && (dst[j+1] != 0x00) && (dst[j+2] != 0x01)) {
+	    printf("error: S24_3LE samples %d not mixed %02x%02x%02x\n",
+		   j/3, dst[j],dst[j+1],dst[j+2]);
+	    break;
+	}
+    }
+}
+
+void validate_u24_3le()
+{
+    uint8_t  src[3*VSAMP];
+    uint8_t  dst[3*VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j += 3) {
+	src[j]   = 0x01; src[j+1] = 0x00; src[j+2] = 0x80;
+    }
+    mix(SND_PCM_FORMAT_U24_3LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j += 3) {
+	if ((dst[j] != 0x04) && (dst[j+1] != 0x00) && (dst[j+2] != 0x80)) {
+	    printf("error: U24_3LE samples %d not mixed %02x%02x%02x\n",
+		   j/3, dst[j],dst[j+1],dst[j+2]);
+	    break;
+	}
+    }
+}
+
+void validate_u24_3be()
+{
+    uint8_t  src[3*VSAMP];
+    uint8_t  dst[3*VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j += 3) {
+	src[j]   = 0x80; src[j+1] = 0x00; src[j+2] = 0x01;
+    }
+    mix(SND_PCM_FORMAT_U24_3BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j += 3) {
+	if ((dst[j] != 0x80) && (dst[j+1] != 0x00) && (dst[j+2] != 0x01)) {
+	    printf("error: U24_3LE samples %d not mixed %02x%02x%02x\n",
+		   j/3, dst[j],dst[j+1],dst[j+2]);
+	    break;
+	}
+    }
+}
+
+
+void validate_s32_le()
+{
+    int32_t  src[VSAMP];
+    int32_t  dst[VSAMP];
+    int32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x00000001;
+    mix(SND_PCM_FORMAT_S32_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x00000004) {
+	    printf("error: S32_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_s32_be()
+{
+    int32_t  src[VSAMP];
+    int32_t  dst[VSAMP];
+    int32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x00000100;
+    mix(SND_PCM_FORMAT_S32_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x00000400) {
+	    printf("error: S32_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_u32_le()
+{
+    uint32_t  src[VSAMP];
+    uint32_t  dst[VSAMP];
+    uint32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x80000001;
+    mix(SND_PCM_FORMAT_U32_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x80000004) {
+	    printf("error: U32_LE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_u32_be()
+{
+    uint32_t  src[VSAMP];
+    uint32_t  dst[VSAMP];
+    uint32_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = 0x00000081;
+    mix(SND_PCM_FORMAT_U32_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {    
+	if (dst[j] != 0x00000084) {
+	    printf("error: U32_BE samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_8()
+{
+    validate_s8();
+    validate_u8();
+}
+
+void validate_16()
+{
+    validate_s16_le();
+    validate_s16_be();
+    validate_u16_le();
+    validate_u16_be();    
+}
+
+void validate_24()
+{
+    validate_s24_le();
+    validate_s24_be();
+    validate_u24_le();
+    validate_u24_be();
+    // 3bytes
+    validate_s24_3le();
+    validate_s24_3be();
+    validate_u24_3le();
+    validate_u24_3be();    
+}
+
+void validate_32()
+{
+    validate_s32_le();
+    validate_s32_be();
+    validate_u32_le();
+    validate_u32_be();    
+}
+
 
 int main(int argc, char** argv)
 {
     int16_t* smv[NUM_VOICES];
-    int16_t  dst[BUF_SIZE];
+    int16_t  dst[BUF_SIZE];    
     int i;
     uint64_t t0, t1;
+
 
     for (i = 0; i < NUM_VOICES; i++) {
 	int j;
@@ -460,10 +1179,13 @@ int main(int argc, char** argv)
 	for (j = 0; j < NUM_FRAMES*NUM_CHANNELS; j++) {
 	    ptr[j] = (i+1);
 	}
-    }
+    }    
 
-    validate_mix(smv, dst);
-    
+    validate_8();
+    validate_16();
+    validate_24();
+    validate_32();    
+
     t0 = time_tick();
     test_mix_native(smv, dst, NUM_REPEATS);
     t1 = time_tick();

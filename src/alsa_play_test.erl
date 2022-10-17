@@ -553,10 +553,10 @@ shape_files() ->
 	     "Tiny Saw.wav",
 	     "Warm.wav"
 	    ],
-    %% lists:foreach(fun(File) -> shape_file(File) end, Pcm24),
-    %% lists:foreach(fun(File) -> shape_file(File) end, Pcm16),
+    lists:foreach(fun(File) -> shape_file(File) end, Pcm24),
+    lists:foreach(fun(File) -> shape_file(File) end, Pcm16),
     lists:foreach(fun(File) -> shape_file(File) end, Other),
-    %%lists:foreach(fun(File) -> shape_file(File) end, Float32),
+    lists:foreach(fun(File) -> shape_file(File) end, Float32),
     ok.
 
 %% listen to shape files
@@ -575,7 +575,7 @@ shape_file(Filename) ->
 
     alsa_play:set_wave(1, [{envelope,E},
 			   {wave,0, [#{ form=>custom1, freq=>"A3", level=>0.0},
-				     #{ form=>custom1, freq=>"A3", level=>0.9},
+				     #{ form=>custom1, freq=>"A4", level=>0.9},
 				     #{ form=>custom1, freq=>"A3", level=>0.9},
 				     #{ form=>custom1, freq=>"A3", level=>0.0}
 				    ]}]),
