@@ -74,15 +74,10 @@
 -type envmode() :: off|linear|quadratic|sustain.  %% (linear)
 -type envelem() :: Duration::number() | {Duration::number(), Mode::envmode()}.
 -type formdef() :: #{ form => waveform(),
-		      freq => string() | number(),
+		      freq => frequency() | string(),
 		      level => float01(),
 		      phase => float(),     %% mod 2pi
-		      noice => float01() } |
-		   [{Form::waveform(),
-		     Freq::frequency(),
-		     Level::float01(),
-		     Phase::float(),
-		     Noice::float01()}].
+		      noice => float01() }.
 -type event() :: {Ref::reference(),Pid::pid(),Pos::integer(),UserData::term()}.
 -type position() :: integer() | {label,integer()}.
 -type event_flag() :: notify |  %% send not event() notification

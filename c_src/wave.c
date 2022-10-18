@@ -791,7 +791,8 @@ static int wave_goto_mark(wavedef_t* param, int lbl)
 
 // make samples buffer, return list of marks contining notifications data
 mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
-		    unsigned int channels, void* dst, size_t n)
+		    unsigned int channels, void* dst, size_t n,
+		    double* peek_ptr, double* energy_ptr)
 {
     Float_t t  = param->t;
     Float_t dt = param->dt;
@@ -805,9 +806,14 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
     mark_t* mpl = NULL;
     int i;
     int mrk, mrk1;
+    double peek[MAX_CHANNELS];
+    double energy[MAX_CHANNELS];
 
-    for (i = 0; i < MAX_CHANNELS; i++)
+    for (i = 0; i < MAX_CHANNELS; i++) {
 	y[i] = 0.0;
+	peek[i] = 0.0;
+	energy[i] = 0.0;
+    }
 
     mrk = wave_find_mark(param, pos);
     
@@ -831,7 +837,10 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 		}
 	    }
 	    for (i = 0; i < channels; i++) {
-		write_pcm_float(format, (double) clamp(y[i]), ptr);
+		double yi = (double) clamp(y[i]);
+		peek[i] = fmax(peek[i], abs(yi));
+		energy[i] = energy[i]+yi*yi;
+		write_pcm_float(format, yi, ptr);
 		y[i] = 0.0;
 		ptr += size;
 	    }

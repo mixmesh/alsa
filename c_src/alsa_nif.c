@@ -131,7 +131,6 @@ DECL_ATOM(s20_le);
 DECL_ATOM(s20_be);
 DECL_ATOM(u20_le);
 DECL_ATOM(u20_be);
-DECL_ATOM(special);
 DECL_ATOM(s24_3le);
 DECL_ATOM(s24_3be);
 DECL_ATOM(u24_3le);
@@ -340,7 +339,6 @@ helem_t format_elems[] =
     HELEM(ATOM(s20_be), SND_PCM_FORMAT_S20_BE),
     HELEM(ATOM(u20_le), SND_PCM_FORMAT_U20_LE),
     HELEM(ATOM(u20_be), SND_PCM_FORMAT_U20_BE),
-    HELEM(ATOM(special), SND_PCM_FORMAT_SPECIAL),
     HELEM(ATOM(s24_3le), SND_PCM_FORMAT_S24_3LE),
     HELEM(ATOM(s24_3be), SND_PCM_FORMAT_S24_3BE),
     HELEM(ATOM(u24_3le), SND_PCM_FORMAT_U24_3LE),
@@ -555,7 +553,6 @@ static ERL_NIF_TERM make_format(ErlNifEnv* env, snd_pcm_format_t format)
     case SND_PCM_FORMAT_S20_BE: return ATOM(s20_be);
     case SND_PCM_FORMAT_U20_LE: return ATOM(u20_le);
     case SND_PCM_FORMAT_U20_BE: return ATOM(u20_be);
-    case SND_PCM_FORMAT_SPECIAL: return ATOM(special);
     case SND_PCM_FORMAT_S24_3LE: return ATOM(s24_3le);
     case SND_PCM_FORMAT_S24_3BE: return ATOM(s24_3be);
     case SND_PCM_FORMAT_U24_3LE: return ATOM(u24_3le);
@@ -2186,7 +2183,6 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(s20_be);
     LOAD_ATOM(u20_le);
     LOAD_ATOM(u20_be);
-    LOAD_ATOM(special);
     LOAD_ATOM(s24_3le);
     LOAD_ATOM(s24_3be);
     LOAD_ATOM(u24_3le);
