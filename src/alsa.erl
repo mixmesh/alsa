@@ -205,7 +205,7 @@ formats() ->
      dsd_u16_be, dsd_u32_be,
      mpeg, gsm,
      s20_le, s20_be, u20_le, u20_be,
-     special,
+     %% special:
      s24_3le, s24_3be, u24_3le, u24_3be,
      s20_3le, s20_3be, u20_3le, u20_3be,
      s18_3le, s18_3be, u18_3le, u18_3be,

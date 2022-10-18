@@ -553,12 +553,12 @@ adjust_params([{format,Format}|Params], Range, Acc) ->
 	    ?warning("requested format ~s not present\n", [Format]),
 	    Width = alsa:format_width(Format),
 	    PhysWidth = alsa:format_physical_width(Format),
-	    Linear = alsa:format_linear(Format),
+	    Linear = alsa:format_is_linear(Format),
 	    %% look for format with same width (physical width)
 	    case [F || F <- alsa:formats(),
 		       PhysWidth =:= alsa:format_physical_width(F),
 		       Width     =:= alsa:format_width(F),
-		       Linear    =:= alsa:format_linear(F)] of
+		       Linear    =:= alsa:format_is_linear(F)] of
 		[F|_] ->
 		    ?info("selected format ~s instead\n", [F]),
 		    adjust_params(Params, Range, [{format,F}|Acc])

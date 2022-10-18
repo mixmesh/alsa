@@ -11,6 +11,8 @@
 -define(IFF_ID_2CBE, <<"twos">>).
 -define(IFF_ID_2CLE, <<"sowt">>).
 -define(WAV_ID_RIFF, <<"RIFF">>).
+-define(WAV_ID_FFIR, <<"FFIR">>).  %% big-endian
+-define(WAV_ID_RIFX, <<"RIFX">>).  %% big-endian
 -define(WAV_ID_WAVE, <<"WAVE">>).
 -define(WAV_ID_FMT , <<"fmt ">>).
 -define(WAV_ID_DATA, <<"data">>).
@@ -71,7 +73,7 @@
 %%     Frame2
 %%     ....
 %%
--define(WAV_HEADER_FIELDS(
+-define(WAV_HEADER_FIELDS_LE(
 	  AudioFormat,
 	  NumChannels,
 	  Rate,
@@ -85,7 +87,7 @@
 	FrameSize:16/little,	   %% BitsPerSample*Channels)/8
 	BitsPerChannel:16/little).
 
--define(XWAV_HEADER_FIELDS(
+-define(XWAV_HEADER_FIELDS_LE(
 	  CbSize,
 	  ValidBitsPerChannel,
 	  ChannelMask,
@@ -94,4 +96,29 @@
 	ValidBitsPerChannel:16/little,
 	ChannelMask:32/little,
 	AudioFormat:16/little).
+
+
+-define(WAV_HEADER_FIELDS_BE(
+	  AudioFormat,
+	  NumChannels,
+	  Rate,
+	  ByteRate,
+	  BlockAlign,
+	  BitsPerChannel),
+	AudioFormat:16/big,
+	NumChannels:16/big,
+	Rate:32/big,
+	ByteRate:32/big,        %% (Rate*BitsPerSample*Channel)/8
+	FrameSize:16/big,	   %% BitsPerSample*Channels)/8
+	BitsPerChannel:16/big).
+
+-define(XWAV_HEADER_FIELDS_BE(
+	  CbSize,
+	  ValidBitsPerChannel,
+	  ChannelMask,
+	  AudioFormat),
+	CbSize:16/big,
+	ValidBitsPerChannel:16/big,
+	ChannelMask:32/big,
+	AudioFormat:16/big).
 -endif.

@@ -2,6 +2,8 @@
 #include <byteswap.h>
 #include <alsa/asoundlib.h>
 
+#include "aulaw.h"
+
 //#include "vector_types.h"
 
 #define CAT_HELPER3(p,x,y) p ## x ## y
@@ -340,6 +342,28 @@ static inline double add_double(double a, double b)
 #define MIX2(a,b)    add_int8((a),(b))
 #include "mix_v.i"
 
+#define PROCEDURE mix_a_law
+#define SAMPLE_SIZE 1
+#define TYPE  int16_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    a_law_table[*(ptr)]
+#define WRITE(ptr,a) *(ptr) = a_law_encode(clamp_int32_int16((a)))
+#define MIX2(a,b)    add_int16((a),(b))
+#include "mix_v.i"
+
+#define PROCEDURE mix_mu_law
+#define SAMPLE_SIZE 1
+#define TYPE  int16_t
+#define ITYPE int32_t
+#define PARAMS_DECL
+#define LOCALS_DECL
+#define READ(ptr)    mu_law_table[*(ptr)]
+#define WRITE(ptr,a) *(ptr) = mu_law_encode(clamp_int32_int16((a)))
+#define MIX2(a,b)    add_int16((a),(b))
+#include "mix_v.i"
+
 
 #define PROCEDURE mix_native_pcm_int16
 #define SAMPLE_SIZE 2
@@ -576,6 +600,12 @@ void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
     case SND_PCM_FORMAT_U8:
 	mix_pcm_uint8((uint8_t**)srcp, num_voices, dst, n);
 	break;
+    case SND_PCM_FORMAT_A_LAW:
+	mix_a_law((uint8_t**)srcp, num_voices, dst, n);
+	break;
+    case SND_PCM_FORMAT_MU_LAW:
+	mix_mu_law((uint8_t**)srcp, num_voices, dst, n);
+	break;
 	// 16-bit
     case SND_PCM_FORMAT_S16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -609,9 +639,7 @@ void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
 	mix_native_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
-
 	// 24-bit (int 32 bit)
-
     case SND_PCM_FORMAT_S24_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	mix_native_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
@@ -644,7 +672,6 @@ void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
 	mix_native_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
 	break;
 #endif
-
     case SND_PCM_FORMAT_S24_3LE:
 	mix_pcm_int24_3le((uint8_t**)srcp, num_voices, dst, n);
 	break;
@@ -657,7 +684,6 @@ void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
     case SND_PCM_FORMAT_U24_3BE:
 	mix_pcm_uint24_3be((uint8_t**)srcp, num_voices, dst, n);
 	break;		
-	
 	// 32-bit
     case SND_PCM_FORMAT_S32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -690,7 +716,7 @@ v	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
 #else
 	mix_native_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
 	break;
-#endif			
+#endif
     case SND_PCM_FORMAT_FLOAT_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
@@ -706,7 +732,7 @@ v	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
 #else
 	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
 	break;
-#endif			
+#endif
     case SND_PCM_FORMAT_FLOAT64_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	mix_native_pcm_double((uint8_t**)srcp, num_voices, dst, n);
@@ -714,7 +740,7 @@ v	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
 #else
 	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);
 	break;
-#endif	
+#endif
     case SND_PCM_FORMAT_FLOAT64_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);	
@@ -816,6 +842,45 @@ void validate_u8()
 	}
     }
 }
+
+void validate_a_law()
+{
+    uint8_t  src[VSAMP];
+    uint8_t  dst[VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = a_law_encode(8);
+    mix(SND_PCM_FORMAT_A_LAW, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {
+	if (dst[j] != 0xd7) {  // encode(8+8+8+8)
+	    printf("error: A_LAW samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
+void validate_mu_law()
+{
+    uint8_t  src[VSAMP];
+    uint8_t  dst[VSAMP];
+    uint8_t* smv[VVOICE] = { src, src, src, src };
+    int j;
+
+    for (j = 0; j < VSAMP; j++)
+	src[j] = mu_law_encode(8);
+    mix(SND_PCM_FORMAT_MU_LAW, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    for (j = 0; j < VSAMP; j++) {
+	if (dst[j] != 0xfb) {  // encode(8+8+8+8)
+	    printf("error: MU_LAW samples %d not mixed %x\n",
+		   j, dst[j]);
+	    break;
+	}
+    }
+}
+
 
 void validate_s16_le()
 {
@@ -1131,6 +1196,8 @@ void validate_8()
 {
     validate_s8();
     validate_u8();
+    validate_mu_law();
+    validate_a_law();
 }
 
 void validate_16()
