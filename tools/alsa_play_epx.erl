@@ -178,7 +178,7 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
     epx_gc:set_fill_style(solid),
 
     case State of
-	#{data := Data, data_len := Len, data_params := Params} ->
+	#{data := Data, data_len := _Len, data_params := Params} ->
 	    Format = maps:get(format, Params, s16_le),
 	    Channels = maps:get(channels, Params, 1),
 	    _FrameSize = alsa:format_size(Format,Channels),
@@ -296,13 +296,3 @@ create_menu_profile(Profile) ->
        border_color     = Profile#profile.menu_border_color
       }.
 
-draw_rect(Pixels, Rect, Bw, Color, Selection) ->
-    case epx_rect:intersect(Rect, Selection) of
-	{_,_,0,0} ->
-	    epx_gc:set_border_width(0);
-	_ ->
-	    epx_gc:set_border_color(black),
-	    epx_gc:set_border_width(Bw)
-    end,
-    epx_gc:set_fill_color(Color),
-    epx:draw_rectangle(Pixels, Rect).
