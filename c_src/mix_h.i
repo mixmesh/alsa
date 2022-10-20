@@ -1,6 +1,6 @@
 // include file to mix variouse sample types
 
-static void PROCEDURE(uint8_t** src, size_t m,
+static void PROCEDURE(uint8_t** src, double* vol, size_t m,
 		      uint8_t* dst, size_t n
 		      PARAMS_DECL)
 {    

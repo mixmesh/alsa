@@ -9,6 +9,7 @@ CC=gcc
 CFLAGS+= $(shell pkg-config --cflags alsa)
 ALSA_LIBS=$(shell pkg-config --libs alsa)
 NIF_SAMPLES_OBJS = alsa_samples_nif.o mix.o resample.o reformat.o wave.o filt.o sample.o
+NIF_FFT_OBJS = alsa_fft_nif.o fft.o reformat.o
 SBC_LIBS= -lsbc
 SIMD_FLAGS = # -msse4.1
 
@@ -18,6 +19,7 @@ LDFLAGS+= -shared
 all: ../priv/alsa_nif.so \
 	../priv/alsa_sbc_nif.so \
 	../priv/alsa_samples_nif.so \
+	../priv/alsa_fft_nif.so \
 	../priv/mix_bench \
 	../priv/reformat_bench
 
@@ -29,6 +31,9 @@ all: ../priv/alsa_nif.so \
 
 ../priv/alsa_samples_nif.so: $(NIF_SAMPLES_OBJS)
 	$(CC) $(NIF_SAMPLES_OBJS) $(LDFLAGS) $(ALSA_LIBS) -o ../priv/alsa_samples_nif.so
+
+../priv/alsa_fft_nif.so: $(NIF_FFT_OBJS)
+	$(CC) $(NIF_FFT_OBJS) $(LDFLAGS) $(ALSA_LIBS) -lm -o ../priv/alsa_fft_nif.so
 
 ../priv/mix_bench: mix.c
 	$(CC) -O3 $(SIMD_FLAGS) $(CFLAGS) -DTEST -o$@ mix.c $(ALSA_LIBS)

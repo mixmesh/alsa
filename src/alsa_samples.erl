@@ -73,7 +73,8 @@
 		    const | none | custom().
 -type envmode() :: off|linear|quadratic|sustain.  %% (linear)
 -type envelem() :: Duration::number() | {Duration::number(), Mode::envmode()}.
--type formdef() :: #{ form => waveform(),
+-type formdef() :: #{ index => waveinf(),
+		      form => waveform(),
 		      freq => frequency() | string(),
 		      level => float01(),
 		      phase => float(),     %% mod 2pi
@@ -158,7 +159,8 @@ get_marks(_W, _Period) ->
 
 -spec wave(wavedef(), Format::alsa:format(), Channels::alsa:unsigned(),
 	   NumFrames::alsa:unsigned()) ->
-	  {[event()], Samples::binary()}.
+	  {[event()], #{ peak => float(), energy => float() },
+	   Samples::binary()}.
 wave(_WaveDef, _Format, _Channels, _NumFrames) ->
     ?nif_stub.
 
@@ -444,11 +446,14 @@ plot_(T, Bin, Dt, Format, FrameSize) ->
 %% Linear formats
 test_reformat() ->
     Fs = [s8, u8,
-	  s16_le, s16_be, u16_le, u16_be,
-	  s24_le, s24_be, u24_le, u24_be,
-	  s32_le, s32_be, u32_le, u32_be,
-	  float_le, float_be,
-	  float64_le, float64_be
+	  s16, s16_le, s16_be, 
+	  u16, u16_le, u16_be,
+	  s24, s24_le, s24_be, 
+	  u24, u24_le, u24_be,
+	  s32, s32_le, s32_be, 
+	  u32, u32_le, u32_be,
+	  float, float_le, float_be,
+	  float64, float64_le, float64_be
 	 ],
     Samples =  lists:seq(-1,-100,-5) ++ [0] ++ lists:seq(1,100,5),
     Data = << <<S:8/signed>> || S <- Samples>>,
@@ -462,11 +467,17 @@ test_reformat() ->
 
 %% check format conversions over float
 test_reformat2() ->
-    Fs = [s8, s16_le, s16_be, s32_le, s32_be, s24_le, s24_be,
-	  u8, u16_le, u16_be, u32_le, u32_be, u24_le, u24_be ],
+    Fs = [s8,
+	  s16, s16_le, s16_be, 
+	  s24, s24_le, s24_be,
+	  s32, s32_le, s32_be,
+	  u8, 
+	  u16, u16_le, u16_be,
+	  u24, u24_le, u24_be,
+	  u32, u32_le, u32_be ],
 
-    Gs = [float_le, float_be,
-	  float64_le, float64_be],
+    Gs = [float, float_le, float_be,
+	  float64, float64_le, float64_be],
     lists:foreach(
       fun(Value) ->
 	      lists:foreach(

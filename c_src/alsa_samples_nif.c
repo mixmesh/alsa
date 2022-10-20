@@ -14,11 +14,16 @@
 //#define DEBUG
 //#define NIF_TRACE
 
+#include "debug.h"
+
 #include "wave.h"
 #include "reformat.h"
 #include "resample.h"
 #include "mix.h"
 #include "filt.h"
+
+#include "atom_hash.h"
+#include "format.h"
 
 #define MAX_CHANNELS 8  // current "soft" max in frames
 #define MAX_VOICES  32  // current "soft" max of voices for mix
@@ -104,62 +109,13 @@ DECL_ATOM(repeat);
 DECL_ATOM(label);
 // wave params
 DECL_ATOM(marks);
-DECL_ATOM(peek);
+DECL_ATOM(peak);
 DECL_ATOM(energy);
 
-// format
-DECL_ATOM(s8);
-DECL_ATOM(u8);
-DECL_ATOM(s16_le);
-DECL_ATOM(s16_be);
-DECL_ATOM(u16_le);
-DECL_ATOM(u16_be);
-DECL_ATOM(s24_le);
-DECL_ATOM(s24_be);
-DECL_ATOM(u24_le);
-DECL_ATOM(u24_be);
-DECL_ATOM(s32_le);
-DECL_ATOM(s32_be);
-DECL_ATOM(u32_le);
-DECL_ATOM(u32_be);
-DECL_ATOM(float_le);
-DECL_ATOM(float_be);
-DECL_ATOM(float64_le);
-DECL_ATOM(float64_be);
-DECL_ATOM(iec958_subframe_le);
-DECL_ATOM(iec958_subframe_be);
-DECL_ATOM(mu_law);
-DECL_ATOM(a_law);
-DECL_ATOM(ima_adpcm);
-DECL_ATOM(g723_24);
-DECL_ATOM(g723_40);
-DECL_ATOM(dsd_u8);
-DECL_ATOM(dsd_u16_le);
-DECL_ATOM(dsd_u32_le);
-DECL_ATOM(dsd_u16_be);
-DECL_ATOM(dsd_u32_be);
-DECL_ATOM(mpeg);
-DECL_ATOM(gsm);
-DECL_ATOM(s20_le);
-DECL_ATOM(s20_be);
-DECL_ATOM(u20_le);
-DECL_ATOM(u20_be);
-DECL_ATOM(special);
-DECL_ATOM(s24_3le);
-DECL_ATOM(s24_3be);
-DECL_ATOM(u24_3le);
-DECL_ATOM(u24_3be);
-DECL_ATOM(s20_3le);
-DECL_ATOM(s20_3be);
-DECL_ATOM(u20_3le);
-DECL_ATOM(u20_3be);
-DECL_ATOM(s18_3le);
-DECL_ATOM(s18_3be);
-DECL_ATOM(u18_3le);
-DECL_ATOM(u18_3be);
-DECL_ATOM(g723_24_1b);
-DECL_ATOM(g723_40_1b);
-
+// format - use SND_FORMAT_LIST to declare all atom formats
+#undef SND_FORMAT
+#define SND_FORMAT(a,f) DECL_ATOM(a);
+SND_FORMAT_LIST
 
 // Dirty optional since 2.7 and mandatory since 2.12
 #if (ERL_NIF_MAJOR_VERSION > 2) || ((ERL_NIF_MAJOR_VERSION == 2) && (ERL_NIF_MINOR_VERSION >= 7))
@@ -216,108 +172,13 @@ DECL_ATOM(g723_40_1b);
     NIF("get_marks", 2, nif_get_marks)				\
     NIF("get_marks", 3, nif_get_marks)
 
-
-typedef struct _helem_t {
-    struct _helem_t* next;  // next in chain    
-    ERL_NIF_TERM* atm_ptr;  // the hash atom
-    unsigned int  enm;      // enumerated value
-    unsigned int  hval;     // hash value
-} helem_t;
-
 ErlNifResourceType *wavedef_r;
 
-static unsigned int hash_atom(ERL_NIF_TERM term)
-{
-    return (term >> 6);
-}
-
-static void hash_helems(char* hname, helem_t** hvec, size_t hsize,
-			helem_t* elems)
-{
-    int i = 0;
-
-    DEBUGF("hash table %s size %u", hname, hsize);
-    memset(hvec, 0, hsize*sizeof(helem_t*));
-
-    while(elems[i].atm_ptr != NULL) {
-	unsigned int hval = hash_atom(*elems[i].atm_ptr);
-	unsigned int ix = hval % hsize;
-	if (hvec[i] != NULL) DEBUGF("hash conflict %d", i);
-	elems[i].next = hvec[ix];
-	elems[i].hval = hval;
-	hvec[ix] = &elems[i];
-	i++;
-    }
-}
-
-static int lookup_atom(helem_t** hvec, size_t hsize, ERL_NIF_TERM arg)
-{
-    unsigned int hval = hash_atom(arg);
-    unsigned int ix = hval % hsize;
-    helem_t* ptr = hvec[ix];
-    while(ptr) {
-	if (*ptr->atm_ptr == arg)
-	    return (int) ptr->enm;
-	ptr = ptr->next;
-    }
-    return -1;
-}
-
-#define HELEM(a, e) { .next = NULL, .atm_ptr = &(a), .enm = (e), .hval = 0}
-
+#undef SND_FORMAT
+#define SND_FORMAT(atm, form) HELEM(ATOM(atm), form),
 helem_t format_elems[] =
 {
-    HELEM(ATOM(s8), SND_PCM_FORMAT_S8),
-    HELEM(ATOM(u8), SND_PCM_FORMAT_U8),
-    HELEM(ATOM(s16_le), SND_PCM_FORMAT_S16_LE),
-    HELEM(ATOM(s16_be), SND_PCM_FORMAT_S16_BE),
-    HELEM(ATOM(u16_le), SND_PCM_FORMAT_U16_LE),
-    HELEM(ATOM(u16_be), SND_PCM_FORMAT_U16_BE),
-    HELEM(ATOM(s24_le), SND_PCM_FORMAT_S24_LE),
-    HELEM(ATOM(s24_be), SND_PCM_FORMAT_S24_BE),
-    HELEM(ATOM(u24_le), SND_PCM_FORMAT_U24_LE),
-    HELEM(ATOM(u24_be), SND_PCM_FORMAT_U24_BE),
-    HELEM(ATOM(s32_le), SND_PCM_FORMAT_S32_LE),
-    HELEM(ATOM(s32_be), SND_PCM_FORMAT_S32_BE),
-    HELEM(ATOM(u32_le), SND_PCM_FORMAT_U32_LE),
-    HELEM(ATOM(u32_be), SND_PCM_FORMAT_U32_BE),
-    HELEM(ATOM(float_le), SND_PCM_FORMAT_FLOAT_LE),
-    HELEM(ATOM(float_be), SND_PCM_FORMAT_FLOAT_BE),
-    HELEM(ATOM(float64_le), SND_PCM_FORMAT_FLOAT64_LE),
-    HELEM(ATOM(float64_be), SND_PCM_FORMAT_FLOAT64_BE),
-    HELEM(ATOM(iec958_subframe_le), SND_PCM_FORMAT_IEC958_SUBFRAME_LE),
-    HELEM(ATOM(iec958_subframe_be), SND_PCM_FORMAT_IEC958_SUBFRAME_BE),
-    HELEM(ATOM(mu_law), SND_PCM_FORMAT_MU_LAW),
-    HELEM(ATOM(a_law), SND_PCM_FORMAT_A_LAW),
-    HELEM(ATOM(ima_adpcm), SND_PCM_FORMAT_IMA_ADPCM),
-    HELEM(ATOM(mpeg), SND_PCM_FORMAT_MPEG),
-    HELEM(ATOM(gsm), SND_PCM_FORMAT_GSM),
-    HELEM(ATOM(s20_le), SND_PCM_FORMAT_S20_LE),
-    HELEM(ATOM(s20_be), SND_PCM_FORMAT_S20_BE),
-    HELEM(ATOM(u20_le), SND_PCM_FORMAT_U20_LE),
-    HELEM(ATOM(u20_be), SND_PCM_FORMAT_U20_BE),
-    HELEM(ATOM(special), SND_PCM_FORMAT_SPECIAL),
-    HELEM(ATOM(s24_3le), SND_PCM_FORMAT_S24_3LE),
-    HELEM(ATOM(s24_3be), SND_PCM_FORMAT_S24_3BE),
-    HELEM(ATOM(u24_3le), SND_PCM_FORMAT_U24_3LE),
-    HELEM(ATOM(u24_3be), SND_PCM_FORMAT_U24_3BE),
-    HELEM(ATOM(s20_3le), SND_PCM_FORMAT_S20_3LE),
-    HELEM(ATOM(s20_3be), SND_PCM_FORMAT_S20_3BE),
-    HELEM(ATOM(u20_3le), SND_PCM_FORMAT_U20_3LE),
-    HELEM(ATOM(u20_3be), SND_PCM_FORMAT_U20_3BE),
-    HELEM(ATOM(s18_3le), SND_PCM_FORMAT_S18_3LE),
-    HELEM(ATOM(s18_3be), SND_PCM_FORMAT_S18_3BE),
-    HELEM(ATOM(u18_3le), SND_PCM_FORMAT_U18_3LE),
-    HELEM(ATOM(u18_3be), SND_PCM_FORMAT_U18_3BE),
-    HELEM(ATOM(g723_24), SND_PCM_FORMAT_G723_24),
-    HELEM(ATOM(g723_24_1b), SND_PCM_FORMAT_G723_24_1B),
-    HELEM(ATOM(g723_40), SND_PCM_FORMAT_G723_40),
-    HELEM(ATOM(g723_40_1b), SND_PCM_FORMAT_G723_40_1B),
-    HELEM(ATOM(dsd_u8), SND_PCM_FORMAT_DSD_U8),
-    HELEM(ATOM(dsd_u16_le), SND_PCM_FORMAT_DSD_U16_LE),
-    HELEM(ATOM(dsd_u32_le), SND_PCM_FORMAT_DSD_U32_LE),
-    HELEM(ATOM(dsd_u16_be), SND_PCM_FORMAT_DSD_U16_BE),
-    HELEM(ATOM(dsd_u32_be), SND_PCM_FORMAT_DSD_U32_BE),
+    SND_FORMAT_LIST
     { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}    
 };
 
@@ -537,19 +398,21 @@ static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
 }
 
 
-// mix(Format, Channels, [binary()], [control()]) -> binary()
+// mix(Format, Channels, [binary()], [Vol::float()]) -> binary()
 static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
 			    const ERL_NIF_TERM argv[])
 {
     snd_pcm_format_t format;
     size_t num_channels;
     ERL_NIF_TERM list;
+    ERL_NIF_TERM vlist;    
     ERL_NIF_TERM dst_bin;
     void* dst;
     void* voice[MAX_VOICES];
+    double volume[MAX_VOICES];    
     ErlNifBinary voice_bin[MAX_VOICES];
     unsigned num_voices;
-    unsigned num_controls;
+    unsigned num_volumes;    
     size_t num_frames;
     size_t num_samples;
     size_t frame_size;
@@ -562,34 +425,44 @@ static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if ((num_channels < 1) || (num_channels > MAX_CHANNELS))
 	return enif_make_badarg(env);    
-    list = argv[2];
-    if (!enif_get_list_length(env, list, &num_voices))
+    if (!enif_get_list_length(env, argv[2], &num_voices))
+	return enif_make_badarg(env);
+    if (!enif_get_list_length(env, argv[3], &num_volumes))
 	return enif_make_badarg(env);
     if (num_voices == 0)
 	return enif_make_list(env, 0);
-    if (num_voices > MAX_VOICES)
+    if ((num_voices > MAX_VOICES) || (num_volumes > MAX_VOICES))
 	return enif_make_badarg(env);
+
+    list = argv[2];
+    vlist = argv[3];
     for (i = 0; i < (int)num_voices; i++) {
 	ERL_NIF_TERM hd, tl;
 	enif_get_list_cell(env, list, &hd, &tl);
 	if (!enif_inspect_binary(env, hd, &voice_bin[i]))
 	    return enif_make_badarg(env);
+	list = tl;
 	voice[i] = voice_bin[i].data;
 	if (i == 0)
 	    voice_size = voice_bin[i].size;
 	else if (voice_bin[i].size != voice_size)
 	    return enif_make_badarg(env);
-	list = tl;
+	volume[i] = 1.0;
+	if (i < num_volumes) {
+	    enif_get_list_cell(env, vlist, &hd, &tl);
+	    if (!get_number(env, hd, &volume[i]) ||
+		((volume[i] < 0.0) || (volume[i] > 1.0)))
+		return enif_make_badarg(env);
+	    vlist = tl;
+	}
     }
-    list = argv[3];
-    if (!enif_get_list_length(env, list, &num_controls))
-	return enif_make_badarg(env);
+
     frame_size = snd_pcm_format_size(format, num_channels);
     num_frames = voice_size / frame_size;
 
     dst = enif_make_new_binary(env, voice_size, &dst_bin);
     num_samples = num_frames*num_channels;
-    mix(format, voice, num_voices, dst, num_samples);
+    mix(format, voice, volume, num_voices, dst, num_samples);
 
     return dst_bin;
 }
@@ -691,7 +564,7 @@ static ERL_NIF_TERM nif_filter(ErlNifEnv* env, int argc,
     void* dst;
     size_t dst_size;
     size_t num_samples;
-    ERL_NIF_TERM list, head, tail;    
+    ERL_NIF_TERM list, head, tail;
     double filt[MAX_FILTER_N];
     size_t filt_len; // N
     
@@ -1384,7 +1257,7 @@ static ERL_NIF_TERM nif_wave_get_pos(ErlNifEnv* env, int argc,
 
 //
 // wave(WaveDef,Format,Channels,NumFrames::non_neg_integer()) ->
-//  {[event()],Dst:binary()}
+//  {[event()],#{ peak => float(), energy => float() },Dst:binary()}
 //
 static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
@@ -1394,10 +1267,11 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
     size_t num_channels;
     size_t num_frames;
     ERL_NIF_TERM dst_bin;
-    ERL_NIF_TERM list = enif_make_list(env, 0);
+    ERL_NIF_TERM mark_list = enif_make_list(env, 0);
     ERL_NIF_TERM props;
-    double peek = 0.0, energy = 0.0;
-
+    double peak = 0.0, energy = 0.0;
+    ERL_NIF_TERM prop_keys[2] = { ATOM(peak), ATOM(energy) };
+    ERL_NIF_TERM prop_values[2];
     
     if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
 	return enif_make_badarg(env);
@@ -1417,7 +1291,7 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 	size_t size = frame_size*num_frames;
 	void* dst = enif_make_new_binary(env, size, &dst_bin);
 	mpl = wave_buffer(param, format, num_channels, dst, num_frames,
-			  &peek, &energy);
+			  &peak, &energy);
 	while(mpl) {
 	    ERL_NIF_TERM event;
 	    mark_t* mpn = mpl->next;
@@ -1426,20 +1300,16 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 				     enif_make_pid(env, &mpl->pid),
 				     enif_make_int(env, mpl->pos),
 				     enif_make_copy(env, mpl->user_data));
-	    list = enif_make_list_cell(env, event, list);
+	    mark_list = enif_make_list_cell(env, event, mark_list);
 	    if (mpl->flags0 & MARK_FREE)
 		free_mark(mpl);
 	    mpl = mpn;
 	}
     }
-    props =
-	enif_make_list3(env,
-			enif_make_tuple2(env, ATOM(marks), list),
-			enif_make_tuple2(env, ATOM(peek),
-					 enif_make_double(env, peek)),
-			enif_make_tuple2(env, ATOM(peek),
-					 enif_make_double(env, energy)));
-    return enif_make_tuple2(env, props, dst_bin);
+    prop_values[0] = enif_make_double(env, peak);
+    prop_values[1] = enif_make_double(env, energy);
+    enif_make_map_from_arrays(env,prop_keys,prop_values,2, &props);
+    return enif_make_tuple3(env, mark_list, props, dst_bin);
 }
 
 //-spec mark(W::wavedef(), Pid::pid(), Ref::reference(), Pos::integer(),
@@ -1632,61 +1502,13 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(label);
     // wave props
     LOAD_ATOM(marks);
-    LOAD_ATOM(peek);
+    LOAD_ATOM(peak);
     LOAD_ATOM(energy);
-    
-    // format
-    LOAD_ATOM(s8);
-    LOAD_ATOM(u8);
-    LOAD_ATOM(s16_le);
-    LOAD_ATOM(s16_be);
-    LOAD_ATOM(u16_le);
-    LOAD_ATOM(u16_be);
-    LOAD_ATOM(s24_le);
-    LOAD_ATOM(s24_be);
-    LOAD_ATOM(u24_le);
-    LOAD_ATOM(u24_be);
-    LOAD_ATOM(s32_le);
-    LOAD_ATOM(s32_be);
-    LOAD_ATOM(u32_le);
-    LOAD_ATOM(u32_be);
-    LOAD_ATOM(float_le);
-    LOAD_ATOM(float_be);
-    LOAD_ATOM(float64_le);
-    LOAD_ATOM(float64_be);
-    LOAD_ATOM(iec958_subframe_le);
-    LOAD_ATOM(iec958_subframe_be);
-    LOAD_ATOM(mu_law);
-    LOAD_ATOM(a_law);
-    LOAD_ATOM(ima_adpcm);
-    LOAD_ATOM(g723_24);
-    LOAD_ATOM(g723_40);
-    LOAD_ATOM(dsd_u8);
-    LOAD_ATOM(dsd_u16_le);
-    LOAD_ATOM(dsd_u32_le);
-    LOAD_ATOM(dsd_u16_be);
-    LOAD_ATOM(dsd_u32_be);
-    LOAD_ATOM(mpeg);
-    LOAD_ATOM(gsm);
-    LOAD_ATOM(s20_le);
-    LOAD_ATOM(s20_be);
-    LOAD_ATOM(u20_le);
-    LOAD_ATOM(u20_be);
-    LOAD_ATOM(special);
-    LOAD_ATOM(s24_3le);
-    LOAD_ATOM(s24_3be);
-    LOAD_ATOM(u24_3le);
-    LOAD_ATOM(u24_3be);
-    LOAD_ATOM(s20_3le);
-    LOAD_ATOM(s20_3be);
-    LOAD_ATOM(u20_3le);
-    LOAD_ATOM(u20_3be);
-    LOAD_ATOM(s18_3le);
-    LOAD_ATOM(s18_3be);
-    LOAD_ATOM(u18_3le);
-    LOAD_ATOM(u18_3be);
-    LOAD_ATOM(g723_24_1b);
-    LOAD_ATOM(g723_40_1b);
+
+    // format - use SND_FORMAT_LIST to load all atom formats    
+#undef SND_FORMAT
+#define SND_FORMAT(atm, form) LOAD_ATOM(atm);
+SND_FORMAT_LIST
 
     return 0;
 }

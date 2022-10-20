@@ -63,23 +63,23 @@
 -type format() :: 
 	s8 |                    %% :: [-16#80, 16#80]
 	u8 |                    %% :: [16#0,   16#FF]
-	s16_le | s16_be |       %% :: [-16#8000, 16#8000]      
-	u16_le | u16_be |       %% :: [16#0000, 16#FFFF]
-	s24_le | s24_be |       %% :: [-16#8000, 16#8000]      
-	u24_le | u24_be |       %% :: [16#000000, 16#FFFFFF]
-	s32_le | s32_be |       %% :: [-16#80000000, 16#80000000]      
-	u32_le | u32_be |       %% :: [16#80000000, 16#FFFFFFFF]      
-	float_le | float_be |   %% :: [-1.0, 1.0]
-	float64_le | float64_be |  %% :: [-1.0, 1.0]
-	iec958_subframe_le | iec958_subframe_be |
+	s16 | s16_le | s16_be |       %% :: [-16#8000, 16#8000]      
+	u16 | u16_le | u16_be |       %% :: [16#0000, 16#FFFF]
+	s24 | s24_le | s24_be |       %% :: [-16#8000, 16#8000]      
+	u24 | u24_le | u24_be |       %% :: [16#000000, 16#FFFFFF]
+	s32 | s32_le | s32_be |       %% :: [-16#80000000, 16#80000000]      
+	u32 | u32_le | u32_be |       %% :: [16#80000000, 16#FFFFFFFF]      
+	float | float_le | float_be |   %% :: [-1.0, 1.0]
+	float64 | float64_le | float64_be |  %% :: [-1.0, 1.0]
+	iec958_subframe | iec958_subframe_le | iec958_subframe_be |
 	mu_law | a_law |        %% :: [-16#8000, 16#8000]
 	ima_adpcm | 
 	g723_24 | g723_40 |
 	dsd_u8 | dsd_u16_le | dsd_u32_le |
 	dsd_u16_be | dsd_u32_be |
 	mpeg | gsm |
-	s20_le | s20_be | u20_le | u20_be |
-	special |
+	s20 | s20_le | s20_be | 
+	us20 | u20_le | u20_be |
 	s24_3le | s24_3be | u24_3le | u24_3be |
 	s20_3le | s20_3be | u20_3le | u20_3be |
 	s18_3le | s18_3be | u18_3le | u18_3be |
@@ -191,11 +191,12 @@ preloaded_atoms_() ->
 formats() ->
     [
      s8, u8,
-     s16_le, s16_be, u16_le, u16_be,
-     s24_le, s24_be, u24_le, u24_be,
-     s32_le, s32_be, u32_le, u32_be,
-     float_le, float_be,
-     float64_le, float64_be,
+     s16, s16_le, s16_be, u16, u16_le, u16_be,
+     s24, s24_le, s24_be, u24, u24_le, u24_be,
+     s32, s32_le, s32_be, u32, u32_le, u32_be,
+     float, float_le, float_be,
+     float64, float64_le, float64_be,
+     iec958_subframe,
      iec958_subframe_le,
      iec958_subframe_be,
      mu_law, a_law,
@@ -204,7 +205,7 @@ formats() ->
      dsd_u8, dsd_u16_le, dsd_u32_le,
      dsd_u16_be, dsd_u32_be,
      mpeg, gsm,
-     s20_le, s20_be, u20_le, u20_be,
+     s20, s20_le, s20_be, u20, u20_le, u20_be,
      %% special:
      s24_3le, s24_3be, u24_3le, u24_3be,
      s20_3le, s20_3be, u20_3le, u20_3be,

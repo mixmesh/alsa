@@ -589,164 +589,164 @@ static inline double add_double(double a, double b)
 #include "mix_v.i"
 
 // mix samples from *src[i] and store in *dst
-void mix(snd_pcm_format_t format, void** srcp, size_t num_voices, void* dst,
-	 size_t n)
+void mix(snd_pcm_format_t format, void** srcp, double* vol, size_t num_voices,
+	 void* dst, size_t n)
 {
     switch(format) {
 	// 8-bit
     case SND_PCM_FORMAT_S8:
-	mix_pcm_int8((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_int8((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_U8:
-	mix_pcm_uint8((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_uint8((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_A_LAW:
-	mix_a_law((uint8_t**)srcp, num_voices, dst, n);
+	mix_a_law((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_MU_LAW:
-	mix_mu_law((uint8_t**)srcp, num_voices, dst, n);
+	mix_mu_law((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 	// 16-bit
     case SND_PCM_FORMAT_S16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_int16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_native_pcm_int16((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_int16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_U16_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_uint16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_U16_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);	
+	mix_swap_pcm_uint16((uint8_t**)srcp, vol, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_uint16((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint16((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
 	// 24-bit (int 32 bit)
     case SND_PCM_FORMAT_S24_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_int24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S24_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_native_pcm_int24((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_int24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_U24_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_uint24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_U24_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);	
+	mix_swap_pcm_uint24((uint8_t**)srcp, vol, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_uint24((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint24((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_S24_3LE:
-	mix_pcm_int24_3le((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_int24_3le((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_S24_3BE:
-	mix_pcm_int24_3be((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_int24_3be((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_U24_3LE:
-	mix_pcm_uint24_3le((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_uint24_3le((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
     case SND_PCM_FORMAT_U24_3BE:
-	mix_pcm_uint24_3be((uint8_t**)srcp, num_voices, dst, n);
+	mix_pcm_uint24_3be((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;		
 	// 32-bit
     case SND_PCM_FORMAT_S32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_int32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif	
     case SND_PCM_FORMAT_S32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_int32((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_int32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-v	mix_native_pcm_int32((uint8_t**)srcp, num_voices, dst, n);	
+v	mix_native_pcm_int32((uint8_t**)srcp, vol, num_voices, dst, n);	
 	break;
 #endif	
     case SND_PCM_FORMAT_U32_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_uint32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif		
     case SND_PCM_FORMAT_U32_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);	
+	mix_swap_pcm_uint32((uint8_t**)srcp, vol, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_uint32((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_uint32((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_float((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_float((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_float((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_float((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_float((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_native_pcm_float((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_float((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT64_LE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_native_pcm_double((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_double((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #else
-	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);
+	mix_swap_pcm_double((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif
     case SND_PCM_FORMAT_FLOAT64_BE:
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	mix_swap_pcm_double((uint8_t**)srcp, num_voices, dst, n);	
+	mix_swap_pcm_double((uint8_t**)srcp, vol, num_voices, dst, n);	
 	break;
 #else
-	mix_native_pcm_double((uint8_t**)srcp, num_voices, dst, n);
+	mix_native_pcm_double((uint8_t**)srcp, vol, num_voices, dst, n);
 	break;
 #endif		
     default:
@@ -782,20 +782,20 @@ uint64_t time_tick(void)
     return t.tv_sec*(uint64_t)1000000 + t.tv_usec;
 }
 
-void test_mix_native(int16_t** smv, int16_t* dst, size_t n)
+void test_mix_native(int16_t** smv, double* vol, int16_t* dst, size_t n)
 {
     while(n--) {
 	mix(SND_PCM_FORMAT_S16_NATIVE,
-	    (void**) smv, NUM_VOICES,
+	    (void**) smv, vol, NUM_VOICES,
 	    (void*) dst, NUM_FRAMES*NUM_CHANNELS);
     }
 }
 
-void test_mix_swap(int16_t** smv, int16_t* dst, size_t n)
+void test_mix_swap(int16_t** smv, double* vol, int16_t* dst, size_t n)
 {
     while(n--) {
 	mix(SND_PCM_FORMAT_S16_SWAP,
-	    (void**) smv, NUM_VOICES,
+	    (void**) smv, vol, NUM_VOICES,
 	    (void*) dst, NUM_FRAMES*NUM_CHANNELS);
     }
 }
@@ -808,12 +808,13 @@ void validate_s8()
     int8_t  src[VSAMP];
     int8_t  dst[VSAMP];
     int8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 1;
 
-    mix(SND_PCM_FORMAT_S8, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S8, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 4) {
@@ -829,11 +830,12 @@ void validate_u8()
     uint8_t  src[VSAMP];
     uint8_t  dst[VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };    
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x81;
-    mix(SND_PCM_FORMAT_U8, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U8, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {
 	if (dst[j] != 0x84) {
 	    printf("error: U8 samples %d not mixed %x\n",
@@ -848,11 +850,12 @@ void validate_a_law()
     uint8_t  src[VSAMP];
     uint8_t  dst[VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = a_law_encode(8);
-    mix(SND_PCM_FORMAT_A_LAW, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_A_LAW, (void**) smv, vol,VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {
 	if (dst[j] != 0xd7) {  // encode(8+8+8+8)
 	    printf("error: A_LAW samples %d not mixed %x\n",
@@ -867,11 +870,12 @@ void validate_mu_law()
     uint8_t  src[VSAMP];
     uint8_t  dst[VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = mu_law_encode(8);
-    mix(SND_PCM_FORMAT_MU_LAW, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_MU_LAW, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {
 	if (dst[j] != 0xfb) {  // encode(8+8+8+8)
 	    printf("error: MU_LAW samples %d not mixed %x\n",
@@ -887,11 +891,12 @@ void validate_s16_le()
     int16_t  src[VSAMP];
     int16_t  dst[VSAMP];
     int16_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x0001;
-    mix(SND_PCM_FORMAT_S16_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S16_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x0004) {
 	    printf("error: S16_LE samples %d not mixed %x\n",
@@ -906,11 +911,12 @@ void validate_s16_be()
     int16_t  src[VSAMP];
     int16_t  dst[VSAMP];
     int16_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x0100;
-    mix(SND_PCM_FORMAT_S16_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S16_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x0400) {
 	    printf("error: S16_BE samples %d not mixed %x\n",
@@ -925,11 +931,12 @@ void validate_u16_le()
     uint16_t  src[VSAMP];
     uint16_t  dst[VSAMP];
     uint16_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x8001;
-    mix(SND_PCM_FORMAT_U16_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U16_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x8004) {
 	    printf("error: U16_LE samples %d not mixed %x\n",
@@ -944,11 +951,12 @@ void validate_u16_be()
     uint16_t  src[VSAMP];
     uint16_t  dst[VSAMP];
     uint16_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x0081;
-    mix(SND_PCM_FORMAT_U16_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U16_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x0084) {
 	    printf("error: U16_BE samples %d not mixed %x\n",
@@ -963,11 +971,12 @@ void validate_s24_le()
     int32_t  src[VSAMP];
     int32_t  dst[VSAMP];
     int32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x000001;
-    mix(SND_PCM_FORMAT_S24_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S24_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x000004) {
 	    printf("error: S24_LE samples %d not mixed %x\n",
@@ -982,11 +991,12 @@ void validate_s24_be()
     int32_t  src[VSAMP];
     int32_t  dst[VSAMP];
     int32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x000100;
-    mix(SND_PCM_FORMAT_S24_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S24_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x000400) {
 	    printf("error: S24_BE samples %d not mixed %x\n",
@@ -1002,11 +1012,12 @@ void validate_u24_le()
     uint32_t  src[VSAMP];
     uint32_t  dst[VSAMP];
     uint32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x800001;
-    mix(SND_PCM_FORMAT_U24_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U24_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x800004) {
 	    printf("error: U24_LE samples %d not mixed %x\n",
@@ -1021,11 +1032,12 @@ void validate_u24_be()
     int32_t  src[VSAMP];
     int32_t  dst[VSAMP];
     int32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x00008100;
-    mix(SND_PCM_FORMAT_U24_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U24_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x00008400) {
 	    printf("error: U24_BE samples %d not mixed %x\n",
@@ -1040,12 +1052,13 @@ void validate_s24_3le()
     uint8_t  src[3*VSAMP];
     uint8_t  dst[3*VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j += 3) {
 	src[j]   = 0x01; src[j+1] = 0x00; src[j+2] = 0x00;
     }
-    mix(SND_PCM_FORMAT_S24_3LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S24_3LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j += 3) {
 	if ((dst[j] != 0x04) && (dst[j+1] != 0x00) && (dst[j+2] != 0x00)) {
 	    printf("error: S24_3LE samples %d not mixed %02x%02x%02x\n",
@@ -1060,12 +1073,13 @@ void validate_s24_3be()
     uint8_t  src[3*VSAMP];
     uint8_t  dst[3*VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j += 3) {
 	src[j]   = 0x00; src[j+1] = 0x00; src[j+2] = 0x01;
     }
-    mix(SND_PCM_FORMAT_S24_3BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S24_3BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j += 3) {
 	if ((dst[j] != 0x00) && (dst[j+1] != 0x00) && (dst[j+2] != 0x01)) {
 	    printf("error: S24_3LE samples %d not mixed %02x%02x%02x\n",
@@ -1080,12 +1094,13 @@ void validate_u24_3le()
     uint8_t  src[3*VSAMP];
     uint8_t  dst[3*VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j += 3) {
 	src[j]   = 0x01; src[j+1] = 0x00; src[j+2] = 0x80;
     }
-    mix(SND_PCM_FORMAT_U24_3LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U24_3LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j += 3) {
 	if ((dst[j] != 0x04) && (dst[j+1] != 0x00) && (dst[j+2] != 0x80)) {
 	    printf("error: U24_3LE samples %d not mixed %02x%02x%02x\n",
@@ -1100,12 +1115,13 @@ void validate_u24_3be()
     uint8_t  src[3*VSAMP];
     uint8_t  dst[3*VSAMP];
     uint8_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };    
     int j;
 
     for (j = 0; j < VSAMP; j += 3) {
 	src[j]   = 0x80; src[j+1] = 0x00; src[j+2] = 0x01;
     }
-    mix(SND_PCM_FORMAT_U24_3BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U24_3BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j += 3) {
 	if ((dst[j] != 0x80) && (dst[j+1] != 0x00) && (dst[j+2] != 0x01)) {
 	    printf("error: U24_3LE samples %d not mixed %02x%02x%02x\n",
@@ -1121,11 +1137,12 @@ void validate_s32_le()
     int32_t  src[VSAMP];
     int32_t  dst[VSAMP];
     int32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x00000001;
-    mix(SND_PCM_FORMAT_S32_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S32_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x00000004) {
 	    printf("error: S32_LE samples %d not mixed %x\n",
@@ -1140,11 +1157,12 @@ void validate_s32_be()
     int32_t  src[VSAMP];
     int32_t  dst[VSAMP];
     int32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x00000100;
-    mix(SND_PCM_FORMAT_S32_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_S32_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x00000400) {
 	    printf("error: S32_BE samples %d not mixed %x\n",
@@ -1159,11 +1177,12 @@ void validate_u32_le()
     uint32_t  src[VSAMP];
     uint32_t  dst[VSAMP];
     uint32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x80000001;
-    mix(SND_PCM_FORMAT_U32_LE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U32_LE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x80000004) {
 	    printf("error: U32_LE samples %d not mixed %x\n",
@@ -1178,11 +1197,12 @@ void validate_u32_be()
     uint32_t  src[VSAMP];
     uint32_t  dst[VSAMP];
     uint32_t* smv[VVOICE] = { src, src, src, src };
+    double  vol[VVOICE] = { 1.0, 1.0, 1.0, 1.0 };
     int j;
 
     for (j = 0; j < VSAMP; j++)
 	src[j] = 0x00000081;
-    mix(SND_PCM_FORMAT_U32_BE, (void**) smv, VVOICE, (void*) dst, VSAMP);
+    mix(SND_PCM_FORMAT_U32_BE, (void**) smv, vol, VVOICE, (void*) dst, VSAMP);
     for (j = 0; j < VSAMP; j++) {    
 	if (dst[j] != 0x00000084) {
 	    printf("error: U32_BE samples %d not mixed %x\n",
@@ -1233,16 +1253,17 @@ void validate_32()
 int main(int argc, char** argv)
 {
     int16_t* smv[NUM_VOICES];
-    int16_t  dst[BUF_SIZE];    
+    double   vol[NUM_VOICES];
+    int16_t  dst[BUF_SIZE];
     int i;
     uint64_t t0, t1;
-
 
     for (i = 0; i < NUM_VOICES; i++) {
 	int j;
 	int16_t* ptr;
 	ptr = (int16_t*) malloc(BUF_SIZE);
 	smv[i] = ptr;
+	vol[i] = 1.0;
 	for (j = 0; j < NUM_FRAMES*NUM_CHANNELS; j++) {
 	    ptr[j] = (i+1);
 	}
@@ -1254,7 +1275,7 @@ int main(int argc, char** argv)
     validate_32();    
 
     t0 = time_tick();
-    test_mix_native(smv, dst, NUM_REPEATS);
+    test_mix_native(smv, vol, dst, NUM_REPEATS);
     t1 = time_tick();
     printf("time = %lus+%luus, %f mixes/s\n",
 	   ((unsigned long)(t1-t0)) / 1000000,
@@ -1262,7 +1283,7 @@ int main(int argc, char** argv)
 	   ((float)NUM_REPEATS / (((unsigned long)(t1-t0))/1000000.0)));
 
     t0 = time_tick();
-    test_mix_swap(smv, dst, NUM_REPEATS);
+    test_mix_swap(smv, vol, dst, NUM_REPEATS);
     t1 = time_tick();
     printf("time = %lus+%luus, %f swapped mixes/s\n",
 	   ((unsigned long)(t1-t0)) / 1000000,

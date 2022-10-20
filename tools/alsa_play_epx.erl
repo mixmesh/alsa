@@ -50,8 +50,9 @@
 -define(TEXT_COLOR, {0,0,0,0}).       %% black text
 -define(BORDER, 2).
 
-menu() ->
+menu(DrawFFT) ->
     [
+     {"FFT="++if DrawFFT -> "ON"; true -> "OFF" end, "F"},
      {"1Hz",  "1"},
      {"10Hz", "2"},
      {"50Hz", "3"}
@@ -103,20 +104,28 @@ init(_Opts) ->
 
     MProfile = create_menu_profile(Profile),
 
-    Menu = epx_menu:create(MProfile#menu_profile{background_color=red},menu()),
+    DrawFFT = false,
+    Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
+			   menu(DrawFFT)),
 
     Search = load_icon("outline_search_black_24dp.png"),
     Copy   = load_icon("outline_content_copy_black_24dp.png"),
     Home   = load_icon("outline_home_black_24dp.png"),
 
+    FFT    = alsa_fft:new(2048),
+    alsa_fft:set_hanning(FFT),
+
     State = 
 	#{ font => Font, 
 	   ascent => Ascent,
+	   mprofile => MProfile,
 	   menu => Menu,
 	   tools => [Search, Copy, Home],
 	   selection => {0,0,0,0},
 	   time => erlang:system_time(milli_seconds),
-	   freq => 2  %% 1(1Hz),2(10Hz),3(50Hz)
+	   freq => 2, %% 1(1Hz),2(10Hz),3(50Hz),
+	   draw_fft => DrawFFT,
+	   fft => FFT
 	 },
     {ok, State}.
 
@@ -182,9 +191,18 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
 	    Format = maps:get(format, Params, s16_le),
 	    Channels = maps:get(channels, Params, 1),
 	    _FrameSize = alsa:format_size(Format,Channels),
-	    Frames = alsa_util:decode_frame(Data, Format),
+	    {Frames,Range} = 
+		case State of
+		    #{ draw_fft := true, fft := FFT } ->
+			[Data1|_] = alsa_fft:rfft(FFT, Format, Channels, Data),
+			{alsa_util:decode_frame(Data1, float_le),
+			 {0,100,20,1000}};
+		    _ ->
+			{alsa_util:decode_frame(Data, Format),
+			 {-1,1,0,10000}}
+		end,
 	    epx_gc:set_foreground_color(black),
-	    draw_frames(Pixels, Channels, ?VIEW_HEIGHT, Frames);
+	    draw_frames(Pixels, Channels, ?VIEW_HEIGHT, Frames, Range);
 	_ ->
 	    ok
     end,
@@ -217,8 +235,10 @@ draw(_, _Pixels, _Area, State) ->
     State.
     
 
-menu({menu,_Pos}, State) ->
-    {reply, maps:get(menu, State), State}.
+menu({menu,_Pos}, State=#{ mprofile := MProfile, draw_fft := DrawFFT}) ->
+    Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
+			   menu(DrawFFT)),
+    {reply, Menu, State}.
     
 %% NOTE! this is overridden by the select fun above
 select({_Phase,Rect}, State) ->
@@ -235,6 +255,10 @@ command($2, _Mod, State) ->
     {noreply, State#{ freq=>2 }};
 command($3, _Mod, State) ->
     {noreply, State#{ freq=>3 }};
+command($f, _Mod, State=#{ draw_fft := DrawFFT}) ->
+    {noreply, State#{ draw_fft=> not DrawFFT }};
+command($F, Mod, State) when not Mod#keymod.shift ->
+    {noreply, State#{ draw_fft=>false }};
 command(Key, Mod, State) ->
     ?verbose("COMMAND: Key=~w, Mod=~w\n", [Key, Mod]),
     {reply, {Key,Mod}, State}.
@@ -265,26 +289,49 @@ handle_info(_Info, State) ->
 %% internal
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-draw_frames(Pixels, Channels, Height, Frames) ->
-    draw_frame_(Pixels, 0, Channels, Height div 2, Frames).
+draw_frames(Pixels, Channels, Height, Frames, Range) ->
+    draw_frame_(Pixels, 0, Channels, Height, Frames, Range).
 
-draw_frame_(Pixels, X, Channels, H, Frames) ->
-    case pick(Channels, Frames) of
-	false -> ok;
-	{Y,Frames1} ->
-	    epx:draw_line(Pixels, X, H, X, H+H*Y),
-	    %% epx:draw_point(Pixels, X, H*(1+Y)),
-	    draw_frame_(Pixels, X+1, Channels, H, Frames1)
-    end.
+draw_frame_(Pixels, X, Channels, Height, Frames, 
+	    _Range={Min,Max,SkipFrames,MaxFrames}) ->
+    Chan = center(Channels),
+    Frames1 = lists:nthtail(SkipFrames*Channels,Frames),
+    Frames2 = lists:sublist(Frames1, MaxFrames*Channels),
+    draw_chan(X, Chan, Channels, Frames2,
+	      fun(Xi, Yi) ->
+		      Yc = min(max(Yi,Min),Max),  %% clip
+		      Ys = Yc/(Max-Min),          %% scale
+		      Hp = if Min < 0 -> Height div 2;
+			      true -> Height
+			   end,
+		      Y0 = Hp,
+		      Yp = Hp*(1-Ys),
+		      %% epx:draw_point(Pixels, Xi, H*(1+Yi))
+		      epx:draw_line(Pixels, Xi, Y0, Xi, Yp)
+	      end).
 
-pick(1, [FC|Frames]) -> {FC, Frames};
-pick(2, [FL,_FR|Frames]) -> {FL, Frames};
-pick(3, [FL,_FR,_LFE|Frames]) -> {FL, Frames};
-pick(4, [FL,_FR,_RL,_RR|Frames]) -> {FL, Frames};
-pick(5, [_FL,_FR,FC,_LFE,_RL,_RR|Frames]) -> {FC, Frames};
-pick(6, [_FL,_FR,FC,_LFE,_RL,_RR|Frames]) -> {FC, Frames};
-pick(8, [_FL,_FR,FC,_LFE,_RL,_RR,_SL,_SR|Frames]) -> {FC,Frames};
-pick(_, _) -> false.
+draw_chan(X, Chan, Channels, Frames, Fun) ->
+    draw_chan_(X, Chan, 1, Channels, Channels, Frames, Fun).
+
+draw_chan_(X, I, Chan, N, Channels, [Y|Frames], Fun) ->
+    if I < Chan ->
+	    draw_chan_(X, I+1, Chan, N-1, Channels, Frames, Fun); 
+       true ->
+	    Fun(X, Y),
+	    draw_chan(X+1, Chan, Channels, lists:nthtail(N, Frames), Fun)
+    end;
+draw_chan_(_X, _I, _Chan, _N, _Channels, [], _Fun) ->
+    ok.
+
+%% select center from num_channels
+center(1) -> 1;
+center(2) -> 1;
+center(3) -> 1;
+center(4) -> 1;
+center(5) -> 3;
+center(6) -> 3;
+center(8) -> 3.
+
 
 create_menu_profile(Profile) ->
     #menu_profile {

@@ -3,10 +3,10 @@
 #include "filt.h"
 #include "reformat.h"
 
-// note the filter coeffients are reversed
+// note that the filter coeffients are reversed
 void filter(void* src, snd_pcm_format_t src_format, size_t src_len,
-		   double* filter, size_t filter_len,
-		   void* dst, snd_pcm_format_t dst_format, size_t dst_len)
+	    double* filter, size_t filter_len,
+	    void* dst, snd_pcm_format_t dst_format, size_t dst_len)
 {
     int n, k;
     int8_t* sp = (int8_t*) src; 

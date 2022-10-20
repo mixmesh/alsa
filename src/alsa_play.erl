@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/1]).
+-export([start/0, start/1]).
 -export([start_link/0, start_link/1]).
 
 %% gen_server callbacks
@@ -73,7 +73,6 @@
 	 callback :: undefined | 
 		     fun((binary(), NumBytes::integer(), Params::map()) -> ok)
 	}).
-
 
 new(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {new, Channel}).
@@ -237,6 +236,9 @@ start_link(Options) when is_map(Options) ->
 	  {error, Error :: {already_started, pid()}} |
 	  {error, Error :: term()} |
 	  ignore.
+
+start() -> start(#{}).
+
 start(Options) when is_map(Options) ->
     gen_server:start({local, ?SERVER}, ?MODULE, Options, []).
     
@@ -775,12 +777,12 @@ read_buffer_list_([Channel|Cs], ChanMap, Format, Channels, PeriodSize,
 			      PeriodSize, Acc, Marks);
 	W ->
 	    case alsa_samples:wave(W, Format, Channels, PeriodSize) of
-		{Ms,<<>>} ->
+		{Ms,_,<<>>} ->
 		    read_buffer_list_(Cs, ChanMap, Format, Channels, 
 				      PeriodSize, Acc, 
 				      add_marks(Channel,Ms,Marks));
-		{Ms,Samples} ->
-		    %% Ms = alsa_samples:get_marks(W, PeriodSize),
+		{Ms,#{peak := _P, energy := _E},Samples} ->
+		    %% io:format("peak=~p, energy=~p\n", [_P, _E]),
 		    read_buffer_list_(Cs, ChanMap,
 				      Format, Channels, PeriodSize,
 				      [Samples|Acc], 

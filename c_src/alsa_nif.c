@@ -1,6 +1,9 @@
 #include <erl_nif.h>
 #include <alsa/asoundlib.h>
 
+#include "atom_hash.h"
+#include "format.h"
+
 // #define DEBUGF(f,a...) enif_fprintf(stderr, f "\r\n", a)
 #define DEBUGF(f,a...)
 #define ERRORF(f,a...) enif_fprintf(stderr, f "\r\n", a)
@@ -94,57 +97,10 @@ DECL_ATOM(suspended);
 DECL_ATOM(disconnected);
 DECL_ATOM(private1);
 
-// format
-DECL_ATOM(s8);
-DECL_ATOM(u8);
-DECL_ATOM(s16_le);
-DECL_ATOM(s16_be);
-DECL_ATOM(u16_le);
-DECL_ATOM(u16_be);
-DECL_ATOM(s24_le);
-DECL_ATOM(s24_be);
-DECL_ATOM(u24_le);
-DECL_ATOM(u24_be);
-DECL_ATOM(s32_le);
-DECL_ATOM(s32_be);
-DECL_ATOM(u32_le);
-DECL_ATOM(u32_be);
-DECL_ATOM(float_le);
-DECL_ATOM(float_be);
-DECL_ATOM(float64_le);
-DECL_ATOM(float64_be);
-DECL_ATOM(iec958_subframe_le);
-DECL_ATOM(iec958_subframe_be);
-DECL_ATOM(mu_law);
-DECL_ATOM(a_law);
-DECL_ATOM(ima_adpcm);
-DECL_ATOM(g723_24);
-DECL_ATOM(g723_40);
-DECL_ATOM(dsd_u8);
-DECL_ATOM(dsd_u16_le);
-DECL_ATOM(dsd_u32_le);
-DECL_ATOM(dsd_u16_be);
-DECL_ATOM(dsd_u32_be);
-DECL_ATOM(mpeg);
-DECL_ATOM(gsm);
-DECL_ATOM(s20_le);
-DECL_ATOM(s20_be);
-DECL_ATOM(u20_le);
-DECL_ATOM(u20_be);
-DECL_ATOM(s24_3le);
-DECL_ATOM(s24_3be);
-DECL_ATOM(u24_3le);
-DECL_ATOM(u24_3be);
-DECL_ATOM(s20_3le);
-DECL_ATOM(s20_3be);
-DECL_ATOM(u20_3le);
-DECL_ATOM(u20_3be);
-DECL_ATOM(s18_3le);
-DECL_ATOM(s18_3be);
-DECL_ATOM(u18_3le);
-DECL_ATOM(u18_3be);
-DECL_ATOM(g723_24_1b);
-DECL_ATOM(g723_40_1b);
+// format - use SND_FORMAT_LIST to declare all atom formats
+#undef SND_FORMAT
+#define SND_FORMAT(atm, form) DECL_ATOM(atm);
+SND_FORMAT_LIST
 
 // Dirty optional since 2.7 and mandatory since 2.12
 #if (ERL_NIF_MAJOR_VERSION > 2) || ((ERL_NIF_MAJOR_VERSION == 2) && (ERL_NIF_MINOR_VERSION >= 7))
@@ -196,52 +152,6 @@ DECL_ATOM(g723_40_1b);
     NIF("bytes_to_frames", 2, nif_bytes_to_frames) \
     NIF("card_info", 2, nif_card_info) \
     NIF("card_next", 1, nif_card_next)
-
-typedef struct _helem_t {
-    struct _helem_t* next;  // next in chain    
-    ERL_NIF_TERM* atm_ptr;  // the hash atom
-    unsigned int  enm;      // enumerated value
-    unsigned int  hval;     // hash value
-} helem_t;
-
-static unsigned int hash_atom(ERL_NIF_TERM term)
-{
-    return (term >> 6);
-}
-
-static void hash_helems(char* hname, helem_t** hvec, size_t hsize,
-			helem_t* elems)
-{
-    int i = 0;
-
-    DEBUGF("hash table %s size %u", hname, hsize);
-    memset(hvec, 0, hsize*sizeof(helem_t*));
-
-    while(elems[i].atm_ptr != NULL) {
-	unsigned int hval = hash_atom(*elems[i].atm_ptr);
-	unsigned int ix = hval % hsize;
-	if (hvec[i] != NULL) DEBUGF("hash conflict %d", i);
-	elems[i].next = hvec[ix];
-	elems[i].hval = hval;
-	hvec[ix] = &elems[i];
-	i++;
-    }
-}
-
-static int lookup_atom(helem_t** hvec, size_t hsize, ERL_NIF_TERM arg)
-{
-    unsigned int hval = hash_atom(arg);
-    unsigned int ix = hval % hsize;
-    helem_t* ptr = hvec[ix];
-    while(ptr) {
-	if (*ptr->atm_ptr == arg)
-	    return (int) ptr->enm;
-	ptr = ptr->next;
-    }
-    return -1;
-}
-
-#define HELEM(a, e) { .next = NULL, .atm_ptr = &(a), .enm = (e), .hval = 0}
 
 enum {
     HW_FORMAT,
@@ -307,62 +217,13 @@ helem_t sw_elems[] =
     { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}
 };
 
-
+#undef SND_FORMAT
+#define SND_FORMAT(atm, form) HELEM(ATOM(atm), form),
 helem_t format_elems[] =
 {
-    HELEM(ATOM(s8), SND_PCM_FORMAT_S8),
-    HELEM(ATOM(u8), SND_PCM_FORMAT_U8),
-    HELEM(ATOM(s16_le), SND_PCM_FORMAT_S16_LE),
-    HELEM(ATOM(s16_be), SND_PCM_FORMAT_S16_BE),
-    HELEM(ATOM(u16_le), SND_PCM_FORMAT_U16_LE),
-    HELEM(ATOM(u16_be), SND_PCM_FORMAT_U16_BE),
-    HELEM(ATOM(s24_le), SND_PCM_FORMAT_S24_LE),
-    HELEM(ATOM(s24_be), SND_PCM_FORMAT_S24_BE),
-    HELEM(ATOM(u24_le), SND_PCM_FORMAT_U24_LE),
-    HELEM(ATOM(u24_be), SND_PCM_FORMAT_U24_BE),
-    HELEM(ATOM(s32_le), SND_PCM_FORMAT_S32_LE),
-    HELEM(ATOM(s32_be), SND_PCM_FORMAT_S32_BE),
-    HELEM(ATOM(u32_le), SND_PCM_FORMAT_U32_LE),
-    HELEM(ATOM(u32_be), SND_PCM_FORMAT_U32_BE),
-    HELEM(ATOM(float_le), SND_PCM_FORMAT_FLOAT_LE),
-    HELEM(ATOM(float_be), SND_PCM_FORMAT_FLOAT_BE),
-    HELEM(ATOM(float64_le), SND_PCM_FORMAT_FLOAT64_LE),
-    HELEM(ATOM(float64_be), SND_PCM_FORMAT_FLOAT64_BE),
-    HELEM(ATOM(iec958_subframe_le), SND_PCM_FORMAT_IEC958_SUBFRAME_LE),
-    HELEM(ATOM(iec958_subframe_be), SND_PCM_FORMAT_IEC958_SUBFRAME_BE),
-    HELEM(ATOM(mu_law), SND_PCM_FORMAT_MU_LAW),
-    HELEM(ATOM(a_law), SND_PCM_FORMAT_A_LAW),
-    HELEM(ATOM(ima_adpcm), SND_PCM_FORMAT_IMA_ADPCM),
-    HELEM(ATOM(mpeg), SND_PCM_FORMAT_MPEG),
-    HELEM(ATOM(gsm), SND_PCM_FORMAT_GSM),
-    HELEM(ATOM(s20_le), SND_PCM_FORMAT_S20_LE),
-    HELEM(ATOM(s20_be), SND_PCM_FORMAT_S20_BE),
-    HELEM(ATOM(u20_le), SND_PCM_FORMAT_U20_LE),
-    HELEM(ATOM(u20_be), SND_PCM_FORMAT_U20_BE),
-    HELEM(ATOM(s24_3le), SND_PCM_FORMAT_S24_3LE),
-    HELEM(ATOM(s24_3be), SND_PCM_FORMAT_S24_3BE),
-    HELEM(ATOM(u24_3le), SND_PCM_FORMAT_U24_3LE),
-    HELEM(ATOM(u24_3be), SND_PCM_FORMAT_U24_3BE),
-    HELEM(ATOM(s20_3le), SND_PCM_FORMAT_S20_3LE),
-    HELEM(ATOM(s20_3be), SND_PCM_FORMAT_S20_3BE),
-    HELEM(ATOM(u20_3le), SND_PCM_FORMAT_U20_3LE),
-    HELEM(ATOM(u20_3be), SND_PCM_FORMAT_U20_3BE),
-    HELEM(ATOM(s18_3le), SND_PCM_FORMAT_S18_3LE),
-    HELEM(ATOM(s18_3be), SND_PCM_FORMAT_S18_3BE),
-    HELEM(ATOM(u18_3le), SND_PCM_FORMAT_U18_3LE),
-    HELEM(ATOM(u18_3be), SND_PCM_FORMAT_U18_3BE),
-    HELEM(ATOM(g723_24), SND_PCM_FORMAT_G723_24),
-    HELEM(ATOM(g723_24_1b), SND_PCM_FORMAT_G723_24_1B),
-    HELEM(ATOM(g723_40), SND_PCM_FORMAT_G723_40),
-    HELEM(ATOM(g723_40_1b), SND_PCM_FORMAT_G723_40_1B),
-    HELEM(ATOM(dsd_u8), SND_PCM_FORMAT_DSD_U8),
-    HELEM(ATOM(dsd_u16_le), SND_PCM_FORMAT_DSD_U16_LE),
-    HELEM(ATOM(dsd_u32_le), SND_PCM_FORMAT_DSD_U32_LE),
-    HELEM(ATOM(dsd_u16_be), SND_PCM_FORMAT_DSD_U16_BE),
-    HELEM(ATOM(dsd_u32_be), SND_PCM_FORMAT_DSD_U32_BE),
+    SND_FORMAT_LIST
     { .next = NULL, .atm_ptr = NULL, .enm = 0, .hval = 0}    
 };
-
 
 enum {
     INFO_ID,
@@ -523,57 +384,10 @@ static ERL_NIF_TERM make_bad_handle(ErlNifEnv* env) {
 
 static ERL_NIF_TERM make_format(ErlNifEnv* env, snd_pcm_format_t format)
 {
+#undef SND_FORMAT
+#define SND_FORMAT(a,f) case f: return ATOM(a);
     switch(format) {
-    case SND_PCM_FORMAT_S8: return ATOM(s8);
-    case SND_PCM_FORMAT_U8: return ATOM(u8);
-    case SND_PCM_FORMAT_S16_LE: return ATOM(s16_le);
-    case SND_PCM_FORMAT_S16_BE: return ATOM(s16_be);
-    case SND_PCM_FORMAT_U16_LE: return ATOM(u16_le);
-    case SND_PCM_FORMAT_U16_BE: return ATOM(u16_be);
-    case SND_PCM_FORMAT_S24_LE: return ATOM(s24_le);
-    case SND_PCM_FORMAT_S24_BE: return ATOM(s24_be);
-    case SND_PCM_FORMAT_U24_LE: return ATOM(u24_le);
-    case SND_PCM_FORMAT_U24_BE: return ATOM(u24_be);
-    case SND_PCM_FORMAT_S32_LE: return ATOM(s32_le);
-    case SND_PCM_FORMAT_S32_BE: return ATOM(s32_be);
-    case SND_PCM_FORMAT_U32_LE: return ATOM(u32_le);
-    case SND_PCM_FORMAT_U32_BE: return ATOM(u32_be);
-    case SND_PCM_FORMAT_FLOAT_LE: return ATOM(float_le);
-    case SND_PCM_FORMAT_FLOAT_BE: return ATOM(float_be);
-    case SND_PCM_FORMAT_FLOAT64_LE: return ATOM(float64_le);
-    case SND_PCM_FORMAT_FLOAT64_BE: return ATOM(float64_be);
-    case SND_PCM_FORMAT_IEC958_SUBFRAME_LE: return ATOM(iec958_subframe_le);
-    case SND_PCM_FORMAT_IEC958_SUBFRAME_BE: return ATOM(iec958_subframe_be);
-    case SND_PCM_FORMAT_MU_LAW: return ATOM(mu_law);
-    case SND_PCM_FORMAT_A_LAW: return ATOM(a_law);
-    case SND_PCM_FORMAT_IMA_ADPCM: return ATOM(ima_adpcm);
-    case SND_PCM_FORMAT_MPEG: return ATOM(mpeg);
-    case SND_PCM_FORMAT_GSM: return ATOM(gsm);
-    case SND_PCM_FORMAT_S20_LE: return ATOM(s20_le);
-    case SND_PCM_FORMAT_S20_BE: return ATOM(s20_be);
-    case SND_PCM_FORMAT_U20_LE: return ATOM(u20_le);
-    case SND_PCM_FORMAT_U20_BE: return ATOM(u20_be);
-    case SND_PCM_FORMAT_S24_3LE: return ATOM(s24_3le);
-    case SND_PCM_FORMAT_S24_3BE: return ATOM(s24_3be);
-    case SND_PCM_FORMAT_U24_3LE: return ATOM(u24_3le);
-    case SND_PCM_FORMAT_U24_3BE: return ATOM(u24_3be);
-    case SND_PCM_FORMAT_S20_3LE: return ATOM(s20_3le);
-    case SND_PCM_FORMAT_S20_3BE: return ATOM(s20_3be);
-    case SND_PCM_FORMAT_U20_3LE: return ATOM(u20_3le);
-    case SND_PCM_FORMAT_U20_3BE: return ATOM(u20_3be);
-    case SND_PCM_FORMAT_S18_3LE: return ATOM(s18_3le);
-    case SND_PCM_FORMAT_S18_3BE: return ATOM(s18_3be);
-    case SND_PCM_FORMAT_U18_3LE: return ATOM(u18_3le);
-    case SND_PCM_FORMAT_U18_3BE: return ATOM(u18_3be);
-    case SND_PCM_FORMAT_G723_24: return ATOM(g723_24);
-    case SND_PCM_FORMAT_G723_24_1B: return ATOM(g723_24_1b);
-    case SND_PCM_FORMAT_G723_40: return ATOM(g723_40);
-    case SND_PCM_FORMAT_G723_40_1B: return ATOM(g723_40_1b);
-    case SND_PCM_FORMAT_DSD_U8: return ATOM(dsd_u8);
-    case SND_PCM_FORMAT_DSD_U16_LE: return ATOM(dsd_u16_le);
-    case SND_PCM_FORMAT_DSD_U32_LE: return ATOM(dsd_u32_le);
-    case SND_PCM_FORMAT_DSD_U16_BE: return ATOM(dsd_u16_be);
-    case SND_PCM_FORMAT_DSD_U32_BE: return ATOM(dsd_u32_be);
+SND_FORMAT_LIST_BUILTIN
     default: return ATOM(undefined);
     }
 }
@@ -821,7 +635,6 @@ error:
     *result = enif_make_int(env, err);
     return err;
 }
-
 
 static int set_hw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 			 ERL_NIF_TERM arg,
@@ -2146,58 +1959,11 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(disconnected);
     LOAD_ATOM(private1);
 
-    // format
-    LOAD_ATOM(s8);
-    LOAD_ATOM(u8);
-    LOAD_ATOM(s16_le);
-    LOAD_ATOM(s16_be);
-    LOAD_ATOM(u16_le);
-    LOAD_ATOM(u16_be);
-    LOAD_ATOM(s24_le);
-    LOAD_ATOM(s24_be);
-    LOAD_ATOM(u24_le);
-    LOAD_ATOM(u24_be);
-    LOAD_ATOM(s32_le);
-    LOAD_ATOM(s32_be);
-    LOAD_ATOM(u32_le);
-    LOAD_ATOM(u32_be);
-    LOAD_ATOM(float_le);
-    LOAD_ATOM(float_be);
-    LOAD_ATOM(float64_le);
-    LOAD_ATOM(float64_be);
-    LOAD_ATOM(iec958_subframe_le);
-    LOAD_ATOM(iec958_subframe_be);
-    LOAD_ATOM(mu_law);
-    LOAD_ATOM(a_law);
-    LOAD_ATOM(ima_adpcm);
-    LOAD_ATOM(g723_24);
-    LOAD_ATOM(g723_40);
-    LOAD_ATOM(dsd_u8);
-    LOAD_ATOM(dsd_u16_le);
-    LOAD_ATOM(dsd_u32_le);
-    LOAD_ATOM(dsd_u16_be);
-    LOAD_ATOM(dsd_u32_be);
-    LOAD_ATOM(mpeg);
-    LOAD_ATOM(gsm);
-    LOAD_ATOM(s20_le);
-    LOAD_ATOM(s20_be);
-    LOAD_ATOM(u20_le);
-    LOAD_ATOM(u20_be);
-    LOAD_ATOM(s24_3le);
-    LOAD_ATOM(s24_3be);
-    LOAD_ATOM(u24_3le);
-    LOAD_ATOM(u24_3be);
-    LOAD_ATOM(s20_3le);
-    LOAD_ATOM(s20_3be);
-    LOAD_ATOM(u20_3le);
-    LOAD_ATOM(u20_3be);
-    LOAD_ATOM(s18_3le);
-    LOAD_ATOM(s18_3be);
-    LOAD_ATOM(u18_3le);
-    LOAD_ATOM(u18_3be);
-    LOAD_ATOM(g723_24_1b);
-    LOAD_ATOM(g723_40_1b);
-    
+    // format - use SND_FORMAT_LIST to load all atom formats
+#undef SND_FORMAT
+#define SND_FORMAT(atm, form) LOAD_ATOM(atm);
+SND_FORMAT_LIST
+
     return 0;
 }
 

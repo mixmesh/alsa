@@ -258,17 +258,6 @@ kaiser_beta(_) -> 0.0.
 kaiser_atten(NumTaps, Width) ->
     2.285*(NumTaps-1) * math:pi()*Width + 7.
 
-
-%% -define(i8(X), ((X) bsl 24)).
-%% -define(i16(X), ((X) bsl 16)).
-%% -define(i24(X), ((X) bsl 8)).
-%% -define(i32(X), ((X))).
-
-%% -define(u8(X), (((X)-16#80) bsl 24)).
-%% -define(u16(X), (((X)-16#8000) bsl 16)).
-%% -define(u24(X), (((X)-16#800000) bsl 8)).
-%% -define(u32(X), (((X)-16#80000000))).
-
 -spec decode_frame(Frame::binary(), SrcFormat::alsa:format()) -> [float01()].
 decode_frame(Frame, SrcFormat) ->
     case SrcFormat of
@@ -276,20 +265,29 @@ decode_frame(Frame, SrcFormat) ->
 	u8 -> [ (X-16#80)/16#7f || <<X:8/unsigned>> <= Frame];
 	s16_le -> [ (X/16#7fff) || <<X:16/signed-little>> <= Frame];
 	s16_be -> [ (X/16#7fff) || <<X:16/signed-big>> <= Frame];
+	s16    -> [ (X/16#7fff) || <<X:16/signed-native>> <= Frame];
 	u16_le -> [ ((X-16#8000)/16#7fff) || <<X:16/unsigned-little>> <= Frame];
 	u16_be -> [ ((X-16#8000)/16#7fff) || <<X:16/unsigned-big>> <= Frame];
+	u16 ->    [ ((X-16#8000)/16#7fff) || <<X:16/unsigned-native>> <= Frame];
 	s24_le -> [ (X/16#7fffff) || <<X:32/signed-little>> <= Frame];
 	s24_be -> [ (X/16#7fffff) || <<X:32/signed-big>> <= Frame];
+	s24 -> [ (X/16#7fffff) || <<X:32/signed-native>> <= Frame];
 	u24_le -> [ ((X-16#8000)/16#7fffff) || <<X:32/unsigned-little>> <= Frame];
 	u24_be -> [ ((X-16#8000)/16#7fffff) || <<X:32/unsigned-big>> <= Frame];
+	u24 -> [ ((X-16#8000)/16#7fffff) || <<X:32/unsigned-native>> <= Frame];
 	s32_le -> [ (X/16#7fffffff) || <<X:32/signed-little>> <= Frame];
 	s32_be -> [ (X/16#7fffffff) || <<X:32/signed-big>> <= Frame];
+	s32 -> [ (X/16#7fffffff) || <<X:32/signed-native>> <= Frame];
+	
 	u32_le -> [ ((X-16#8000)/16#7fffffff) || <<X:32/unsigned-little>> <= Frame];
 	u32_be -> [ ((X-16#8000)/16#7fffffff) || <<X:32/unsigned-big>> <= Frame];
+	u32 -> [ ((X-16#8000)/16#7fffffff) || <<X:32/unsigned-native>> <= Frame];
 	float_le -> [ X || <<X:32/float-little>> <= Frame];
 	float_be -> [ X || <<X:32/float-big>> <= Frame];
+	float -> [ X || <<X:32/float-native>> <= Frame];
 	float64_le -> [ X || <<X:64/float-little>> <= Frame];
 	float64_be -> [ X || <<X:64/float-big>> <= Frame];
+	float64 -> [ X || <<X:64/float-native>> <= Frame];
 	mu_law -> [ (mu_law_decode(X) / 16#7fff) || <<X>> <= Frame ];
 	a_law -> [ (a_law_decode(X) / 16#7fff) || <<X>> <= Frame ]
     end.
@@ -302,24 +300,32 @@ encode_frame(Xs, DstFormat) ->
 	s8 -> << <<(trunc(X*16#7f)):8/signed>> || X <- Xs>>;
 	s16_le -> << <<(trunc(X*16#7fff)):16/signed-little>> || X <- Xs >>;
 	s16_be -> << <<(trunc(X*16#7fff)):16/signed-big>> || X <- Xs >>;
+	s16 -> << <<(trunc(X*16#7fff)):16/signed-native>> || X <- Xs >>;
 	s24_le -> << <<(trunc(X*16#7fffffff)):32/signed-little>> || X <- Xs >>;
 	s24_be -> << <<(trunc(X*16#7fffffff)):32/signed-big>> || X <- Xs >>;
+	s24 -> << <<(trunc(X*16#7fffffff)):32/signed-native>> || X <- Xs >>;
 	s32_le -> << <<X:32/signed-little>> || X <- Xs >>;
 	s32_be -> << <<X:32/signed-big>> || X <- Xs >>;
+	s32 -> << <<X:32/signed-native>> || X <- Xs >>;
 
 	u8 -> << <<(trunc(X*16#7f)+16#80):8/unsigned>> || X <- Xs>>;
 	u16_le -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-little>> || X <- Xs >>;
 	u16_be -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-big>> || X <- Xs >>;
+	u16 -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-native>> || X <- Xs >>;
 	u24_le -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-little>> || X <- Xs >>;
 	u24_be -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-big>> || X <- Xs >>;
+	u24 -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-native>> || X <- Xs >>;
 	u32_le -> << <<(X+16#80000000):32/unsigned-little>> || X <- Xs >>;
 	u32_be -> << <<(X+16#80000000):32/unsigned-big>> || X <- Xs >>;
+	u32 -> << <<(X+16#80000000):32/unsigned-native>> || X <- Xs >>;
 	mu_law -> << <<(mu_law_encode(trunc(X*16#7fff)))>> || X <- Xs >>;
 	a_law -> << <<(a_law_encode(trunc(X*16#7fff)))>> || X <- Xs >>;
 	float_le -> << <<X:32/float-little>> || X <- Xs >>;
 	float_be -> << <<X:32/float-big>>    || X <- Xs >>;
+	float -> << <<X:32/float-native>>    || X <- Xs >>;
 	float64_le -> << <<X:64/float-little>> || X <- Xs >>;
-	float64_be -> << <<X:64/float-big>>    || X <- Xs >>
+	float64_be -> << <<X:64/float-big>>    || X <- Xs >>;
+	float64 -> << <<X:64/float-native>>    || X <- Xs >>
     end.
 
 
@@ -329,54 +335,63 @@ encode_sample(Format, X) ->
 	u8 -> <<(X+16#80)>> ;
 	s16_le -> <<X:16/signed-little>> ;
 	s16_be -> <<X:16/signed-big>> ;
+	s16 -> <<X:16/signed-native>> ;
 	s24_le -> <<(X band 16#ffffff):32/little>> ;
 	s24_be -> <<(X band 16#ffffff):32/big>> ;
+	s24 -> <<(X band 16#ffffff):32/native>> ;
 	s32_le -> <<X:32/signed-little>> ;
 	s32_be -> <<X:32/signed-big>> ;
-
+	s32 -> <<X:32/signed-native>> ;
 	u16_le -> <<(X+16#8000):16/unsigned-little>> ;
 	u16_be -> <<(X+16#8000):16/unsigned-big>> ;
+	u16 -> <<(X+16#8000):16/unsigned-native>> ;
 	u24_le -> <<(X+16#800000):32/unsigned-little>> ;
 	u24_be -> <<(X+16#800000):32/unsigned-big>> ;
+	u24 -> <<(X+16#800000):32/unsigned-native>> ;
 	u32_le -> <<(X+16#80000000):32/unsigned-little>> ;
 	u32_be -> <<(X+16#80000000):32/unsigned-big>> ;
+	u32 -> <<(X+16#80000000):32/unsigned-native>> ;
 	mu_law -> <<(mu_law_encode(X))>> ;
 	a_law -> <<(a_law_encode(X))>> ;
 	float_le -> <<X:32/float-little>> ;
 	float_be -> <<X:32/float-big>>    ;
+	float -> <<X:32/float-native>>    ;
 	float64_le -> <<X:64/float-little>> ;
-	 float64_be -> <<X:64/float-big>>
+	float64_be -> <<X:64/float-big>>;
+	float64 -> <<X:64/float-native>>
     end.
 
-decode_sample(Format, Bin) ->
-    case Format of
-	s8 -> <<X:8/signed>> = Bin, X;
-	s16_le -> <<X:16/signed-little>> = Bin, X;
-	s16_be -> <<X:16/signed-big>> = Bin, X;
-	s24_le -> <<X:32/signed-little>> = Bin,
-		  <<Y:24/signed>> = <<X:24/signed>>,
-		  Y;
-	s24_be -> <<X:32/signed-big>> = Bin,
-		  <<Y:24/signed>> = <<X:24/signed>>,
-		  Y;
-	s32_le -> <<X:32/signed-little>> = Bin, X;
-	s32_be -> <<X:32/signed-big>> = Bin, X;
-
-	u8 -> <<X>> = Bin, X - 16#80;
-	u16_le -> <<X:16/unsigned-little>> = Bin, X-16#8000;
-	u16_be -> <<X:16/unsigned-big>> = Bin, X-16#8000;
-	u24_le -> <<X:32/unsigned-little>> = Bin, X-16#800000;
-	u24_be -> <<X:32/unsigned-big>> = Bin, X-16#800000;
-	u32_le -> <<X:32/unsigned-little>> = Bin, X-16#80000000;
-	u32_be -> <<X:32/unsigned-big>> = Bin, X-16#80000000;
-
-	mu_law -> <<X:8>> = Bin, mu_law_decode(X);
-	a_law ->  <<X:8>> = Bin, a_law_decode(X);
-	float_le -> <<X:32/float-little>> = Bin, X;
-	float_be -> <<X:32/float-big>>  = Bin, X;
-	float64_le -> <<X:64/float-little>> = Bin, X;
-	float64_be -> <<X:64/float-big>>  = Bin, X
-    end.
+decode_sample(s8, <<X:8/signed,_/binary>>) -> X;
+decode_sample(s16_le, <<X:16/signed-little,_/binary>>) -> X;
+decode_sample(s16_be, <<X:16/signed-big,_/binary>>) -> X;
+decode_sample(s16, <<X:16/signed-native,_/binary>>) -> X;
+decode_sample(s24_le, <<X:32/signed-little,_/binary>>) ->
+    <<Y:24/signed>> = <<X:24/signed>>, Y;
+decode_sample(s24_be, <<X:32/signed-big,_/binary>>) ->
+    <<Y:24/signed>> = <<X:24/signed>>, Y;
+decode_sample(s24, <<X:32/signed-native,_/binary>>) ->
+    <<Y:24/signed>> = <<X:24/signed>>, Y;
+decode_sample(s32_le, <<X:32/signed-little,_/binary>>) -> X;
+decode_sample(s32_be, <<X:32/signed-big,_/binary>>) -> X;
+decode_sample(s32, <<X:32/signed-native,_/binary>>) -> X;
+decode_sample(u8, <<X,_/binary>>) ->X - 16#80;
+decode_sample(u16_le, <<X:16/unsigned-little,_/binary>>) -> X-16#8000;
+decode_sample(u16_be, <<X:16/unsigned-big,_/binary>>) -> X-16#8000;
+decode_sample(u16, <<X:16/unsigned-native,_/binary>>) -> X-16#8000;
+decode_sample(u24_le, <<X:32/unsigned-little,_/binary>>) -> X-16#800000;
+decode_sample(u24_be, <<X:32/unsigned-big,_/binary>>) -> X-16#800000;
+decode_sample(u24, <<X:32/unsigned-native,_/binary>>) -> X-16#800000;
+decode_sample(u32_le, <<X:32/unsigned-little,_/binary>>) -> X-16#80000000;
+decode_sample(u32_be, <<X:32/unsigned-big,_/binary>>) -> X-16#80000000;
+decode_sample(u32, <<X:32/unsigned-native,_/binary>>) -> X-16#80000000;
+decode_sample(mu_law, <<X:8,_/binary>>) -> mu_law_decode(X);
+decode_sample(a_law, <<X:8,_/binary>>) -> a_law_decode(X);
+decode_sample(float_le, <<X:32/float-little,_/binary>>) -> X;
+decode_sample(float_be, <<X:32/float-big,_/binary>>) -> X;
+decode_sample(float, <<X:32/float-native,_/binary>>) -> X;
+decode_sample(float64_le, <<X:64/float-little,_/binary>>) -> X;
+decode_sample(float64_be, <<X:64/float-big,_/binary>>) -> X;
+decode_sample(float64, <<X:64/float-native,_/binary>>) -> X.
 
 
 aLawDecompressTable() ->
@@ -640,10 +655,42 @@ midi_name_to_note([C,N]) ->
 	$B -> 11
     end + 12*((N - $0)+1).
 
-midi_note_to_frequency(N) -> 
-    midi_play:note_to_frequency(N).
-
-
+midi_note_to_frequency(Note) -> 
+    element(Note+1,
+	    {
+	     8.18,    8.66,   9.18,   9.72,   10.30,  10.91,  11.56,  12.25, 
+	     12.98,  13.75,  14.57,  15.43,
+	     %% C0
+	     16.35,  17.32,  18.35,  19.45,  20.60,  21.83,  23.12,  24.50,
+	     25.96,  27.50,  29.14,  30.87,
+	     %% C1
+	     32.70,  34.65,  36.71,  38.89,  41.20,  43.65,  46.25,  49.00,
+	     51.91,  55.00,  58.27,  61.74,
+	     %% C2
+	     65.41,  69.30,  73.42,  77.78,  82.41,  87.31,  92.50,  98.00,
+	     103.83, 110.00, 116.54, 123.47,
+	     %% C3
+	     130.81, 138.59, 146.83, 155.56,
+	     164.81, 174.61, 185.00, 196.00, 207.65, 220.00, 233.08, 246.94, 
+	     %% C4
+	     261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392.00, 
+	     415.30, 440.00, 466.16, 493.88, 
+	     %% C5
+	     523.25, 554.37, 587.33, 622.25, 659.26, 698.46, 739.99, 783.99,
+	     830.61, 880.00, 932.33, 987.77,
+	     %% C6
+	     1046.50, 1108.73, 1174.66, 1244.51, 1318.51, 1396.91, 1479.98,
+	     1567.98, 1661.22, 1760.00, 1864.66, 1975.53,
+	     %% C7
+	     2093.00, 2217.46, 2349.32, 2489.02, 2637.02, 2793.83, 2959.96,
+	     3135.96, 3322.44, 3520.00, 3729.31, 3951.07, 
+	     %% C8
+	     4186.01, 4434.92, 4698.64, 4978.03, 5274.04, 5587.65, 5919.91, 
+	     6271.93, 6644.88, 7040.00, 7458.62, 7902.13, 
+	     %% C9
+	     8372.02, 8869.84, 9397.27, 9956.06, 10548.08, 11175.30, 
+	     11839.82, 12543.85
+	    }).
     
 %%
 %% Testing
@@ -663,7 +710,7 @@ test_a_law() ->
 test_float() ->
     Xs  = [-1.0,-0.7,-0.5,-0.2, 0.0, 0.2, 0.5, 0.7, 1.0],
     Bin = encode_frame(Xs, float_le),
-    Ys  =  decode_frame(Bin, float_le),
+    Ys  = decode_frame(Bin, float_le),
     true = lists:all(fun({X,Y}) -> abs(X-Y) < 0.001 end,
 		     lists:zip(Xs,Ys)).
 

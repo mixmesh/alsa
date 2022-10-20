@@ -33,7 +33,7 @@ test1() ->
     erlang:start_timer(5000, self(), stop),
     alsa_play:run(),
     alsa_play:resume(),
-    test_notify_loop(),    
+    test_notify_loop(),
     alsa_play:remove(1),
     ok.
 
