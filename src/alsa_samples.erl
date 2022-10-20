@@ -73,7 +73,7 @@
 		    const | none | custom().
 -type envmode() :: off|linear|quadratic|sustain.  %% (linear)
 -type envelem() :: Duration::number() | {Duration::number(), Mode::envmode()}.
--type formdef() :: #{ index => waveinf(),
+-type formdef() :: #{ index => waveind(),
 		      form => waveform(),
 		      freq => frequency() | string(),
 		      level => float01(),
