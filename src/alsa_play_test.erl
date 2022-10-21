@@ -462,6 +462,34 @@ test_left_right() ->
     alsa_play:remove(1),
     ok.
 
+complex(E) ->
+    [{envelope,E},
+     {wave,0, [#{ form=>sine, freq=>"A3", level=>0.0},
+	       #{ form=>sine, freq=>"D4", level=>0.9},
+	       #{ form=>sine, freq=>"D5", level=>0.9},
+	       #{ form=>sine, freq=>"A3", level=>0.0}
+	      ]},
+     
+     {wave,1, [#{ form=>sine, freq=>"G3", level=>0.0},
+	       #{ form=>sine, freq=>"G3", level=>0.9},
+	       #{ form=>sine, freq=>"G4", level=>0.9},
+	       #{ form=>sine, freq=>"G3", level=>0.0}]},
+     
+     {wave,2, [#{ form=>sine, freq=>"E3", level=>0.0},
+	       #{ form=>sine, freq=>"E3", level=>0.9},
+	       #{ form=>sine, freq=>"E4", level=>0.9},
+	       #{ form=>sine, freq=>"E3", level=>0.0}]}
+    ].
+
+simple(E) ->
+    [{envelope,E},
+     {wave,0, [#{ form=>sine, freq=>"A2", level=>0.0},
+	       #{ form=>sine, freq=>"A2", level=>0.9},
+	       #{ form=>sine, freq=>"A2", level=>0.9},
+	       #{ form=>sine, freq=>"A2", level=>0.0}
+	      ]}
+    ].
+
 test_wave() ->
     alsa_play:start(#{ rate => 44100, latency => 50 }),
     alsa_play:remove(),
@@ -470,23 +498,7 @@ test_wave() ->
     E = [0.2, 0.5, 0.2],
     D = trunc(1000*lists:sum(E)),
 
-    alsa_play:set_wave(1, [{envelope,E},
-			   {wave,0, [#{ form=>sine, freq=>"A3", level=>0.0},
-				     #{ form=>sine, freq=>"D4", level=>0.9},
-				     #{ form=>sine, freq=>"D5", level=>0.9},
-				     #{ form=>sine, freq=>"A3", level=>0.0}
-				    ]},
-			   
-			   {wave,1, [#{ form=>sine, freq=>"G3", level=>0.0},
-				     #{ form=>sine, freq=>"G3", level=>0.9},
-				     #{ form=>sine, freq=>"G4", level=>0.9},
-				     #{ form=>sine, freq=>"G3", level=>0.0}]},
-			   
-			   {wave,2, [#{ form=>sine, freq=>"E3", level=>0.0},
-				     #{ form=>sine, freq=>"E3", level=>0.9},
-				     #{ form=>sine, freq=>"E4", level=>0.9},
-				     #{ form=>sine, freq=>"E3", level=>0.0}]}
-			  ]),
+    alsa_play:set_wave(1, simple(E)),
     alsa_play:mark(1, {time,D}, [notify,{set,bof}], restart),
     erlang:start_timer(3*D, self(), stop),
     alsa_play:run(),
@@ -559,6 +571,22 @@ shape_files() ->
     lists:foreach(fun(File) -> shape_file(File) end, Float32),
     ok.
 
+wave1(E) ->
+    [{envelope,E},
+     {wave,0, [#{ form=>custom1, freq=>"A3", level=>0.0},
+	       #{ form=>custom1, freq=>"A4", level=>0.9},
+	       #{ form=>custom1, freq=>"A3", level=>0.9},
+	       #{ form=>custom1, freq=>"A3", level=>0.0}
+	      ]}].
+
+wave2(E) ->
+    [{envelope,E},
+     {wave,0, [#{ form=>custom1, freq=>"A3", level=>0.0},
+	       #{ form=>custom1, freq=>"A3", level=>0.9},
+	       #{ form=>custom1, freq=>"A3", level=>0.9},
+	       #{ form=>custom1, freq=>"A3", level=>0.0}
+	      ]}].
+
 %% listen to shape files
 shape_file(Filename) ->
     io:format("shape: ~p\n", [Filename]),
@@ -573,12 +601,7 @@ shape_file(Filename) ->
 
     alsa_play:append_file(1,custom1,filename:join(Sounds, Filename)),
 
-    alsa_play:set_wave(1, [{envelope,E},
-			   {wave,0, [#{ form=>custom1, freq=>"A3", level=>0.0},
-				     #{ form=>custom1, freq=>"A4", level=>0.9},
-				     #{ form=>custom1, freq=>"A3", level=>0.9},
-				     #{ form=>custom1, freq=>"A3", level=>0.0}
-				    ]}]),
+    alsa_play:set_wave(1, wave2(E)),
 
     alsa_play:mark(1, {time,D}, [notify,stop], stop),
     %% erlang:start_timer(D, self(), stop),

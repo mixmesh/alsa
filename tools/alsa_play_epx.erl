@@ -30,6 +30,8 @@
 	]).
 -export([handle_info/2]).
 
+-export([send_samples/4]).  %% alsa_play callback
+
 %% profile with default values
 -record(profile,
 	{
@@ -42,36 +44,28 @@
 	 menu_border_color             = green
 	}).
 
-%% -define(verbose(F,A), ok).
--define(verbose(F,A), io:format((F),(A))).
+-define(verbose(F,A), ok).
+%% -define(verbose(F,A), io:format((F),(A))).
 
 -define(VIEW_WIDTH,  1024).
 -define(VIEW_HEIGHT, 576).
 -define(TEXT_COLOR, {0,0,0,0}).       %% black text
 -define(BORDER, 2).
 
-menu(DrawFFT) ->
+menu_def(Freq,DrawFFT) ->
     [
      {"FFT="++if DrawFFT -> "ON"; true -> "OFF" end, "F"},
-     {"1Hz",  "1"},
-     {"10Hz", "2"},
-     {"50Hz", "3"}
+     {check(Freq,1)++"1Hz",  "1"},
+     {check(Freq,10)++"10Hz", "2"},
+     {check(Freq,50)++"50Hz", "3"}
     ].
+
+check(Value,Value) -> ">";
+check(_, _) -> " ".
 
 start() ->
     application:ensure_all_started(epx),
-    epxw:start(#{ module => ?MODULE,
-		  %% demo select as fun
-		  select => fun(Event={_Phase,Rect={X,Y,W,H}}, State) -> 
-				    ?verbose("SELECT FUN: ~w\n", [Event]),
-				    OldRect = maps:get(selection, State),
-				    epxw:invalidate(OldRect),
-				    epxw:invalidate({X-?BORDER-2,Y-?BORDER-2,
-						     W+2*?BORDER+4,
-						     H+2*?BORDER+4}),
-				    State#{ selection => Rect }
-			    end
-		},
+    epxw:start(#{ module => ?MODULE },
 	       [hello,world], 
 	       [{title, "AlsaPlay"},
 		{scroll_horizontal, bottom},  %% none|top|bottom
@@ -92,13 +86,8 @@ init(_Opts) ->
     ?verbose("INIT: Opts=~w\n", [_Opts]),
     {ok,Font} = epx_font:match([{size,24}]),
     Ascent = epx:font_info(Font, ascent),
-    Self = self(),
-    alsa_play:set_callback(
-      fun(Samples, Len, Params) ->
-	      %% called in alsa_play server context!
-	      T = erlang:system_time(milli_seconds),
-	      Self ! {samples, T, Samples, Len, Params}
-      end),
+    SendFreq = 10,  %% 10Hz
+    alsa_play:set_callback(fun ?MODULE:send_samples/4, [SendFreq,self()]),
 
     Profile = #profile{},
 
@@ -106,14 +95,17 @@ init(_Opts) ->
 
     DrawFFT = false,
     Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
-			   menu(DrawFFT)),
+			   menu_def(SendFreq,DrawFFT)),
 
     Search = load_icon("outline_search_black_24dp.png"),
     Copy   = load_icon("outline_content_copy_black_24dp.png"),
     Home   = load_icon("outline_home_black_24dp.png"),
 
-    FFT    = alsa_fft:new(2048),
+    #{ period_size := Period } = alsa_play:get_params(),
+
+    FFT    = alsa_fft:new(Period),
     alsa_fft:set_hanning(FFT),
+    FFTSize = alsa_fft:size(FFT),
 
     State = 
 	#{ font => Font, 
@@ -122,16 +114,18 @@ init(_Opts) ->
 	   menu => Menu,
 	   tools => [Search, Copy, Home],
 	   selection => {0,0,0,0},
-	   time => erlang:system_time(milli_seconds),
-	   freq => 2, %% 1(1Hz),2(10Hz),3(50Hz),
+	   last_time => erlang:system_time(milli_seconds),
+	   period_size => Period,
+	   freq => SendFreq,
 	   draw_fft => DrawFFT,
-	   fft => FFT
+	   fft => FFT,
+	   fft_size => FFTSize
 	 },
     {ok, State}.
 
 load_icon(Filename) ->
     Path = filename:join(code:priv_dir(epx_demo), Filename),
-    io:format("load icon [~s]\n", [Path]),
+    ?verbose("load icon [~s]\n", [Path]),
     {ok, Image} = epx_image:load(Path),
     hd(Image#epx_image.pixmaps).
 
@@ -193,16 +187,25 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
 	    _FrameSize = alsa:format_size(Format,Channels),
 	    {Frames,Range} = 
 		case State of
-		    #{ draw_fft := true, fft := FFT } ->
+		    #{ draw_fft := true, fft := FFT,
+		       fft_size := FFTSize, period_size := Period } ->
 			[Data1|_] = alsa_fft:rfft(FFT, Format, Channels, Data),
+			Rate = maps:get(rate, Params, 16000),
+			FreqPerFFT = Rate/FFTSize,
+			?verbose("Period:~w FrameSize:~w, NumFrames:~w\n", 
+				 [Period,_FrameSize, _Len div _FrameSize]),
+			%% draw from 8.18 - 12543.85 hz (midi)
+			MinX = round(8.18 / FreqPerFFT),
+			MaxX = round(12543.85 / FreqPerFFT),
 			{alsa_util:decode_frame(Data1, float_le),
-			 {0,100,20,1000}};
+			 {0,40,MinX,min(MaxX,(Period div 2))}};
 		    _ ->
 			{alsa_util:decode_frame(Data, Format),
 			 {-1,1,0,10000}}
 		end,
 	    epx_gc:set_foreground_color(black),
-	    draw_frames(Pixels, Channels, ?VIEW_HEIGHT, Frames, Range);
+	    draw_frames(Pixels, Channels, ?VIEW_WIDTH, ?VIEW_HEIGHT,
+			Frames, Range);
 	_ ->
 	    ok
     end,
@@ -235,26 +238,35 @@ draw(_, _Pixels, _Area, State) ->
     State.
     
 
-menu({menu,_Pos}, State=#{ mprofile := MProfile, draw_fft := DrawFFT}) ->
+menu({menu,_Pos}, State=#{ mprofile := MProfile, 
+			   freq := Freq,
+			   draw_fft := DrawFFT}) ->
     Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
-			   menu(DrawFFT)),
+			   menu_def(Freq,DrawFFT)),
     {reply, Menu, State}.
     
-%% NOTE! this is overridden by the select fun above
-select({_Phase,Rect}, State) ->
+select({_Phase,Rect={X,Y,W,H}}, State) ->
     ?verbose("SELECT: ~w\n", [Rect]),
-    State# { selection => Rect }.
+    OldRect = maps:get(selection, State),
+    epxw:invalidate(OldRect),
+    epxw:invalidate({X-?BORDER-2,Y-?BORDER-2,
+		     W+2*?BORDER+4,
+		     H+2*?BORDER+4}),
+    State#{ selection => Rect }.
 
 motion(_Event={motion,_Button,_Pos}, State) ->
     ?verbose("MOTION: ~w\n", [_Event]),
     State.
 
 command($1, _Mod, State) ->
+    alsa_play:set_callback_args([1, self()]),
     {noreply, State#{ freq=>1 }};
 command($2, _Mod, State) ->
-    {noreply, State#{ freq=>2 }};
+    alsa_play:set_callback_args([10, self()]),
+    {noreply, State#{ freq=>10 }};
 command($3, _Mod, State) ->
-    {noreply, State#{ freq=>3 }};
+    alsa_play:set_callback_args([50, self()]),
+    {noreply, State#{ freq=>50 }};
 command($f, _Mod, State=#{ draw_fft := DrawFFT}) ->
     {noreply, State#{ draw_fft=> not DrawFFT }};
 command($F, Mod, State) when not Mod#keymod.shift ->
@@ -263,40 +275,48 @@ command(Key, Mod, State) ->
     ?verbose("COMMAND: Key=~w, Mod=~w\n", [Key, Mod]),
     {reply, {Key,Mod}, State}.
 
-handle_info({samples, TimeStamp, Data, NumBytes, Params},
-	    State=#{ freq := Freq, time := CurrentTime }) ->
-    Td = case Freq of
-	     1 -> 1000;
-	     2 -> 100;
-	     3 -> 20
-	 end,
-    %% io:format("samples: ~p\n", [{TimeStamp,NumBytes}]),
-    if TimeStamp - CurrentTime > Td ->
-	    epxw:invalidate(),
-	    %% io:format("invalidate curr=~w\n", [CurrentTime]),
-	    {noreply, State# { data => Data,
-			       data_len => NumBytes,
-			       data_params => Params,
-			       time => TimeStamp } };
-       true ->
-	    {noreply, State}
-    end;
+handle_info({samples, TimeStamp, Data, NumBytes, Params}, State) ->
+    epxw:invalidate(),
+    {noreply, State# { data => Data,
+		       data_len => NumBytes,
+		       data_params => Params,
+		       last_time => TimeStamp } };
 handle_info(_Info, State) ->
-    io:format("handle_info: ~p\n", [_Info]),
+    ?verbose("handle_info: ~p\n", [_Info]),
     {noreply, State}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% internal
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-draw_frames(Pixels, Channels, Height, Frames, Range) ->
-    draw_frame_(Pixels, 0, Channels, Height, Frames, Range).
+%% callback from alsa_play 
+%% usin alsa_play environment!!! not very nice!
+send_samples(Samples, Len, Params, [Freq,Pid]) ->
+    Td = 1000 div Freq,
+    TimeStamp = erlang:system_time(milli_seconds),
+    LastTime = case get(last_time) of
+		   undefined -> TimeStamp - Td;
+		   T0 -> T0
+	       end,
+    if TimeStamp - LastTime >= Td ->
+	    put(last_time, TimeStamp),
+	    Pid ! {samples, TimeStamp, Samples, Len, Params};
+       true ->
+	    ok
+    end.
 
-draw_frame_(Pixels, X, Channels, Height, Frames, 
+draw_frames(Pixels, Channels, Width, Height, Frames, Range) ->
+    draw_frame_(Pixels, 0, Channels, Width, Height, Frames, Range).
+
+draw_frame_(Pixels, X, Channels, Width, Height, Frames, 
 	    _Range={Min,Max,SkipFrames,MaxFrames}) ->
     Chan = center(Channels),
-    Frames1 = lists:nthtail(SkipFrames*Channels,Frames),
-    Frames2 = lists:sublist(Frames1, MaxFrames*Channels),
+    Frames1 = lists:nthtail(SkipFrames*Channels,Frames),    
+    Frames2 = lists:sublist(Frames1, max(0,MaxFrames-SkipFrames)*Channels),
+    XScale = case length(Frames2) of
+		 0 -> 1.0;
+		 L -> Width / L
+	     end,
     draw_chan(X, Chan, Channels, Frames2,
 	      fun(Xi, Yi) ->
 		      Yc = min(max(Yi,Min),Max),  %% clip
@@ -306,8 +326,9 @@ draw_frame_(Pixels, X, Channels, Height, Frames,
 			   end,
 		      Y0 = Hp,
 		      Yp = Hp*(1-Ys),
+		      Xp = Xi*XScale,
 		      %% epx:draw_point(Pixels, Xi, H*(1+Yi))
-		      epx:draw_line(Pixels, Xi, Y0, Xi, Yp)
+		      epx:draw_line(Pixels, Xp, Y0, Xp, Yp)
 	      end).
 
 draw_chan(X, Chan, Channels, Frames, Fun) ->
@@ -318,7 +339,7 @@ draw_chan_(X, I, Chan, N, Channels, [Y|Frames], Fun) ->
 	    draw_chan_(X, I+1, Chan, N-1, Channels, Frames, Fun); 
        true ->
 	    Fun(X, Y),
-	    draw_chan(X+1, Chan, Channels, lists:nthtail(N, Frames), Fun)
+	    draw_chan(X+1, Chan, Channels, lists:nthtail(N-1, Frames), Fun)
     end;
 draw_chan_(_X, _I, _Chan, _N, _Channels, [], _Fun) ->
     ok.

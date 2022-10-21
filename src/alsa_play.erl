@@ -39,7 +39,8 @@
 -export([restart/1, clear/1, remove/1]).
 -export([restart/0, clear/0, remove/0]).
 -export([pause/0, resume/0]).
--export([set_callback/1]).
+-export([set_callback/1, set_callback/2,set_callback_args/1]).
+-export([get_params/0]).
 
 -type channel() :: non_neg_integer().
 -type unsigned() :: non_neg_integer().
@@ -61,6 +62,12 @@
 %%-define(info(F,A), ok).
 -define(info(F,A), io:format((F),(A))).
 
+-type callback3() ::
+	fun((Samples::binary(),NumBytes::integer(),Params::map()) -> ok).
+-type callback4() ::
+	fun((Samples::binary(),NumBytes::integer(),
+	     Params::map(), Args::[term()]) -> ok).
+
 -record(state, 
 	{
 	 handle :: alsa:handle(),
@@ -70,12 +77,17 @@
 	 channels :: #{ integer() => alsa_samples:wavedef() },
 	 output = undefined :: undefined | binary(),
 	 marks = [],     %% current marks
-	 callback :: undefined | 
-		     fun((binary(), NumBytes::integer(), Params::map()) -> ok)
+	 callback = undefined :: undefined | callback3() | callback4(),
+	 callback_args = undefined  %% list when callback4!
 	}).
 
 new(Channel) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {new, Channel}).
+
+%% get alsa param map
+-spec get_params() -> map().
+get_params() ->
+    gen_server:call(?SERVER, get_params).
 
 set_wave(Channel, WaveDef) when ?is_channel(Channel) ->
     gen_server:call(?SERVER, {set_wave, Channel, WaveDef}).
@@ -207,7 +219,13 @@ pause() ->
     gen_server:call(?SERVER, pause).
 
 set_callback(Fun) when is_function(Fun, 3) ->
-    gen_server:call(?SERVER, {set_callback, Fun}).
+    gen_server:call(?SERVER, {set_callback, Fun, undefined}).
+
+set_callback(Fun,Args) when is_function(Fun, 4), is_list(Args) ->
+    gen_server:call(?SERVER, {set_callback, Fun, Args}).
+%% handy to update context info!!! 
+set_callback_args(Args) when is_list(Args) ->
+    gen_server:call(?SERVER, {set_callback_args, Args}).
 
 %%%===================================================================
 %%% API
@@ -468,8 +486,13 @@ handle_call(resume, _From, State) ->
 	    {reply, ok, State}
     end;
 
-handle_call({set_callback, Fun}, _From, State) ->
-    {reply, ok, State#state { callback = Fun }};
+handle_call({set_callback, Fun, Args}, _From, State) ->
+    {reply, ok, State#state { callback = Fun, callback_args = Args }};
+handle_call({set_callback_args, Args}, _From, State) ->
+    {reply, ok, State#state { callback_args = Args }};
+
+handle_call(get_params, _From, State) ->
+    {reply, State#state.params, State};
 
 handle_call(_Request, _From, State) ->
     Reply = {error,{bad_call,_Request}},
@@ -762,8 +785,13 @@ play(State = #state {handle=Handle,marks=Marks,output=Bin}) ->
 
 user_callback(_Data, _NumBytes, #state{ callback=undefined}) ->
     ok;
-user_callback(Data, NumBytes, #state{ callback=Fun, params=Params}) ->
-    Fun(Data, NumBytes, Params).
+user_callback(Data, NumBytes, #state{ callback=Fun, callback_args=undefined,
+				      params=Params}) ->
+    Fun(Data, NumBytes, Params);
+user_callback(Data, NumBytes, #state{ callback=Fun, callback_args=Args,
+				      params=Params}) ->
+    Fun(Data, NumBytes, Params, Args).
+
 
 read_buffer_list(ChanMap, Format, Channels, PeriodSize) ->
     read_buffer_list_(maps:keys(ChanMap), ChanMap, 
