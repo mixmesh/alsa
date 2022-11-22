@@ -525,6 +525,7 @@ static inline void map_frame_int(int32_t* src_frame, size_t src_channels,
     }
 }
 
+
 static inline double sadd_float(double a, double b)
 {
     double c = a+b;
@@ -558,6 +559,46 @@ static inline void map_frame_float(double* src_frame, size_t src_channels,
 	default:
 	    break;
 	}
+    }
+}
+
+static void sadd_frame(int8_t* src1, int8_t* src2,
+		       snd_pcm_format_t format, int8_t* dst)
+{
+    int32_t a = read_pcm_int(format, src1);
+    int32_t b = read_pcm_int(format, src2);
+    write_pcm_int(format, sadd_int(a, b), dst);
+}
+
+// src and dst format is the same
+static inline void map_frame(int8_t* src_frame, size_t src_channels,
+			     int8_t* dst_frame, size_t dst_channels,
+			     snd_pcm_format_t format)
+{
+    map_t* map = chan_map[dst_channels][src_channels];
+    ssize_t size = snd_pcm_format_size(format, 1); // sample size
+
+    while(dst_channels--) {
+	map_t e = *map++;
+	switch(e & CMASK) {
+	case CCHAN:
+	    memcpy(dst_frame, src_frame+((e & 0xf)*size), size);
+	    break;
+	case CADD:
+	    sadd_frame(src_frame+(e & 0xf)*size,
+		       src_frame+((e>>4) & 0xf)*size,
+		       format, dst_frame);
+	    break;
+	case CCONST:
+	case CCONST1: {  // constant
+	    int32_t val = (((int16_t)((e & 0x7fff) << 1)) >> 1) << 16;
+	    write_pcm_int(format, val, dst_frame);
+	    break;
+	}
+	default:
+	    break;
+	}
+	dst_frame += size;
     }
 }
 
@@ -641,12 +682,29 @@ void reformat(snd_pcm_format_t src_format, size_t src_channels, void* src,
 	      snd_pcm_format_t dst_format, size_t dst_channels, void* dst,
 	      size_t num_frames)
 {
-    if (is_int_format(dst_format)) {
+    if (src_format == dst_format) {
+	if (src_channels == dst_channels) {
+	    ssize_t size = snd_pcm_format_size(src_format, src_channels);
+	    memcpy(dst, src, num_frames*snd_pcm_format_size(src_format, size));
+	}
+	else {
+	    ssize_t src_size = snd_pcm_format_size(src_format, src_channels);
+	    ssize_t dst_size = snd_pcm_format_size(src_format, dst_channels);
+	    int8_t* srcp = (int8_t*) src;
+	    int8_t* dstp = (int8_t*) dst;
+
+	    while(num_frames--) {
+		map_frame(srcp, src_channels, dstp, dst_channels, src_format);
+		srcp += src_size;
+		dstp += dst_size;
+	    }
+	}
+    }
+    else if (is_int_format(dst_format)) {
 	reformat_int(src_format, src_channels, src,
 		     dst_format, dst_channels, dst,
 		     num_frames);
     }
-
     else if (is_float_format(dst_format)) {
 	reformat_float(src_format, src_channels, src,
 		       dst_format, dst_channels, dst,

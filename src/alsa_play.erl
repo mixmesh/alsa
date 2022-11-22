@@ -2,7 +2,7 @@
 %%% @author Tony Rogvall <tony@rogvall.se>
 %%% @copyright (C) 2022, Tony Rogvall
 %%% @doc
-%%%    ALSA multi channel sample player
+%%%    ALSA multi voice sample player
 %%% @end
 %%% Created : 30 Aug 2022 by Tony Rogvall <tony@rogvall.se>
 %%%-------------------------------------------------------------------
@@ -18,16 +18,13 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3, format_status/2]).
 
--define(SERVER, ?MODULE).
--define(MAX_CHANNELS, 16).
--define(is_channel(C), (is_integer((C)) andalso ((C)>=0) 
-			andalso ((C)<?MAX_CHANNELS))).
--define(DEFAULT_WAVE_NUM, 0).
-
--export([new/1]).
+-export([alloc/0, alloc/1]).
+-export([new/1, new/2]). %% avoid, but ok to use
 -export([set_wave/2]).
 -export([mute/2]).
--export([insert/4]).
+-export([set_samples/3, set_samples/4]).
+-export([set_file/3]).
+-export([insert/4, insert/5]).
 -export([insert_file/3, insert_file/4]).
 -export([append/3, append/4]).
 -export([append_file/3]).
@@ -41,9 +38,22 @@
 -export([pause/0, resume/0]).
 -export([set_callback/1, set_callback/2,set_callback_args/1]).
 -export([get_params/0]).
+-export([get_allocated_list/0]).
+-export([get_free_list/0]).
 
--type channel() :: non_neg_integer().
+-define(SERVER, ?MODULE).
+
+-define(MAX_VOICES, 128).   %% just a reasonably high number
+-define(is_voiceid(ID), (is_integer((ID)) andalso ((ID)>=1)
+			 andalso ((ID)<?MAX_VOICES))).
+-define(DEFAULT_WAVE_NUM, 0).
+
 -type unsigned() :: non_neg_integer().
+
+-type voiceid() :: integer().
+-type voiceopt() :: {queue,boolean()} | {clear,boolean()} |
+		    {buffer_size, unsigned()}.
+
 %%-type range_start() :: bof | unsigned().
 %%-type range_size() :: eof | unsigned().
 %%-type sample_range() :: [{range_start(), range_size()}].
@@ -74,50 +84,104 @@
 	 params :: #{},                 %% alsa open params
 	 pause = true :: boolean(),     %% user call pause
 	 playing = false :: boolean(),  %% alsa is playing
-	 channels :: #{ integer() => alsa_samples:wavedef() },
+	 voice_map :: #{ voiceid() => alsa_samples:wavedef() },
+	 owner_map :: #{ voiceid() => reference(), reference() => voiceid() },
+	 free_list :: [voiceid()],
 	 output = undefined :: undefined | binary(),
 	 marks = [],     %% current marks
 	 callback = undefined :: undefined | callback3() | callback4(),
 	 callback_args = undefined  %% list when callback4!
 	}).
 
-new(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {new, Channel}).
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+-spec alloc() -> ID::voiceid().
+alloc() -> alloc([]).
+-spec alloc([voiceopt()]) -> ID::voiceid().
+alloc(Options) when is_list(Options) ->
+    gen_server:call(?SERVER, {alloc, self(), Options}).
+
+-spec get_allocated_list() -> [voiceid()].
+get_allocated_list() ->
+    gen_server:call(?SERVER, get_allocated_list).
+
+%% old
+-spec new(ID::voiceid()) -> ok.
+new(ID) ->
+    new(ID, []).
+-spec new(ID::voiceid(), [voiceopt()]) -> ok.
+new(ID,Options) when ?is_voiceid(ID), is_list(Options) ->
+    gen_server:call(?SERVER, {new, ID, Options}).
+
+-spec get_free_list() -> [voiceid()].
+get_free_list() ->
+    gen_server:call(?SERVER, get_free_list).
 
 %% get alsa param map
 -spec get_params() -> map().
 get_params() ->
     gen_server:call(?SERVER, get_params).
 
-set_wave(Channel, WaveDef) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {set_wave, Channel, WaveDef}).
+set_wave(ID, WaveDef) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {set_wave, ID, WaveDef}).
 
-insert(Channel, Index, Pos, Header, Samples) ->
-    case is_channel(Channel) andalso
-	is_pos(Pos) andalso
-	is_header(Header) andalso
-	is_data(Samples) of
+set_samples(ID, Index, Samples) ->
+    case is_voiceid(ID) andalso is_data(Samples) of
 	true ->
-	    gen_server:call(?SERVER, {insert,Channel,Index,Pos,Header,Samples});
+	    gen_server:call(?SERVER, {set_samples,ID,Index,Samples});
 	false ->
 	    error(badarg)
     end.
 
-insert(Channel,Index, Pos, Samples) ->
-    case is_channel(Channel) andalso
-	is_pos(Pos) andalso
-	is_data(Samples) of
+set_samples(ID, Index, Header, Samples) ->
+    case is_voiceid(ID) andalso is_header(Header) 
+	andalso is_data(Samples) of
 	true ->
-	    gen_server:call(?SERVER, {insert,Channel,Index,Pos,Samples});
+	    gen_server:call(?SERVER, {set_samples,ID,Index,Header,
+				      Samples});
 	false ->
 	    error(badarg)
     end.
 
-insert_file(Channel, Index, Filename) ->
-    insert_file(Channel, Index, cur, Filename).
+set_file(ID, Index, Filename) ->
+    case is_voiceid(ID) andalso is_filename(Filename) of
+	true ->
+	    case alsa_util:read_file(Filename) of
+		{ok,{Header,Samples}} ->
+		    io:format("load ~w samples format=~p\n",
+			      [byte_size(Samples), Header]),
+		    gen_server:call(?SERVER, {set_samples,ID,Index,
+					      Header,Samples});
+		Error ->
+		    io:format("file error: ~p\n", [Error]),
+		    Error
+	    end;
+	false ->
+	    error(badarg)
+    end.
 
-insert_file(Channel, Index, Pos, Filename) ->
-    case is_channel(Channel) andalso 
+insert(ID, Index, Pos, Samples) ->
+    insert_samples(ID, Index, Pos, undefined, Samples).
+insert(ID, Index, Pos, Header, Samples) ->
+    insert_samples(ID, Index, Pos, Header, Samples).
+
+insert_samples(ID, Index, Pos, Header, Samples) ->
+    case is_voiceid(ID) andalso is_pos(Pos) andalso
+	is_header(Header) andalso is_data(Samples) of
+	true ->
+	    gen_server:call(?SERVER, {insert_samples,ID,Index,
+				      Pos,Header,Samples});
+	false ->
+	    error(badarg)
+    end.
+
+insert_file(ID, Index, Filename) ->
+    insert_file(ID, Index, cur, Filename).
+
+insert_file(ID, Index, Pos, Filename) ->
+    case is_voiceid(ID) andalso 
 	is_pos(Pos) andalso 
 	is_filename(Filename) of
 	true ->
@@ -125,7 +189,7 @@ insert_file(Channel, Index, Pos, Filename) ->
 		{ok,{Header,Samples}} ->
 		    io:format("load ~w samples format=~p\n",
 			      [byte_size(Samples), Header]),
-		    gen_server:call(?SERVER, {insert,Channel,Index,
+		    gen_server:call(?SERVER, {insert_samples,ID,Index,
 					      Pos,Header,Samples});
 		Error ->
 		    io:format("file error: ~p\n", [Error]),
@@ -135,70 +199,70 @@ insert_file(Channel, Index, Pos, Filename) ->
 	    error(badarg)
     end.
 
-append(Channel, Index, Samples) ->
-    insert(Channel, Index, eof, Samples).
+append(ID, Index, Samples) ->
+    insert(ID, Index, eof, Samples).
 
-append(Channel, Index, Header, Samples) ->
-    insert(Channel, Index, eof, Header, Samples).
+append(ID, Index, Header, Samples) ->
+    insert(ID, Index, eof, Header, Samples).
 
-append_file(Channel, Index, Filename) ->
-    insert_file(Channel, Index, eof, Filename).
+append_file(ID, Index, Filename) ->
+    insert_file(ID, Index, eof, Filename).
 
--spec mark(Channel::channel(), UserData::term()) ->
+-spec mark(ID::voiceid(), UserData::term()) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
-mark(Channel, UserData) -> mark(Channel, cur, [], UserData).
+mark(ID, UserData) -> mark(ID, cur, [], UserData).
 
--spec mark(Channel::channel(), Flags::[alsa_samples:event_flag()],
+-spec mark(ID::voiceid(), Flags::[alsa_samples:event_flag()],
       UserData::term()) ->
     {ok, Ref::reference()} | {error, Reason::term()}.
-mark(Channel, Flags, UserData) -> mark(Channel, cur, Flags, UserData).
+mark(ID, Flags, UserData) -> mark(ID, cur, Flags, UserData).
 
--spec mark(Channel::channel(), Pos::sample_position(),
+-spec mark(ID::voiceid(), Pos::sample_position(),
 	   Flags::[alsa_samples:event_flag()], UserData::term()) ->
 	  {ok, Ref::reference()} | {error, Reason::term()}.
-mark(Channel, Pos, Flags, UserData) ->
-    case is_channel(Channel) andalso
+mark(ID, Pos, Flags, UserData) ->
+    case is_voiceid(ID) andalso
 	is_pos(Pos) andalso
 	is_mark_flags(Flags) of
 	true ->
-	    gen_server:call(?SERVER, {mark,self(),Channel,Pos,Flags,UserData});
+	    gen_server:call(?SERVER, {mark,self(),ID,Pos,Flags,UserData});
 	false ->
 	    error(badarg)
     end.
 
--spec unmark(Channel::channel(), Ref::reference()) ->
+-spec unmark(ID::voiceid(), Ref::reference()) ->
 	  ok | {error, Reason::term()}.
-unmark(Channel, Ref) ->
-    case is_channel(Channel) andalso
+unmark(ID, Ref) ->
+    case is_voiceid(ID) andalso
 	is_reference(Ref) of
-	true -> gen_server:call(?SERVER, {unmark, Channel, Ref});
+	true -> gen_server:call(?SERVER, {unmark, ID, Ref});
 	false -> error(badarg)
     end.
 
 %% delete samples in channel
-delete(Channel, Range) when ?is_channel(Channel), is_list(Range) ->
-    gen_server:call(?SERVER, {delete, Channel, Range}).
+delete(ID, Range) when ?is_voiceid(ID), is_list(Range) ->
+    gen_server:call(?SERVER, {delete, ID, Range}).
 
-restart(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {restart, Channel}).
+restart(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {restart, ID}).
 
-clear(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {clear, Channel}).
+clear(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {clear, ID}).
 
-remove(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {remove, Channel}).
+remove(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {remove, ID}).
 
 remove() ->
     gen_server:call(?SERVER, remove).
 
-mute(Channel, On) when ?is_channel(Channel), is_boolean(On) ->
-    gen_server:call(?SERVER, {mute, Channel, On}).
+mute(ID, On) when ?is_voiceid(ID), is_boolean(On) ->
+    gen_server:call(?SERVER, {mute, ID, On}).
 
-run(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {run, Channel}).
+run(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {run, ID}).
 
-stop(Channel) when ?is_channel(Channel) ->
-    gen_server:call(?SERVER, {stop, Channel}).
+stop(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {stop, ID}).
 
 restart() ->
     gen_server:call(?SERVER, restart).
@@ -227,9 +291,6 @@ set_callback(Fun,Args) when is_function(Fun, 4), is_list(Args) ->
 set_callback_args(Args) when is_list(Args) ->
     gen_server:call(?SERVER, {set_callback_args, Args}).
 
-%%%===================================================================
-%%% API
-%%%===================================================================
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -281,10 +342,14 @@ init(Options) ->
 	{ok,H,Params} ->
 	    ?verbose("Alsa open: params = ~p\n", [Params]),
 	    Fun = maps:get(callback, Options, undefined),
+	    Args = maps:get(callback_args, Options, undefiined),
 	    {ok, #state{ handle = H,
 			 params = Params,
-			 channels = #{},
-			 callback = Fun
+			 voice_map = #{},
+			 owner_map = #{},
+			 free_list = lists:seq(1,?MAX_VOICES),
+			 callback = Fun,
+			 callback_args = Args
 		       }};
 	{error, Reason} ->
 	    {stop, {error, Reason}}
@@ -306,40 +371,59 @@ init(Options) ->
 	  {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	  {stop, Reason :: term(), NewState :: term()}.
 
-handle_call({new, Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
+handle_call({alloc, Pid, Options}, _From, State) ->
+    case State#state.free_list of
+	[ID|Free] ->
+	    VoiceMap = State#state.voice_map,
+	    OwnerMap = State#state.owner_map,
+	    Ref = erlang:monitor(process, Pid),
+	    W   = create_wave(State#state.params, Options),
+	    {reply, ID, 
+	     State#state { voice_map = VoiceMap#{ ID => W },
+			   owner_map = OwnerMap#{ ID => Ref, Ref => ID },
+			   free_list = Free }};
+	[] ->
+	    {reply, {error, enoent}, State}
+    end;
+
+handle_call({new, ID, Options}, _From, State) ->
+    VoiceMap = State#state.voice_map,
+    case maps:get(ID, VoiceMap, undefined) of
 	undefined ->
-	    Rate = maps:get(rate, State#state.params, 16000),
-	    W = alsa_samples:wave_new(),
-	    alsa_samples:wave_set_rate(W, Rate),
-	    ChanMap1 = ChanMap#{ Channel => W },
-	    {reply, ok, State#state { channels = ChanMap1 }};
+	    Free = lists:delete(ID, State#state.free_list),
+	    W    = create_wave(State#state.params, Options),
+	    {reply, ok, State#state { voice_map = VoiceMap#{ ID => W },
+				      free_list = Free }};
 	_Buf ->
 	    {reply, {error, ealready}, State}
     end;
 
-handle_call({set_wave,Channel,WaveDef}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call(get_allocated_list, _From, State) ->
+    L = maps:fold(fun(ID, _, Acc) -> [ID|Acc] end, [], State#state.voice_map),
+    {reply, L, State};
+
+handle_call(get_free_list, _From, State) ->
+    {reply, State#state.free_list, State};
+
+handle_call({set_wave,ID,WaveDef}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
-	    alsa_samples:set_wave(W, WaveDef),
+	    alsa_samples:set_wave_def(W, WaveDef),
 	    {reply, ok, State}
     end;
 
-handle_call({insert,Channel,Index,Pos,Samples}, _From, State) ->
-    handle_insert(Channel, Index, Pos, State#state.params, Samples, State);
+handle_call({insert_samples,ID,Index,Pos,Header,Samples}, _From, State) ->
+    handle_set_samples(ID, Index, Pos, Header, Samples, false, State);
 
-handle_call({insert,Channel,Index,Pos,Header,Samples}, _From, State) ->
-    handle_insert(Channel, Index, Pos, Header, Samples, State);
+handle_call({set_samples,ID,Index,Header,Samples}, _From, State) ->
+    handle_set_samples(ID, Index, bof, Header, Samples, true, State);
 
-handle_call({mark,Pid,Channel,Pos,Flags,UserData}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({mark,Pid,ID,Pos,Flags,UserData}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    Ref = erlang:monitor(process, Pid),
 	    Pos1 = pos(W, Pos),
@@ -348,125 +432,132 @@ handle_call({mark,Pid,Channel,Pos,Flags,UserData}, _From, State) ->
 	    {reply, {ok,Ref}, State}
     end;
 
-handle_call({unmark,Channel,Ref}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error,enoent}, State};
+handle_call({unmark,ID,Ref}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:unmark(W, Ref),
 	    erlang:demonitor(Ref, [flush]),
 	    {reply, ok, State}
     end;
 
-handle_call({restart,Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({restart,ID}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:wave_set_time(W, 0),
 	    {reply, ok, State}
     end;
 
 %% clear one channel, but keep structure
-handle_call({clear,Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({clear,ID}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:wave_clear(W),
 	    {reply, ok, State}
     end;
-%% clear all channels
+%% clear all voice_maps
 handle_call(clear, _From, State) ->
-    maps:foreach(
-      fun(_Channel, W) ->
+    maps_foreach(
+      fun(_ID, W) ->
 	      %% force flush of all potential samples
 	      alsa_samples:wave_clear(W)
-      end, State#state.channels),
+      end, State#state.voice_map),
     {reply, ok, State};
 
-handle_call({mute,Channel,On}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({mute,ID,On}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:wave_set_mute(W, On),
 	    {reply, ok, State}
     end;
 
 handle_call(run, _From, State) ->
-    maps:foreach(
-      fun (_Channel, W) ->
+    maps_foreach(
+      fun (_ID, W) ->
 	      alsa_samples:wave_set_state(W, running)
-      end, State#state.channels),
+      end, State#state.voice_map),
     State1 = continue_playing(State),
     {reply, ok, State1};
 
-handle_call({run,Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({run,ID}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:wave_set_state(W, running),
 	    State1 = continue_playing(State),
 	    {reply, ok, State1}
     end;
 
-handle_call({stop,Channel}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({stop,ID}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    alsa_samples:wave_set_state(W, stopped),
 	    {reply, ok, State}
     end;
 handle_call(stop, _From, State) ->
-    maps:foreach(
-      fun(_Channel, W) ->
+    maps_foreach(
+      fun(_ID, W) ->
 	      alsa_samples:wave_set_state(W, stopped)
-      end, State#state.channels),
+      end, State#state.voice_map),
     {reply, ok, State};
 
-handle_call({remove,Channel}, _From, State) ->
-    case maps:take(Channel, State#state.channels) of
+handle_call({remove,ID}, _From, State) ->
+    case maps:take(ID, State#state.voice_map) of
 	error ->
 	    {reply, ok, State};
-	{W, #{}} ->
+	{W, VoiceMap} ->
+	    Playing = VoiceMap =/= #{},
 	    alsa_samples:wave_clear(W),
-	    {reply, ok, State#state { channels = #{}, playing = false }};
-	{W, ChanMap1} ->
-	    alsa_samples:wave_clear(W),
-	    {reply, ok, State#state { channels = ChanMap1 }}
+	    OwnerMap = remove_owner(ID, State#state.owner_map),
+	    {reply, ok, State#state { voice_map = VoiceMap,
+				      owner_map = OwnerMap,
+				      playing = Playing
+				    }}
     end;
 
 handle_call(remove, _From, State) ->
-    maps:foreach(
-      fun(_Channel, W) ->
-	      alsa_samples:wave_clear(W)
-      end, State#state.channels),
-    {reply, ok, State#state { channels = #{}, playing = false }};
+    {reply, ok,
+     maps:fold(
+       fun(ID, W, Si) ->
+	       %% check if ID is not in owner map then clear and free
+	       case maps:take(ID, Si#state.owner_map) of
+		   error ->
+		       Free = [ID|Si#state.free_list],
+		       alsa_samples:wave_clear(W),
+		       VoiceMap = maps:remove(ID, Si#state.voice_map),
+		       Playing = VoiceMap =/= #{},
+		       Si#state { free_list=Free,
+				  voice_map = VoiceMap,
+				  playing = Playing };
+		   _ ->
+		       Si
+	       end
+       end, State, State#state.voice_map)};
 
-handle_call({delete,Channel,Range}, _From, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
-	undefined ->
-	    {reply, {error, enoent}, State};
+handle_call({delete,ID,Range}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
 	W ->
 	    Reply = alsa_samples:wave_delete_samples(W, Range),
 	    {reply, Reply, State}
     end;
 
 handle_call(restart, _From, State) ->
-    maps:foreach(
-      fun(_Channel, W) ->
+    maps_foreach(
+      fun(_ID, W) ->
 	      alsa_samples:wave_set_time(W, 0)
-      end, State#state.channels),
+      end, State#state.voice_map),
     {reply, ok, State};
 
 handle_call(pause, _From, State) ->
@@ -490,7 +581,6 @@ handle_call({set_callback, Fun, Args}, _From, State) ->
     {reply, ok, State#state { callback = Fun, callback_args = Args }};
 handle_call({set_callback_args, Args}, _From, State) ->
     {reply, ok, State#state { callback_args = Args }};
-
 handle_call(get_params, _From, State) ->
     {reply, State#state.params, State};
 
@@ -559,6 +649,27 @@ handle_info({select,Handle,undefined,_Ready}, State) when
 		    {noreply, State1}
 	    end
     end;
+%% remove allocated channels
+handle_info({'DOWN',Ref,process,_Pid,_Reason}, State) ->
+    case maps:take(Ref, State#state.owner_map) of
+	error -> %% not allocated, ignore
+	    {noreply, State};
+	{ID, OwnerMap1} ->
+	    Free = [ID|State#state.free_list],
+	    case maps:take(ID, State#state.voice_map) of
+		error -> %% crash?
+		    {noreply, State};
+		{W, VoiceMap} ->
+		    Playing = VoiceMap =/= #{},
+		    alsa_samples:wave_clear(W),
+		    OwnerMap = maps:remove(ID, OwnerMap1),
+		    {noreply, State#state { voice_map = VoiceMap,
+					    owner_map = OwnerMap,
+					    free_list = Free,
+					    playing = Playing
+					  }}
+	    end
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -606,15 +717,43 @@ format_status(_Opt, Status) ->
 %%% Internal functions
 %%%===================================================================
 
+find_voice(ID, State) ->
+    case maps:get(ID, State#state.voice_map, undefined) of
+	undefined ->
+	    {error, enoent};
+	W -> 
+	    W
+    end.
+
+remove_owner(ID, OwnerMap) ->
+    case maps:get(ID, OwnerMap,undefined) of
+	undefined ->
+	    OwnerMap;
+	Ref -> 
+	    erlang:demonitor(Ref, [flush]),
+	    OwnerMap1 = maps:remove(ID, OwnerMap),
+	    maps:remove(Ref, OwnerMap1)
+    end.
+
+create_wave(Params, Options) ->
+    Rate = maps:get(rate, Params, 16000),
+    W = alsa_samples:wave_new(),
+    alsa_samples:wave_set_rate(W, Rate),
+    alsa_samples:wave_set_buffer_mode(W, ?DEFAULT_WAVE_NUM, Options),
+    W.
+
 continue_playing(State) ->
     if State#state.pause -> State;
        State#state.playing -> State;
        true -> play(State#state{playing=true})
     end.
 
-handle_insert(Channel, Index, Pos, Header, Samples, State) ->
-    ChanMap = State#state.channels,
-    case maps:get(Channel, ChanMap, undefined) of
+handle_set_samples(ID, Index, Pos, Header0, Samples, Clear, State) ->
+    Header = if Header0 =:= undefined -> State#state.params; 
+		true -> Header0 
+	     end,
+    VoiceMap = State#state.voice_map,
+    case maps:get(ID, VoiceMap, undefined) of
 	undefined ->
 	    {reply, {error, enoent}, State};
 	W ->
@@ -625,10 +764,16 @@ handle_insert(Channel, Index, Pos, Header, Samples, State) ->
 	    Samples1 = samples_to_binary(W, Header, Samples),
 	    %% FIXME: handle multi channel! use wave index!
 	    ?verbose("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
-		      [Channel, SrcRate, SrcFormat, SrcChannels, Pos1]),
+		      [ID, SrcRate, SrcFormat, SrcChannels, Pos1]),
 	    ?verbose("#samples = ~w\n", [byte_size(Samples1) div
 					     alsa:format_size(SrcFormat,
 							      SrcChannels)]),
+	    if Clear ->
+		    alsa_samples:wave_set_num_samples(W, Index, 0);
+	       true ->
+		    ok
+	    end,
+
 	    ok = alsa_samples:wave_set_samples(W, Index,
 					       Pos1, 0,
 					       SrcRate, SrcFormat, SrcChannels, 
@@ -688,10 +833,10 @@ flag(_W, F) -> F.
 
 notify([], State) -> 
     State;
-notify([{Channel,Ms}|Marks], State) ->
+notify([{ID,Ms}|Marks], State) ->
     lists:foreach(
       fun({Ref,Pid,Pos,UserData}) ->
-	      Event = {Ref,Channel,Pos,UserData},
+	      Event = {Ref,ID,Pos,UserData},
 	      ?verbose("notify ~p\n", [Event]),
 	      Pid ! Event
       end, Ms),
@@ -701,11 +846,11 @@ play(State = #state {output=undefined,pause=true}) ->
     %% io:format("playing=false\n"),
     State#state{ playing=false };
 play(State = #state {handle=Handle,output=undefined,
-		     params=Params,channels=ChanMap }) ->
+		     params=Params,voice_map=VoiceMap }) ->
     PeriodSize = maps:get(period_size, Params),
     Channels = maps:get(channels, Params),
     Format = maps:get(format, Params),
-    case read_buffer_list(ChanMap, Format, Channels, PeriodSize) of
+    case read_buffer_list(VoiceMap, Format, Channels, PeriodSize) of
 	{[], Marks} ->
 	    State1 = notify(Marks, State),
 	    %% io:format("playing=false\n"),
@@ -793,35 +938,35 @@ user_callback(Data, NumBytes, #state{ callback=Fun, callback_args=Args,
     Fun(Data, NumBytes, Params, Args).
 
 
-read_buffer_list(ChanMap, Format, Channels, PeriodSize) ->
-    read_buffer_list_(maps:keys(ChanMap), ChanMap, 
+read_buffer_list(VoiceMap, Format, Channels, PeriodSize) ->
+    read_buffer_list_(maps:keys(VoiceMap), VoiceMap, 
 		      Format, Channels, PeriodSize, [], []).
 
-read_buffer_list_([Channel|Cs], ChanMap, Format, Channels, PeriodSize,
+read_buffer_list_([ID|IDs], VoiceMap, Format, Channels, PeriodSize,
 		  Acc, Marks) ->
-    case maps:get(Channel, ChanMap, undefined) of
+    case maps:get(ID, VoiceMap, undefined) of
 	undefined ->
-	    read_buffer_list_(Cs, ChanMap, Format, Channels, 
+	    read_buffer_list_(IDs, VoiceMap, Format, Channels, 
 			      PeriodSize, Acc, Marks);
 	W ->
 	    case alsa_samples:wave(W, Format, Channels, PeriodSize) of
 		{Ms,_,<<>>} ->
-		    read_buffer_list_(Cs, ChanMap, Format, Channels, 
+		    read_buffer_list_(IDs, VoiceMap, Format, Channels, 
 				      PeriodSize, Acc, 
-				      add_marks(Channel,Ms,Marks));
+				      add_marks(ID,Ms,Marks));
 		{Ms,#{peak := _P, energy := _E},Samples} ->
 		    %% io:format("peak=~p, energy=~p\n", [_P, _E]),
-		    read_buffer_list_(Cs, ChanMap,
+		    read_buffer_list_(IDs, VoiceMap,
 				      Format, Channels, PeriodSize,
 				      [Samples|Acc], 
-				      add_marks(Channel,Ms,Marks))
+				      add_marks(ID,Ms,Marks))
 	    end
     end;
-read_buffer_list_([], _ChanMap, _Format, _Channels, _PeriodSize, Acc, Marks) ->
+read_buffer_list_([], _VoiceMap, _Format, _Channels, _PeriodSize, Acc, Marks) ->
     {Acc, Marks}.
 
-add_marks(_Channel,[],Marks) -> Marks;
-add_marks(Channel,Ms,Marks) -> [{Channel,Ms}|Marks].
+add_marks(_ID,[],Marks) -> Marks;
+add_marks(ID,Ms,Marks) -> [{ID,Ms}|Marks].
     
 %%
 %% check argument types
@@ -842,13 +987,14 @@ is_pos(Len) -> is_len(Len).
 is_len({time,T}) when is_number(T) -> true;
 is_len(Len) -> is_integer(Len).
 
-is_channel(Chan) -> is_integer(Chan).
+is_voiceid(Chan) -> is_integer(Chan).
     
 is_data({silence,Len}) -> is_len(Len);
 is_data(Data) when is_binary(Data) -> true;
 is_data(List) when is_list(List) -> true;
 is_data(_) -> false.
 
+is_header(undefined) -> true;
 is_header(Header) -> is_map(Header).
     
 is_filename(Name) -> is_string(Name).
@@ -873,3 +1019,7 @@ is_mark_flags([{repeat,Pos,Num}|Fs]) -> is_pos(Pos) andalso
 					is_mark_flags(Fs);
 is_mark_flags([]) -> true;
 is_mark_flags(_) -> false.
+
+%% compat 
+maps_foreach(Fun, Map) ->
+    maps:fold(fun(K, V, _) -> Fun(K, V) end, [], Map).

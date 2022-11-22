@@ -483,10 +483,10 @@ complex(E) ->
 
 simple(E) ->
     [{envelope,E},
-     {wave,0, [#{ form=>sine, freq=>"A2", level=>0.0},
-	       #{ form=>sine, freq=>"A2", level=>0.9},
-	       #{ form=>sine, freq=>"A2", level=>0.9},
-	       #{ form=>sine, freq=>"A2", level=>0.0}
+     {wave,0, [#{ form=>sine, freq=>"A3", level=>0.0},
+	       #{ form=>sine, freq=>"A3", level=>0.9},
+	       #{ form=>sine, freq=>"A3", level=>0.9},
+	       #{ form=>sine, freq=>"A3", level=>0.0}
 	      ]}
     ].
 
@@ -609,8 +609,6 @@ shape_file(Filename) ->
     alsa_play:resume(),
     test_notify_loop(),
     alsa_play:remove(1).
-
-    
 
 test_mem() ->
     %%Sounds = filename:join(code:lib_dir(alsa), "sounds"),    

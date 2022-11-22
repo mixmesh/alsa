@@ -32,6 +32,8 @@
 
 -export([send_samples/4]).  %% alsa_play callback
 
+-define(MAX_VOICES, 10). %% fixme
+
 %% profile with default values
 -record(profile,
 	{
@@ -52,12 +54,25 @@
 -define(TEXT_COLOR, {0,0,0,0}).       %% black text
 -define(BORDER, 2).
 
-menu_def(Freq,DrawFFT) ->
+menu_def(Freq,DrawFFT,Form) ->
     [
      {"FFT="++if DrawFFT -> "ON"; true -> "OFF" end, "F"},
-     {check(Freq,1)++"1Hz",  "1"},
-     {check(Freq,10)++"10Hz", "2"},
-     {check(Freq,50)++"50Hz", "3"}
+     {check(Freq,1)++"1Hz",             "1"},
+     {check(Freq,10)++"10Hz",           "2"},
+     {check(Freq,50)++"50Hz",           "3"},
+     {"---"},
+     {check(Form,sine)++"Sine",         {shape,sine},     "S"},
+     {check(Form,square)++"Square",     {shape,square},   "Q"},
+     {check(Form,pulse)++"Pulse",       {shape,pulse},    "P"},
+     {check(Form,triangle)++"Triangle", {shape,triangle}, "T"},
+     {check(Form,saw)++"Saw",           {shape, saw},     "W"},
+     {"---"},
+     {check(Form,{custom,"Bass"})++"Bass",     {custom,"Bass"}},
+     {check(Form,{custom,"Bell1"})++"Bell1",   {custom,"Bell1"}},
+     {check(Form,{custom,"Bell2"})++"Bell2",   {custom,"Bell2"}},
+     {check(Form,{custom,"Organ1"})++"Organ1", {custom,"Organ1"}},
+     {check(Form,{custom,"Organ2"})++"Organ2", {custom,"Organ2"}},
+     {check(Form,{custom,"Organ3"})++"Organ3", {custom,"Organ3"}}
     ].
 
 check(Value,Value) -> ">";
@@ -94,8 +109,9 @@ init(_Opts) ->
     MProfile = create_menu_profile(Profile),
 
     DrawFFT = false,
+    Form = sine,
     Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
-			   menu_def(SendFreq,DrawFFT)),
+			   menu_def(SendFreq,DrawFFT,Form)),
 
     Search = load_icon("outline_search_black_24dp.png"),
     Copy   = load_icon("outline_content_copy_black_24dp.png"),
@@ -108,7 +124,7 @@ init(_Opts) ->
     FFTSize = alsa_fft:size(FFT),
 
     State = 
-	#{ font => Font, 
+	#{ font => Font,
 	   ascent => Ascent,
 	   mprofile => MProfile,
 	   menu => Menu,
@@ -119,7 +135,8 @@ init(_Opts) ->
 	   freq => SendFreq,
 	   draw_fft => DrawFFT,
 	   fft => FFT,
-	   fft_size => FFTSize
+	   fft_size => FFTSize,
+	   form => Form
 	 },
     {ok, State}.
 
@@ -195,13 +212,17 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
 			?verbose("Period:~w FrameSize:~w, NumFrames:~w\n", 
 				 [Period,_FrameSize, _Len div _FrameSize]),
 			%% draw from 8.18 - 12543.85 hz (midi)
-			MinX = round(8.18 / FreqPerFFT),
-			MaxX = round(12543.85 / FreqPerFFT),
-			{alsa_util:decode_frame(Data1, float_le),
-			 {0,40,MinX,min(MaxX,(Period div 2))}};
+			%% MinX = 8, %% round(8.18 / FreqPerFFT),
+			%% MaxX = round(12543.85 / FreqPerFFT),
+			Skip = 1,
+			Max = Period div 2,
+			Frames0 = alsa_util:decode_frame(Data1, float),
+			%% find_chord(tl(Frames0), 1, Max,FreqPerFFT,FreqPerFFT,[]),
+			{Frames0, {0,40,Skip,Max,FreqPerFFT}};
 		    _ ->
-			{alsa_util:decode_frame(Data, Format),
-			 {-1,1,0,10000}}
+			Frames0 = alsa_util:decode_frame(Data, Format),
+			Skip = 0,
+			{Frames0, {-1,1,Skip,10000,1}}
 		end,
 	    epx_gc:set_foreground_color(black),
 	    draw_frames(Pixels, Channels, ?VIEW_WIDTH, ?VIEW_HEIGHT,
@@ -222,6 +243,29 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
     end,
     State.
 
+find_chord([Y|Ys], X, MaxX, Freq, Df, Acc) when X < MaxX ->
+    find_chord(Ys, X+1, MaxX, Freq+Df, Df, [{Y,X,Freq}|Acc]);
+find_chord(_, _X, _MaxX, _Freq, _Df, Acc) ->
+    case lists:reverse(lists:keysort(1, Acc)) of
+	[{Y1,X1,F1},{Y2,X2,F2},{Y3,X3,F3}|_] ->
+	    N1 = trunc(12*(math:log2(F1)-math:log2(440))+69),
+	    N2 = trunc(12*(math:log2(F2)-math:log2(440))+69),
+	    N3 = trunc(12*(math:log2(F3)-math:log2(440))+69),
+	    io:format("~w, ~w, ~w\n", 
+		      [{N1,Y1,X1},{N2,Y2,X2},{N3,Y3,X3}]);
+	[{_,F1},{_,F2}] ->
+	    N1 = trunc(12*(math:log2(F1)-math:log2(440))+69),
+	    N2 = trunc(12*(math:log2(F2)-math:log2(440))+69),
+	    io:format("N1:~w, N2:~w\n", [N1, N2]);
+	[{_,F1}] ->
+	    N1 = trunc(12*(math:log2(F1)-math:log2(440))+69),
+	    io:format("N1:~w\n", [N1]);
+	_ ->
+	    ok
+    end.
+
+    
+
 %% draw tool bar
 draw(left, Pixels, {Xa,Ya,_Wa,_Ha}, State) ->
     Tools = maps:get(tools, State, []),
@@ -239,10 +283,10 @@ draw(_, _Pixels, _Area, State) ->
     
 
 menu({menu,_Pos}, State=#{ mprofile := MProfile, 
-			   freq := Freq,
-			   draw_fft := DrawFFT}) ->
+			   freq := Freq, draw_fft := DrawFFT,
+			   form := Form }) ->
     Menu = epx_menu:create(MProfile#menu_profile{background_color=red},
-			   menu_def(Freq,DrawFFT)),
+			   menu_def(Freq,DrawFFT,Form)),
     {reply, Menu, State}.
     
 select({_Phase,Rect={X,Y,W,H}}, State) ->
@@ -269,8 +313,30 @@ command($3, _Mod, State) ->
     {noreply, State#{ freq=>50 }};
 command($f, _Mod, State=#{ draw_fft := DrawFFT}) ->
     {noreply, State#{ draw_fft=> not DrawFFT }};
-command($F, Mod, State) when not Mod#keymod.shift ->
-    {noreply, State#{ draw_fft=>false }};
+
+command($s, _Mod, State) ->
+    shape(sine),
+    {noreply, State#{ form=>sine }};
+command($q, _Mod, State) ->
+    shape(square),
+    {noreply, State#{ form=>square }};
+command($p, _Mod, State) ->
+    shape(pulse),
+    {noreply, State#{ form=>pulse }};
+command($t, _Mod, State) ->
+    shape(triangle),
+    {noreply, State#{ form=>triangle }};
+command($w, _Mod, State) ->
+    shape(saw),
+    {noreply, State#{ form=>saw }};
+command({shape,Form}, _Mod, State) ->
+    shape(Form),
+    {noreply, State#{ form=>Form }};
+
+command({custom,Name}, _Mod, State) ->
+    custom_shape(Name),
+    {noreply, State#{ form=>{custom,Name} }};
+
 command(Key, Mod, State) ->
     ?verbose("COMMAND: Key=~w, Mod=~w\n", [Key, Mod]),
     {reply, {Key,Mod}, State}.
@@ -289,6 +355,27 @@ handle_info(_Info, State) ->
 %% internal
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+shape(Form) ->
+    lists:foreach(
+      fun(I) ->
+	      alsa_play:set_wave(I,[{wave,0, [ # { form=>Form },
+					       # { form=>Form },
+					       # { form=>Form },
+					       # { form=>Form },
+					       # { form=>Form } ]}])
+      end, lists:seq(1,?MAX_VOICES)).
+
+custom_shape(Name) ->
+    Sounds = filename:join([code:lib_dir(alsa), "waves", "Waveshapes"]),
+    Filename = filename:join(Sounds, Name ++ ".wav"),
+    %% set on all voices (currently 10)
+    lists:foreach(
+      fun(I) ->
+	      alsa_play:set_file(I,custom1,filename:join(Sounds, Filename))
+      end, lists:seq(1,?MAX_VOICES)),
+    shape(custom1).
+
+    
 %% callback from alsa_play 
 %% usin alsa_play environment!!! not very nice!
 send_samples(Samples, Len, Params, [Freq,Pid]) ->
@@ -305,23 +392,20 @@ send_samples(Samples, Len, Params, [Freq,Pid]) ->
 	    ok
     end.
 
-draw_frames(Pixels, Channels, Width, Height, Frames, Range) ->
-    draw_frame_(Pixels, 0, Channels, Width, Height, Frames, Range).
-
-draw_frame_(Pixels, X, Channels, Width, Height, Frames, 
-	    _Range={Min,Max,SkipFrames,MaxFrames}) ->
+draw_frames(Pixels, Channels, Width, Height, Frames, 
+	    {YMin,YMax,SkipFrames,MaxFrames,Xs}) ->
     Chan = center(Channels),
-    Frames1 = lists:nthtail(SkipFrames*Channels,Frames),    
+    Frames1 = lists:nthtail(SkipFrames*Channels,Frames),
     Frames2 = lists:sublist(Frames1, max(0,MaxFrames-SkipFrames)*Channels),
     XScale = case length(Frames2) of
 		 0 -> 1.0;
 		 L -> Width / L
 	     end,
-    draw_chan(X, Chan, Channels, Frames2,
+    draw_chan(SkipFrames*Xs, Xs, Chan, Channels, Frames2,
 	      fun(Xi, Yi) ->
-		      Yc = min(max(Yi,Min),Max),  %% clip
-		      Ys = Yc/(Max-Min),          %% scale
-		      Hp = if Min < 0 -> Height div 2;
+		      Yc = min(max(Yi,YMin),YMax),  %% clip
+		      Ys = Yc/(YMax-YMin),            %% scale
+		      Hp = if YMin < 0 -> Height div 2;
 			      true -> Height
 			   end,
 		      Y0 = Hp,
@@ -331,17 +415,17 @@ draw_frame_(Pixels, X, Channels, Width, Height, Frames,
 		      epx:draw_line(Pixels, Xp, Y0, Xp, Yp)
 	      end).
 
-draw_chan(X, Chan, Channels, Frames, Fun) ->
-    draw_chan_(X, Chan, 1, Channels, Channels, Frames, Fun).
+draw_chan(X, Xs, Chan, Channels, Frames, Fun) ->
+    draw_chan_(X, Xs, Chan, 1, Channels, Channels, Frames, Fun).
 
-draw_chan_(X, I, Chan, N, Channels, [Y|Frames], Fun) ->
+draw_chan_(X, Xs, I, Chan, N, Channels, [Y|Frames], Fun) ->
     if I < Chan ->
-	    draw_chan_(X, I+1, Chan, N-1, Channels, Frames, Fun); 
+	    draw_chan_(X, Xs, I+1, Chan, N-1, Channels, Frames, Fun); 
        true ->
 	    Fun(X, Y),
-	    draw_chan(X+1, Chan, Channels, lists:nthtail(N-1, Frames), Fun)
+	    draw_chan(X+Xs,Xs, Chan, Channels, lists:nthtail(N-1, Frames), Fun)
     end;
-draw_chan_(_X, _I, _Chan, _N, _Channels, [], _Fun) ->
+draw_chan_(_X, _Xs, _I, _Chan, _N, _Channels, [], _Fun) ->
     ok.
 
 %% select center from num_channels

@@ -302,7 +302,9 @@ encode_frame(Xs, DstFormat) ->
 	s16_be -> << <<(trunc(X*16#7fff)):16/signed-big>> || X <- Xs >>;
 	s16 -> << <<(trunc(X*16#7fff)):16/signed-native>> || X <- Xs >>;
 	s24_le -> << <<(trunc(X*16#7fffffff)):32/signed-little>> || X <- Xs >>;
+	s24_3le -> << <<(trunc(X*16#7fffffff)):24/signed-little>> || X <- Xs >>;
 	s24_be -> << <<(trunc(X*16#7fffffff)):32/signed-big>> || X <- Xs >>;
+	s24_3be -> << <<(trunc(X*16#7fffffff)):24/signed-big>> || X <- Xs >>;
 	s24 -> << <<(trunc(X*16#7fffffff)):32/signed-native>> || X <- Xs >>;
 	s32_le -> << <<X:32/signed-little>> || X <- Xs >>;
 	s32_be -> << <<X:32/signed-big>> || X <- Xs >>;
@@ -313,7 +315,9 @@ encode_frame(Xs, DstFormat) ->
 	u16_be -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-big>> || X <- Xs >>;
 	u16 -> << <<(trunc(X*16#7fff)+16#8000):16/unsigned-native>> || X <- Xs >>;
 	u24_le -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-little>> || X <- Xs >>;
+	u24_3le -> << <<(trunc(X*16#7fffffff)+16#800000):24/unsigned-little>> || X <- Xs >>;
 	u24_be -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-big>> || X <- Xs >>;
+	u24_3be -> << <<(trunc(X*16#7fffffff)+16#800000):24/unsigned-big>> || X <- Xs >>;
 	u24 -> << <<(trunc(X*16#7fffffff)+16#800000):32/unsigned-native>> || X <- Xs >>;
 	u32_le -> << <<(X+16#80000000):32/unsigned-little>> || X <- Xs >>;
 	u32_be -> << <<(X+16#80000000):32/unsigned-big>> || X <- Xs >>;
@@ -337,7 +341,9 @@ encode_sample(Format, X) ->
 	s16_be -> <<X:16/signed-big>> ;
 	s16 -> <<X:16/signed-native>> ;
 	s24_le -> <<(X band 16#ffffff):32/little>> ;
+	s24_3le -> <<(X band 16#ffffff):24/little>> ;
 	s24_be -> <<(X band 16#ffffff):32/big>> ;
+	s24_3be -> <<(X band 16#ffffff):24/big>> ;
 	s24 -> <<(X band 16#ffffff):32/native>> ;
 	s32_le -> <<X:32/signed-little>> ;
 	s32_be -> <<X:32/signed-big>> ;
@@ -346,7 +352,9 @@ encode_sample(Format, X) ->
 	u16_be -> <<(X+16#8000):16/unsigned-big>> ;
 	u16 -> <<(X+16#8000):16/unsigned-native>> ;
 	u24_le -> <<(X+16#800000):32/unsigned-little>> ;
+	u24_3le -> <<(X+16#800000):24/unsigned-little>> ;
 	u24_be -> <<(X+16#800000):32/unsigned-big>> ;
+	u24_3be -> <<(X+16#800000):24/unsigned-big>> ;
 	u24 -> <<(X+16#800000):32/unsigned-native>> ;
 	u32_le -> <<(X+16#80000000):32/unsigned-little>> ;
 	u32_be -> <<(X+16#80000000):32/unsigned-big>> ;
@@ -367,8 +375,10 @@ decode_sample(s16_be, <<X:16/signed-big,_/binary>>) -> X;
 decode_sample(s16, <<X:16/signed-native,_/binary>>) -> X;
 decode_sample(s24_le, <<X:32/signed-little,_/binary>>) ->
     <<Y:24/signed>> = <<X:24/signed>>, Y;
+decode_sample(s24_3le, <<X:24/signed-little,_/binary>>) -> X;
 decode_sample(s24_be, <<X:32/signed-big,_/binary>>) ->
     <<Y:24/signed>> = <<X:24/signed>>, Y;
+decode_sample(s24_3be, <<X:24/signed-big,_/binary>>) -> X;
 decode_sample(s24, <<X:32/signed-native,_/binary>>) ->
     <<Y:24/signed>> = <<X:24/signed>>, Y;
 decode_sample(s32_le, <<X:32/signed-little,_/binary>>) -> X;
@@ -379,7 +389,9 @@ decode_sample(u16_le, <<X:16/unsigned-little,_/binary>>) -> X-16#8000;
 decode_sample(u16_be, <<X:16/unsigned-big,_/binary>>) -> X-16#8000;
 decode_sample(u16, <<X:16/unsigned-native,_/binary>>) -> X-16#8000;
 decode_sample(u24_le, <<X:32/unsigned-little,_/binary>>) -> X-16#800000;
+decode_sample(u24_3le, <<X:24/unsigned-little,_/binary>>) -> X-16#800000;
 decode_sample(u24_be, <<X:32/unsigned-big,_/binary>>) -> X-16#800000;
+decode_sample(u24_3be, <<X:24/unsigned-big,_/binary>>) -> X-16#800000;
 decode_sample(u24, <<X:32/unsigned-native,_/binary>>) -> X-16#800000;
 decode_sample(u32_le, <<X:32/unsigned-little,_/binary>>) -> X-16#80000000;
 decode_sample(u32_be, <<X:32/unsigned-big,_/binary>>) -> X-16#80000000;

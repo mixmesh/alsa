@@ -283,8 +283,8 @@ void fft_log_magnitude(fft_t* fp, float complex* x, float* y)
 {
     int i;
     for (i = 0; i < fp->n; i++) {
-	float xr = creal(x[i]);
-	float xi = cimag(x[i]);
+	float xr = crealf(x[i]);
+	float xi = cimagf(x[i]);
 	y[i] = 10*log10(xr*xr + xi*xi);
     }
 }
