@@ -43,7 +43,12 @@ read_file(Filename) ->
 		Header ->
 		    Format = maps:get(format, Header),
 		    Channels = maps:get(channels, Header),
-		    Size = alsa:format_size(Format, 1)*Channels,
+		    Size = case maps:get(data_length, Header, undefined) of
+			       undefined ->
+				   alsa:format_size(Format, 1)*Channels;
+			       DataLen -> 
+				   DataLen
+			   end,
 		    case read_file_data(Fd, Size) of
 			{ok,Data} ->
 			    {ok,{Header, Data}};

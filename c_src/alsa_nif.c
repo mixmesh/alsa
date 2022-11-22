@@ -494,7 +494,7 @@ static int get_hw_params(ErlNifEnv* env, snd_pcm_t *pcm,
 	}
 	case HW_CHANNELS_MAX: {
 	    unsigned int channels;
-	    err = snd_pcm_hw_params_get_channels_min(hw_params, &channels);
+	    err = snd_pcm_hw_params_get_channels_max(hw_params, &channels);
 	    if (err < 0) goto error;	    
 	    kv[i++] = enif_make_tuple2(env, head,
 				       enif_make_uint(env, channels));

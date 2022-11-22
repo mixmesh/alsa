@@ -88,7 +88,14 @@ fd_(Fd, Options0) ->
       end, lists:seq(1, N-1)),
     PeriodSizeInBytes = alsa:format_size(ActualFormat,
 					 PeriodSize1*ActualChannels),
-    playback(Handle, Fd, PeriodSizeInBytes, Transform).
+    %% number of input bytes
+    Len = case maps:get(data_length, Options, undefined) of
+	      undefined ->
+		  alsa:format_size(SrcFormat, 1)*SrcChannels;
+	      DataLen -> 
+		  DataLen
+	  end,
+    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform).
 
 %% check for wav and au file headers
 read_header(Fd) ->
@@ -96,7 +103,7 @@ read_header(Fd) ->
 read_header(Fd, Options) ->
     case alsa_wav:read_header(Fd) of
 	{ok, Params} ->
-	    ?dbg("wav header: pos=~w, ~w\n", [Pos,Params]),
+	    ?dbg("wav header: ~w\n", [Params]),
 	    maps:merge(Options, Params);
 	_ ->
 	    file:position(Fd, 0),
@@ -109,22 +116,30 @@ read_header(Fd, Options) ->
 	    end
     end.
 
-playback(Handle, Fd, PeriodSizeInBytes, Transform) ->
+
+playback(Handle, _Fd, 0, _PeriodSizeInBytes, _Transform) ->
+    alsa:drain(Handle),
+    alsa:close(Handle),    
+    eof;
+playback(Handle, Fd, Len, PeriodSizeInBytes, Transform) ->
     %% fixme: start reading samples before generating silence, the first time!
     %% I suspect the glitches come because of delay in reading from file
-    case file:read(Fd, PeriodSizeInBytes) of
+    Size = if PeriodSizeInBytes >= Len -> PeriodSizeInBytes;
+	      true -> Len
+	   end,
+    case file:read(Fd, Size) of
         {ok, Bin} ->
 	    Bin1 = Transform(Bin),
-	    %% io:format("Write: ~p\n",  [Bin1]),
+	    ?dbg("Write: ~p bytes\n",  [byte_size(Bin1)]),
             case alsa:write(Handle, Bin1) of
                 {ok, N} when N =:= byte_size(Bin1) ->
-                    playback(Handle, Fd, PeriodSizeInBytes, Transform);
+                    playback(Handle, Fd, Len-N, PeriodSizeInBytes, Transform);
                 {ok, underrun} ->
                     ?info("Recovered from underrun\n"),
-                    playback(Handle, Fd, PeriodSizeInBytes, Transform);
+                    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform);
                 {ok, suspend_event} ->
                     ?info("Recovered from suspend event\n"),
-                    playback(Handle, Fd, PeriodSizeInBytes, Transform);
+                    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform);
                 {error, Reason} ->
 		    alsa:close(Handle),
                     {error, alsa:strerror(Reason)}
