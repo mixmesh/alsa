@@ -403,6 +403,19 @@ static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
     return 1;
 }
 
+// set wave mask and num_waves
+static void update_w_mask(wavedef_t* param, int index)
+{
+    wave_t* wp = &param->w[index];
+    if (wp->o_mask || (wp->s.num_samples>0)) {
+	param->w_mask |= (1 << index);
+    }
+    else {
+	param->w_mask &= ~(1 << index);
+    }
+    param->n_waves = __builtin_popcount(param->w_mask);
+}
+
 
 // mix(Format, Channels, [binary()], [Vol::float()]) -> binary()
 static ERL_NIF_TERM nif_mix(ErlNifEnv* env, int argc,
@@ -800,15 +813,7 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
 	    wp->o_mask &= ~(1 << j);
 	}
     }
-
-    if (wp->o_mask) {
-	param->w_mask |= (1 << index);
-    }
-    else {
-	param->w_mask &= ~(1 << index);
-    }
-    param->n_waves = __builtin_popcount(param->w_mask);
-    
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 
@@ -998,6 +1003,7 @@ static ERL_NIF_TERM nif_wave_set_form(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_form(param, index, 0, form) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 
@@ -1017,6 +1023,7 @@ static ERL_NIF_TERM nif_wave_set_chan(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_chan(param, index, chan) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);   
     return ATOM(ok);
 }
 
@@ -1038,6 +1045,7 @@ static ERL_NIF_TERM nif_wave_set_level(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_level(param, index, j, value) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);    
     return ATOM(ok);
 }
 
@@ -1058,6 +1066,7 @@ static ERL_NIF_TERM nif_wave_set_freq(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_freq(param, index, j, value) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 
@@ -1078,6 +1087,7 @@ static ERL_NIF_TERM nif_wave_set_phase(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_phase(param, index, j, value) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 
@@ -1169,6 +1179,7 @@ static ERL_NIF_TERM nif_wave_set_samples(ErlNifEnv* env, int argc,
 			   src_rate, src_format, src_channels,
 			   src.data, src_frames) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 
@@ -1187,6 +1198,7 @@ static ERL_NIF_TERM nif_wave_set_num_samples(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (wave_set_num_samples(param, index, n) < 0)
 	return enif_make_badarg(env);
+    update_w_mask(param, index);
     return ATOM(ok);
 }
 

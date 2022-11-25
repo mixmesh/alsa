@@ -57,6 +57,10 @@
 
 -include("../include/alsa.hrl").
 
+-define(dbg(F,A), ok).
+%%-define(dbg(F,A), io:format((F),(A))).
+
+
 -type unsigned() :: non_neg_integer().
 -type handle() :: reference().
 -type pcm_name() :: string().
@@ -467,11 +471,22 @@ write(Handle, Bin) ->
 write(Handle, Bin, SoFar) ->
     Size = byte_size(Bin),
     case write_(Handle, Bin) of
+	{ok, Written} ->
+	    ?dbg("alsa:write/3, wrote ~w out of ~w\n", [Written, Size]),
+	    if Written =:= Size ->
+		    {ok, Written+SoFar};
+	       Written =:= 0 ->
+		    {ok, SoFar};
+	       true ->
+		    <<_:Written/binary, Bin1/binary>> = Bin,
+		    write(Handle, Bin1, SoFar+Written)
+	    end;
 	{error, eagain} ->
+	    ?dbg("alsa:write/3, eagain\n", []),
 	    ok = select_(Handle),
 	    receive
 		{select,Handle,undefined,_Ready} ->
-		    %% io:format("write continue: ~w\n", [SoFar]),
+		    ?dbg("write continue: ~w\n", [SoFar]),
 		    write(Handle, Bin, SoFar)
 	    end;
 	{error, epipe} ->
@@ -489,14 +504,7 @@ write(Handle, Bin, SoFar) ->
 		    {error, suspsend_event}
 	    end;
 	{error, AlsaError} when is_integer(AlsaError) ->
-	    {error, strerror(AlsaError)};
-	{ok, Written} ->
-	    if Written =:= Size ->
-		    {ok, Written+SoFar};
-	       true ->
-		    <<_:Written/binary, Bin1/binary>> = Bin,
-		    write(Handle, Bin1, SoFar+Written)
-	    end
+	    {error, strerror(AlsaError)}
     end.
 
 %%
@@ -713,8 +721,6 @@ bytes_to_frames(_Handle, _Bytes) ->
 
 make_silence(_Format, _Channels, _Samples) ->
     ?nif_stub.
-
-
 
 %%
 %% Exported: card_info

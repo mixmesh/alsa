@@ -114,16 +114,19 @@ static void update_duration(envelope_t* ep)
 
 void default_envelope(wavedef_t* param)
 {
+    int i;    
     param->e.n         = 1;
     param->e.p[0].t    = (Float_t) (24*60*60);
     param->e.p[0].mode = 0;
     param->n_waves     = 1;
     param->w_mask      = 1;
-    param->w[0].o_mask = 3;
-    param->w[0].osc[0].level = 0.9;
-    param->w[0].osc[0].form  = NONE;
-    param->w[0].osc[1].level = 0.9;
-    param->w[0].osc[1].form  = NONE;
+    for (i = 0; i< MAX_WAVES; i++) {
+	param->w[i].o_mask = 3;
+	param->w[i].osc[0].level = 0.9;
+	param->w[i].osc[0].form  = NONE;
+	param->w[i].osc[1].level = 0.9;
+	param->w[i].osc[1].form  = NONE;
+    }
 }
 
 
@@ -773,8 +776,11 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 	}
 	else {	// do wave sample
 	    sample_buffer_t* custom = param->custom;  // custom wave forms
-	    for (i = 0; i < MAX_WAVES; i++) {
-		if (((1 << i) & param->w_mask) != 0) {
+	    unsigned int w_mask = param->w_mask;
+	    
+	    i = 0;
+	    while(w_mask) {
+		if (w_mask & 1) {
 		    Float_t value;
 		    wave_t* wp = &param->w[i];
 		    int k = wp->chan;
@@ -783,6 +789,8 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 			y[k] = mix2(y[k], value);  // fixme! improve
 		    }
 		}
+		i++;
+		w_mask >>= 1;
 	    }
 	    for (i = 0; i < channels; i++) {
 		double yi = y[i];

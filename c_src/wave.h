@@ -72,10 +72,10 @@ typedef struct {
 } osc_t;
 
 typedef struct {
-    int chan;                  // output audio channel
-    unsigned int o_mask;       // oscillators defined mask
-    sample_buffer_t s;               // samples
-    osc_t    osc[MAX_OSC];
+    int chan;             // output audio channel
+    unsigned int o_mask;  // oscillators defined mask
+    sample_buffer_t s;    // samples
+    osc_t osc[MAX_OSC];   // oscillators
 } wave_t;
 
 // flag0

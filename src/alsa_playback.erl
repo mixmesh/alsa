@@ -7,6 +7,9 @@
 -include("../include/alsa.hrl").
 -include("../include/alsa_log.hrl").
 
+-define(dbg(F,A), ok).
+%%-define(dbg(F,A), io:format((F),(A))).
+
 -define(DEFAULT_DEVICE,         "default").
 -define(DEFAULT_CHANNELS,       2).
 -define(DEFAULT_RATE,           48000).
@@ -55,47 +58,56 @@ fd_(Fd, Options0) ->
     %% parameters to use.
     Options = read_header(Fd, Options0),
     SrcChannels = maps:get(channels, Options, ?DEFAULT_CHANNELS),
-    DstChannels = maps:get(channels, Options0, SrcChannels),
+    DstChannels0 = maps:get(channels, Options0, SrcChannels),
     SrcFormat   = maps:get(format, Options, ?DEFAULT_FORMAT),
     _DstFormat   = maps:get(format, Options0, SrcFormat),
-    {ok,Handle,Params} = open(Options#{ channels => DstChannels }),
-    #{ format := ActualFormat,
-       channels := ActualChannels,
-       period_size := PeriodSize1,
+    {ok,Handle,Params} = open(Options#{ channels => DstChannels0 }),
+    #{ format := DstFormat,
+       channels := DstChannels,
+       period_size := PeriodSize,
        buffer_size := BufferSize1,
        pan := Pan
      } = Params,
     Transform =
 	if
-	    SrcChannels =:= 1, ActualChannels =:= 2 ->
+	    SrcChannels =:= 1, DstChannels =:= 2 ->
 		?dbg("mono_to_stereo pan=~p\n", [Pan]),
 		fun (X) -> alsa_util:mono_to_stereo(s16_le, X, Pan) end;
-	   SrcChannels =:= 2, ActualChannels =:= 1 ->
+	   SrcChannels =:= 2, DstChannels =:= 1 ->
 		?dbg("stereo_to_mono\n", []),
 		fun (X) -> alsa_util:stereo_to_mono(s16_le, X) end;
 	   true ->
 		fun (X) -> X end
-	   %% fixme: transform SrcFormat => ActualFormat 
+	   %% fixme: transform SrcFormat => DstFormat 
 	   %% fixme: transform SrcRate   => ActualRate
 	end,
     %% generate silence period for all frames
-    Silence = alsa:make_silence(ActualFormat, ActualChannels, PeriodSize1),
-    %% start by fill with silence
-    N = trunc(BufferSize1/PeriodSize1),
-    lists:foreach(
-      fun(_) ->
-	      alsa:write(Handle, Silence)
-      end, lists:seq(1, N-1)),
-    PeriodSizeInBytes = alsa:format_size(ActualFormat,
-					 PeriodSize1*ActualChannels),
+    Silence = alsa:make_silence(DstFormat, DstChannels, PeriodSize),
+
+    PeriodBytes = alsa:format_size(DstFormat, PeriodSize*DstChannels),
     %% number of input bytes
     Len = case maps:get(data_length, Options, undefined) of
 	      undefined ->
-		  alsa:format_size(SrcFormat, 1)*SrcChannels;
+		  undefined;
 	      DataLen -> 
 		  DataLen
 	  end,
-    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform).
+    %% read one period
+    %% io:format("~w: read0 size=~w\n",[Len,PeriodBytes]),
+    case file:read(Fd, PeriodBytes) of
+        {ok, Bin} ->
+	    Bin1 = Transform(Bin),
+	    N = trunc(BufferSize1/PeriodSize),
+	    lists:foreach(
+	      fun(_) ->
+		      alsa:write(Handle, Silence)
+	      end, lists:seq(1, N-1)),
+	    Len1 = rsub(Len, byte_size(Bin1)),
+	    playback(Handle, Fd, Len1, Bin1, PeriodBytes, Transform);
+	Error ->
+	    alsa:close(Handle),
+	    Error
+    end.
 
 %% check for wav and au file headers
 read_header(Fd) ->
@@ -116,42 +128,86 @@ read_header(Fd, Options) ->
 	    end
     end.
 
+rsub(undefined, _) -> undefined;
+rsub(Len, N) -> Len - N.
 
-playback(Handle, _Fd, 0, _PeriodSizeInBytes, _Transform) ->
+rlen(undefined, Period) -> Period;
+rlen(Len, Period) when Len >= Period -> Period;
+rlen(Len, _Period) ->  Len.
+     
+%% return eof if len=undefined  and write is ok
+%% return ok  if len is defined and write is ok
+%% return error otherwise
+playback(Handle, _Fd, 0, Block, _PeriodBytes, _Transform) ->
+    Rep = write(Handle, Block),
     alsa:drain(Handle),
-    alsa:close(Handle),    
-    eof;
-playback(Handle, Fd, Len, PeriodSizeInBytes, Transform) ->
-    %% fixme: start reading samples before generating silence, the first time!
-    %% I suspect the glitches come because of delay in reading from file
-    Size = if PeriodSizeInBytes >= Len -> PeriodSizeInBytes;
-	      true -> Len
-	   end,
+    alsa:close(Handle),
+    case Rep of
+	{ok,_} -> ok;
+	Error -> Error
+    end;
+playback(Handle, Fd, Len, Block, Period, Transform) ->
+    Size = rlen(Len, Period),
+    %% Read next output block
     case file:read(Fd, Size) of
         {ok, Bin} ->
+	    %%io:format("~w: read ~w out of ~w\n", [Len,byte_size(Bin),Size]),
 	    Bin1 = Transform(Bin),
-	    ?dbg("Write: ~p bytes\n",  [byte_size(Bin1)]),
-            case alsa:write(Handle, Bin1) of
-                {ok, N} when N =:= byte_size(Bin1) ->
-                    playback(Handle, Fd, Len-N, PeriodSizeInBytes, Transform);
-                {ok, underrun} ->
-                    ?info("Recovered from underrun\n"),
-                    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform);
-                {ok, suspend_event} ->
-                    ?info("Recovered from suspend event\n"),
-                    playback(Handle, Fd, Len, PeriodSizeInBytes, Transform);
-                {error, Reason} ->
+	    case write(Handle, Block) of
+		{ok,_N} ->
+		    Len1 = rsub(Len, byte_size(Bin)),
+		    %%io:format("remain: ~w : wrote ~w\n", [Len1, N]),
+                    playback(Handle, Fd, Len1, Bin1, Period, Transform);
+		{error, Reason} ->
 		    alsa:close(Handle),
                     {error, alsa:strerror(Reason)}
             end;
-        eof ->
+	eof ->
+	    %%io:format("~w: read EOF try to read ~w\n", [Len,Size]),
+	    case write(Handle, Block) of
+		{ok,_} ->
+		    alsa:drain(Handle),
+		    alsa:close(Handle),
+		    eof;
+		{error, Reason} ->
+		    alsa:close(Handle),
+                    {error, alsa:strerror(Reason)}
+            end;
+	{error,Reason} ->
 	    alsa:drain(Handle),
 	    alsa:close(Handle),
-            eof;
-        {error, Reason} ->
-	    alsa:close(Handle),
-            {error, alsa:strerror(Reason)}
+	    {error, Reason}
     end.
+	    
+
+%% write one block, retart once? on recover?
+write(Handle, Data) ->
+    write_(Handle, Data, true).
+
+write_(Handle, Data, Retry) ->
+    case alsa:write(Handle, Data) of
+	{ok, N} when N =:= byte_size(Data) ->
+	    ?dbg("wrote ~w bytes\n", [N]),
+	    {ok,N};
+	{ok, N} when is_integer(N) ->
+	    ?dbg("error wrote short ~w out of ~w bytes\n",
+		 [N, byte_size(Data)]),
+	    {error, "write failed"};
+	{ok, underrun} when Retry ->
+	    ?info("Recovered from underrun: retry\n"),
+	    write_(Handle, Data, false);
+	{ok, underrun} ->
+	    {error, underrun};
+	{ok, suspend_event} when Retry ->
+	    ?info("Recovered from suspend event: retry\n"),
+	    write_(Handle, Data, false);
+	{ok, suspend_event} ->
+	    {error, suspend_event};
+	{error, Reason} ->
+	    alsa:close(Handle),
+	    {error, alsa:strerror(Reason)}
+    end.
+    
 
 %% open and setup "realistic"? parameters
 open(Options) ->

@@ -5,6 +5,9 @@
 -include("../include/alsa.hrl").
 -include("../include/alsa_log.hrl").
 
+-define(dbg(F,A), ok).
+%% -define(dbg(F,A), io:format((F),(A))).
+
 -define(DEFAULT_DEVICE,         "default").
 -define(DEFAULT_CHANNELS,       1).
 -define(DEFAULT_RATE,           48000).

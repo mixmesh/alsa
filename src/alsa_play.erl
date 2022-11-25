@@ -41,6 +41,11 @@
 -export([get_allocated_list/0]).
 -export([get_free_list/0]).
 
+-include("../include/alsa_log.hrl").
+
+-define(dbg(F,A), ok).
+%% -define(dbg(F,A), io:format((F),(A))).
+
 -define(SERVER, ?MODULE).
 
 -define(MAX_VOICES, 128).   %% just a reasonably high number
@@ -64,13 +69,6 @@
 	{bof, sample_length()} |
 	{eof, sample_length()} |
 	{label, integer()}.
-
--define(verbose(F), ok).
-%% -define(verbose(F), io:format((F),[])).
--define(verbose(F,A), ok).
-%% -define(verbose(F,A), io:format((F),(A))).
-%%-define(info(F,A), ok).
--define(info(F,A), io:format((F),(A))).
 
 -type callback3() ::
 	fun((Samples::binary(),NumBytes::integer(),Params::map()) -> ok).
@@ -114,6 +112,13 @@ new(ID) ->
 -spec new(ID::voiceid(), [voiceopt()]) -> ok.
 new(ID,Options) when ?is_voiceid(ID), is_list(Options) ->
     gen_server:call(?SERVER, {new, ID, Options}).
+
+
+remove(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {remove, ID}).
+remove() ->
+    gen_server:call(?SERVER, remove).
+
 
 -spec get_free_list() -> [voiceid()].
 get_free_list() ->
@@ -244,35 +249,47 @@ delete(ID, Range) when ?is_voiceid(ID), is_list(Range) ->
     gen_server:call(?SERVER, {delete, ID, Range}).
 
 restart(ID) when ?is_voiceid(ID) ->
-    gen_server:call(?SERVER, {restart, ID}).
-
-clear(ID) when ?is_voiceid(ID) ->
-    gen_server:call(?SERVER, {clear, ID}).
-
-remove(ID) when ?is_voiceid(ID) ->
-    gen_server:call(?SERVER, {remove, ID}).
-
-remove() ->
-    gen_server:call(?SERVER, remove).
-
-mute(ID, On) when ?is_voiceid(ID), is_boolean(On) ->
-    gen_server:call(?SERVER, {mute, ID, On}).
-
-run(ID) when ?is_voiceid(ID) ->
-    gen_server:call(?SERVER, {run, ID}).
-
-stop(ID) when ?is_voiceid(ID) ->
-    gen_server:call(?SERVER, {stop, ID}).
-
+    gen_server:call(?SERVER, {restart, ID});
+restart([]) ->
+    ok;
+restart(IDList) when is_list(IDList), ?is_voiceid(hd(IDList)) ->
+    gen_server:call(?SERVER, {restart, IDList}).
 restart() ->
     gen_server:call(?SERVER, restart).
 
+clear(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {clear, ID});
+clear([]) ->
+    ok;
+clear(IDList) when is_list(IDList), ?is_voiceid(hd(IDList)) ->
+    gen_server:call(?SERVER, {clear, IDList}).
 clear() ->
     gen_server:call(?SERVER, clear).
 
+
+mute(ID, On) when ?is_voiceid(ID), is_boolean(On) ->
+    gen_server:call(?SERVER, {mute, ID, On});
+mute([],_On) ->
+    ok;
+mute(IDList, On) when is_list(IDList), ?is_voiceid(hd(IDList)), 
+		      is_boolean(On) ->
+    gen_server:call(?SERVER, {mute, IDList, On}).
+
+run(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {run, ID});
+run([]) ->
+    ok;
+run(IDList) when is_list(IDList), ?is_voiceid(hd(IDList)) ->
+    gen_server:call(?SERVER, {run, IDList}).
 run() ->
     gen_server:call(?SERVER, run).
 
+stop(ID) when ?is_voiceid(ID) ->
+    gen_server:call(?SERVER, {stop, ID});
+stop([]) ->
+    ok;
+stop(IDList) when is_list(IDList), ?is_voiceid(hd(IDList)) ->
+    gen_server:call(?SERVER, {stop, IDList}).
 stop() ->
     gen_server:call(?SERVER, stop).
 
@@ -340,7 +357,7 @@ init(Options) ->
     process_flag(trap_exit, true),
     case alsa_playback:open(Options) of
 	{ok,H,Params} ->
-	    ?verbose("Alsa open: params = ~p\n", [Params]),
+	    ?dbg("Alsa open: params = ~p\n", [Params]),
 	    Fun = maps:get(callback, Options, undefined),
 	    Args = maps:get(callback_args, Options, undefiined),
 	    {ok, #state{ handle = H,
@@ -443,72 +460,41 @@ handle_call({unmark,ID,Ref}, _From, State) ->
     end;
 
 handle_call({restart,ID}, _From, State) ->
-    case find_voice(ID, State) of
-	Error = {error,_} ->
-	    {reply, Error, State};
-	W ->
-	    alsa_samples:wave_set_time(W, 0),
-	    {reply, ok, State}
-    end;
+    R = each_wave(ID, fun(W) -> alsa_samples:wave_set_time(W,0) end, State),    
+    {reply, R, State};
 
 %% clear one channel, but keep structure
 handle_call({clear,ID}, _From, State) ->
-    case find_voice(ID, State) of
-	Error = {error,_} ->
-	    {reply, Error, State};
-	W ->
-	    alsa_samples:wave_clear(W),
-	    {reply, ok, State}
-    end;
+    R = each_wave(ID, fun(W) -> alsa_samples:wave_clear(W) end, State),
+    {reply, R, State};
+
 %% clear all voice_maps
 handle_call(clear, _From, State) ->
-    maps_foreach(
-      fun(_ID, W) ->
-	      %% force flush of all potential samples
-	      alsa_samples:wave_clear(W)
-      end, State#state.voice_map),
-    {reply, ok, State};
+    R = each_wave(State#state.voice_map,
+		  fun(W) -> alsa_samples:wave_clear(W) end, State),
+    {reply, R, State};
 
 handle_call({mute,ID,On}, _From, State) ->
-    case find_voice(ID, State) of
-	Error = {error,_} ->
-	    {reply, Error, State};
-	W ->
-	    alsa_samples:wave_set_mute(W, On),
-	    {reply, ok, State}
-    end;
+    R = each_wave(ID, fun(W) -> alsa_samples:wave_set_mute(W,On) end, State),
+    {reply, R, State};
 
 handle_call(run, _From, State) ->
-    maps_foreach(
-      fun (_ID, W) ->
-	      alsa_samples:wave_set_state(W, running)
-      end, State#state.voice_map),
+    set_wave_state(State#state.voice_map, running, State),
     State1 = continue_playing(State),
     {reply, ok, State1};
 
-handle_call({run,ID}, _From, State) ->
-    case find_voice(ID, State) of
-	Error = {error,_} ->
-	    {reply, Error, State};
-	W ->
-	    alsa_samples:wave_set_state(W, running),
-	    State1 = continue_playing(State),
-	    {reply, ok, State1}
-    end;
+handle_call({run,IDList}, _From, State) -> %% ID or List of ID
+    set_wave_state(IDList, running, State),
+    State1 = continue_playing(State),
+    {reply, ok, State1};
 
-handle_call({stop,ID}, _From, State) ->
-    case find_voice(ID, State) of
-	Error = {error,_} ->
-	    {reply, Error, State};
-	W ->
-	    alsa_samples:wave_set_state(W, stopped),
-	    {reply, ok, State}
-    end;
+handle_call({stop,IDList}, _From, State) -> %% ID or List of ID
+    set_wave_state(IDList, stopped, State),
+    State1 = continue_playing(State),
+    {reply, ok, State1};
+
 handle_call(stop, _From, State) ->
-    maps_foreach(
-      fun(_ID, W) ->
-	      alsa_samples:wave_set_state(W, stopped)
-      end, State#state.voice_map),
+    set_wave_state(State#state.voice_map, stopped, State),    
     {reply, ok, State};
 
 handle_call({remove,ID}, _From, State) ->
@@ -618,22 +604,22 @@ handle_info({select,Handle,undefined,_Ready}, State) when
       Handle =:= State#state.handle, State#state.pause =:= false ->
     case alsa:write_(Handle, State#state.output) of
 	{error, eagain} ->
-	    ?verbose("select: eagain\n"),
+	    %% ?dbg("select: eagain\n",[]),
 	    ok = alsa:select_(Handle),
 	    {norereply, State};
 	{error, epipe} -> 
-	    ?verbose("select: epipe\n"),
+	    ?dbg("select: epipe\n",[]),
 	    alsa:recover_(Handle, epipe),
 	    State1 = play(State#state{output = undefined}),
 	    {noreply, State1};
 	{error, estrpipe} ->
-	    ?verbose("play: estrpipe\n"),
+	    ?dbg("play: estrpipe\n",[]),
 	    alsa:recover_(Handle, estrpipe),
 	    State1 = play(State#state{output = undefined}),
 	    {noreply, State1};
 	{error, AlsaError} when is_integer(AlsaError) ->
 	    _Error =  alsa:strerror(AlsaError),
-	    ?verbose("play: error ~s\n", [_Error]),
+	    ?dbg("play: error ~s\n", [_Error]),
 	    State1 = play(State#state{output = undefined}),
 	    {noreply, State1};
 	{ok, Written} ->
@@ -717,6 +703,27 @@ format_status(_Opt, Status) ->
 %%% Internal functions
 %%%===================================================================
 
+set_wave_state(IDList, RunState, State) ->
+    each_wave(IDList, 
+	      fun (W) -> alsa_samples:wave_set_state(W, RunState) end,
+	      State).
+
+each_wave([ID|IDList], Fun, State) ->
+    do_wave_(ID, Fun, State),
+    each_wave(IDList, Fun, State);
+each_wave([], _Fun, _State) ->
+    ok;
+each_wave(ID, Fun, State) when ?is_voiceid(ID) ->
+    do_wave_(ID, Fun, State);
+each_wave(VoiceMap, Fun, _State) when is_map(VoiceMap) ->
+    maps_foreach(fun (_ID, W) -> Fun(W) end, VoiceMap).
+
+do_wave_(ID, Fun, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} -> Error;
+	W -> Fun(W)
+    end.
+
 find_voice(ID, State) ->
     case maps:get(ID, State#state.voice_map, undefined) of
 	undefined ->
@@ -757,29 +764,50 @@ handle_set_samples(ID, Index, Pos, Header0, Samples, Clear, State) ->
 	undefined ->
 	    {reply, {error, enoent}, State};
 	W ->
-	    SrcRate = maps:get(rate, Header, 16000),
-	    SrcFormat = maps:get(format, Header, s16_le),
-	    SrcChannels = maps:get(channels, Header, 1),
+	    Rate = maps:get(rate, Header, 16000),
+	    Format = maps:get(format, Header, s16_le),
+	    Channels = maps:get(channels, Header, 1),
 	    Pos1 = pos(W, Pos),
 	    Samples1 = samples_to_binary(W, Header, Samples),
-	    %% FIXME: handle multi channel! use wave index!
-	    ?verbose("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
-		      [ID, SrcRate, SrcFormat, SrcChannels, Pos1]),
-	    ?verbose("#samples = ~w\n", [byte_size(Samples1) div
-					     alsa:format_size(SrcFormat,
-							      SrcChannels)]),
+	    ?dbg("voice=~w,src_rate=~w, src_format=~w, scr_channels=~w, pos=~w\n",
+		      [ID, Rate, Format, Channels, Pos1]),
+	    ?dbg("#samples = ~w\n", [byte_size(Samples1) div
+					     alsa:format_size(Format,
+							      Channels)]),
+	    ChanMask = (1 bsl Channels)-1,  %% all channels
+%%	    io:format("chanmask = ~w\n", [ChanMask]),
+	    write_samples(ChanMask, Clear, W, Index, Pos1, 0, 
+			  Rate, Format, Channels, Samples1),
+%%	    io:format("Num samples[~w] = ~w\n",
+%%		      [Index,alsa_samples:wave_get_num_samples(W, Index)]),
+%%	    io:format("Num samples[~w] = ~w\n",
+%%		      [Index+1,alsa_samples:wave_get_num_samples(W, Index+1)]),
+	    {reply, ok, State}
+    end.
+
+%% write samples in selected channels on Index Index+1 ...
+write_samples(ChanMask, Clear, W, Index, Pos,
+	      Chan, Rate, Format, Channels, Samples) when ChanMask =/= 0 ->
+    if ChanMask band 1 =:= 1 ->
 	    if Clear ->
+		    io:format("clear\n"),
 		    alsa_samples:wave_set_num_samples(W, Index, 0);
 	       true ->
 		    ok
 	    end,
+	    io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
+	    alsa_samples:wave_set_samples(W, Index, Pos, Chan, Rate, Format, 
+					  Channels, Samples),
+	    alsa_samples:wave_set_chan(W, Index, Chan);
+       true ->
+	    ignore
+    end,
+    write_samples(ChanMask bsr 1, Clear, W, Index+1, Pos,
+		  Chan+1, Rate, Format, Channels, Samples);
+write_samples(0, _Clear, _W, _Index, _Pos, _Chan, _Rate, _Format, 
+	      _Channels, _Samples) ->
+    ok.
 
-	    ok = alsa_samples:wave_set_samples(W, Index,
-					       Pos1, 0,
-					       SrcRate, SrcFormat, SrcChannels, 
-					       Samples1),
-	    {reply, ok, State}
-    end.
 
 samples_to_binary(_W,_Header,Data) when is_binary(Data) ->
     Data;
@@ -837,7 +865,7 @@ notify([{ID,Ms}|Marks], State) ->
     lists:foreach(
       fun({Ref,Pid,Pos,UserData}) ->
 	      Event = {Ref,ID,Pos,UserData},
-	      ?verbose("notify ~p\n", [Event]),
+	      ?dbg("notify ~p\n", [Event]),
 	      Pid ! Event
       end, Ms),
     notify(Marks, State).
@@ -866,23 +894,23 @@ play(State = #state {handle=Handle,output=undefined,
 	    %% io:format("playing=~w, n=~w\n", [Playing,length(BufferList)]),
 	    case alsa:write_(Handle, Bin) of
 		{error, eagain} ->
-		    ?verbose("play: again\n"),
+		    %% ?dbg("play: again\n", []),
 		    ok = alsa:select_(Handle),
 		    State#state{ playing=Playing, output=Bin, marks=Marks };
 		{error, epipe} -> 
-		    ?verbose("play: epipe\n"),
+		    ?dbg("play: epipe\n", []),
 		    alsa:recover_(Handle, epipe),
 		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{error, estrpipe} ->
-		    ?verbose("play: estrpipe\n"),
+		    ?dbg("play: estrpipe\n",[]),
 		    alsa:recover_(Handle, estrpipe),
 		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{error, AlsaError} when is_integer(AlsaError) ->
 		    _Error =  alsa:strerror(AlsaError),
-		    ?verbose("play: error ~s\n", [_Error]),
+		    ?dbg("play: error ~s\n", [_Error]),
 		    play(State#state{playing=Playing,output=Bin,marks=Marks});
 		{ok, Written} ->
-		    ?verbose("play: written ~w, remain=~w\n", 
+		    ?dbg("play: written ~w, remain=~w\n", 
 			     [Written, byte_size(Bin)]),
 		    user_callback(Bin, Written, State),
 		    if Written =:= byte_size(Bin) ->
@@ -900,24 +928,24 @@ play(State = #state {handle=Handle,output=undefined,
 play(State = #state {handle=Handle,marks=Marks,output=Bin}) ->
     case alsa:write_(Handle, Bin) of
 	{error, eagain} ->
-	    ?verbose("play1: again\n"),
+	    %% ?dbg("play1: again\n",[]),
 	    ok = alsa:select_(Handle),
 	    State;
 	{error, epipe} ->
-	    ?verbose("play1: epipe\n"),
+	    ?dbg("play1: epipe\n", []),
 	    alsa:recover_(Handle, epipe),
 	    play(State);
 	{error, estrpipe} ->
-	    ?verbose("play1: estrpipe\n"),
+	    ?dbg("play1: estrpipe\n", []),
 	    alsa:recover_(Handle, estrpipe),
 	    play(State);
 	{error, AlsaError} when is_integer(AlsaError) ->
 	    _Error =  alsa:strerror(AlsaError),
-	    ?verbose("play1: error ~s\n", [_Error]),	    
+	    ?dbg("play1: error ~s\n", [_Error]),	    
 	    play(State);
 	{ok, Written} ->
 	    user_callback(Bin, Written, State),
-	    ?verbose("play1: written ~w, remain=~w\n", 
+	    ?dbg("play1: written ~w, remain=~w\n", 
 		     [Written, byte_size(Bin)]),
 	    if Written =:= byte_size(Bin) ->
 		    State1 = notify(Marks, State),
