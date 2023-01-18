@@ -114,13 +114,14 @@ static void update_duration(envelope_t* ep)
 
 void default_envelope(wavedef_t* param)
 {
-    int i;    
+    int i;
     param->e.n         = 1;
     param->e.p[0].t    = (Float_t) (24*60*60);
     param->e.p[0].mode = 0;
     param->n_waves     = 1;
     param->w_mask      = 1;
     for (i = 0; i< MAX_WAVES; i++) {
+	param->w[i].vol = 1.0;
 	param->w[i].o_mask = 3;
 	param->w[i].osc[0].level = 0.9;
 	param->w[i].osc[0].form  = NONE;
@@ -147,7 +148,7 @@ void wave_init(wavedef_t* param)
     for (i = 0; i < MAX_WAVE_FORMS; i++)
 	sample_buffer_init(&param->custom[i]);
     for (i = 0; i < MAX_WAVES; i++)
-	sample_buffer_init(&param->w[i].s);    
+	sample_buffer_init(&param->w[i].s);
     
     wave_set_rate(param, DEFAULT_RATE);
     wave_set_mode(param, 0);
@@ -390,7 +391,7 @@ Float_t wave_sample(Float_t t, int pos, int mode, envelope_t* e,
 	}
 	break;
     }
-    return y*level;
+    return y*level*w->vol;
 }
 
 // general set envelop values (must reset set repeat/count after)
@@ -542,6 +543,14 @@ int wave_set_chan(wavedef_t* param, int i, int chan)
     if ((i < 0) || (i >= MAX_WAVES)) return -1;
     if ((chan < 0) || (chan >= MAX_WAVES)) return -1;
     param->w[i].chan = chan;
+    return 0;
+}
+
+int wave_set_volume(wavedef_t* param, int i, Float_t vol)
+{
+    if ((i < 0) || (i >= MAX_WAVES)) return -1;
+    if ((vol < 0.0) || (vol > 1.0)) return -1;
+    param->w[i].vol = vol;
     return 0;
 }
 

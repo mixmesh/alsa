@@ -21,6 +21,7 @@
 -export([alloc/0, alloc/1]).
 -export([new/1, new/2]). %% avoid, but ok to use
 -export([set_wave/2]).
+-export([set_volume/2]).
 -export([mute/2]).
 -export([set_samples/3, set_samples/4]).
 -export([set_file/3]).
@@ -131,6 +132,10 @@ get_params() ->
 
 set_wave(ID, WaveDef) when ?is_voiceid(ID) ->
     gen_server:call(?SERVER, {set_wave, ID, WaveDef}).
+
+set_volume(ID, Volume) when ?is_voiceid(ID), is_number(Volume), 
+			    Volume >= 0, Volume =< 1 ->
+    gen_server:call(?SERVER, {set_volume, ID, Volume}).
 
 set_samples(ID, Index, Samples) ->
     case is_voiceid(ID) andalso is_data(Samples) of
@@ -431,6 +436,17 @@ handle_call({set_wave,ID,WaveDef}, _From, State) ->
 	    {reply, ok, State}
     end;
 
+handle_call({set_volume,ID,Volume}, _From, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} ->
+	    {reply, Error, State};
+	W ->
+	    %% fixme: multi channel > 2
+	    alsa_samples:wave_set_volume(W, 0, Volume),
+	    alsa_samples:wave_set_volume(W, 1, Volume),
+	    {reply, ok, State}
+    end;
+
 handle_call({insert_samples,ID,Index,Pos,Header,Samples}, _From, State) ->
     handle_set_samples(ID, Index, Pos, Header, Samples, false, State);
 
@@ -478,15 +494,17 @@ handle_call({mute,ID,On}, _From, State) ->
     R = each_wave(ID, fun(W) -> alsa_samples:wave_set_mute(W,On) end, State),
     {reply, R, State};
 
-handle_call(run, _From, State) ->
+handle_call(run, From, State) ->
     set_wave_state(State#state.voice_map, running, State),
+    gen_server:reply(From, ok),
     State1 = continue_playing(State),
-    {reply, ok, State1};
+    {noreply, State1};
 
-handle_call({run,IDList}, _From, State) -> %% ID or List of ID
+handle_call({run,IDList}, From, State) -> %% ID or List of ID
     set_wave_state(IDList, running, State),
+    gen_server:reply(From, ok),
     State1 = continue_playing(State),
-    {reply, ok, State1};
+    {noreply, State1};
 
 handle_call({stop,IDList}, _From, State) -> %% ID or List of ID
     set_wave_state(IDList, stopped, State),
@@ -553,12 +571,13 @@ handle_call(pause, _From, State) ->
 	false ->
 	    {reply, ok, State#state { pause = true }}
     end;
-handle_call(resume, _From, State) ->
+handle_call(resume, From, State) ->
     case State#state.pause of
 	true ->
+	    gen_server:reply(From, ok),
 	    State1 = continue_playing(State#state{pause=false}),
 	    %% io:format("resume: playing=~p\n", [State1#state.playing]),
-	    {reply, ok, State1};
+	    {noreply, State1};
 	false ->
 	    {reply, ok, State}
     end;
@@ -787,7 +806,8 @@ handle_set_samples(ID, Index, Pos, Header0, Samples, Clear, State) ->
 
 %% write samples in selected channels on Index Index+1 ...
 write_samples(ChanMask, Clear, W, Index, Pos,
-	      Chan, Rate, Format, Channels, Samples) when ChanMask =/= 0 ->
+	      Chan, Rate, Format, Channels, Samples) when 
+      is_integer(Index), ChanMask =/= 0 ->
     if ChanMask band 1 =:= 1 ->
 	    if Clear ->
 		    io:format("clear\n"),
@@ -804,6 +824,19 @@ write_samples(ChanMask, Clear, W, Index, Pos,
     end,
     write_samples(ChanMask bsr 1, Clear, W, Index+1, Pos,
 		  Chan+1, Rate, Format, Channels, Samples);
+write_samples(_ChanMask, Clear, W, Index, Pos,
+	      Chan, Rate, Format, Channels, Samples) when 
+      is_atom(Index) ->
+    %% FIXME: at least stereo!?
+    if Clear ->
+	    io:format("clear\n"),
+	    alsa_samples:wave_set_num_samples(W, Index, 0);
+       true ->
+	    ok
+    end,
+    io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
+    alsa_samples:wave_set_samples(W, Index, Pos, Chan, Rate, Format, 
+				  Channels, Samples);
 write_samples(0, _Clear, _W, _Index, _Pos, _Chan, _Rate, _Format, 
 	      _Channels, _Samples) ->
     ok.

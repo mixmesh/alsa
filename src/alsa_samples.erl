@@ -15,6 +15,7 @@
 -export([filter/4]).
 %% wave
 -export([wave_new/0]).
+-export([wave_info/1, wave_info/2]).
 -export([wave_clear/1]).
 -export([wave_get_rate/1, wave_set_rate/2]).
 -export([wave_set_mode/2]).
@@ -34,6 +35,7 @@
 
 -export([wave_set_wave/3]).
 -export([wave_set_chan/3]).
+-export([wave_set_volume/3]).
 -export([wave_set_form/4]).
 -export([wave_set_freq/4]).
 -export([wave_set_phase/4]).
@@ -134,6 +136,14 @@ filter(_SrcFormat, _DstFormat, _Filter, _Src) ->
 
 -spec wave_new() -> wavedef().
 wave_new() ->
+    ?nif_stub.
+
+-spec wave_info(W::wavedef()) -> map().
+wave_info(_W) ->
+    ?nif_stub.
+
+-spec wave_info(W::wavedef(),Index::waveind()) -> map().
+wave_info(_W, _Index) ->
     ?nif_stub.
 
 -spec mark(W::wavedef(), Pid::pid(), Ref::reference(), Pos::integer(),
@@ -251,6 +261,10 @@ wave_set_wave(_W, _Index, _Ws) ->
 
 -spec wave_set_chan(W::wavedef(), Index::waveind(), Chan::channel()) -> ok.
 wave_set_chan(_W, _Index, _Chan) ->
+    ?nif_stub.
+
+-spec wave_set_volume(W::wavedef(), Index::waveind(), Volume::float01()) -> ok.
+wave_set_volume(_W, _Index, _Vol) ->
     ?nif_stub.
 
 -spec wave_set_form(W::wavedef(), Index::waveind(),Pt::integer(), 

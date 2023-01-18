@@ -75,6 +75,7 @@ typedef struct {
     int chan;             // output audio channel
     unsigned int o_mask;  // oscillators defined mask
     sample_buffer_t s;    // samples
+    Float_t vol;          // over all channel volume
     osc_t osc[MAX_OSC];   // oscillators
 } wave_t;
 
@@ -158,6 +159,7 @@ extern int wave_set_sustain(wavedef_t* param, Float_t duration);
 extern int wave_set_release(wavedef_t* param, Float_t duration);
 extern int wave_set_delay(wavedef_t* param, Float_t duration);
 extern int wave_set_chan(wavedef_t* param, int i, int chan);
+extern int wave_set_volume(wavedef_t* param, int i, Float_t vol);
 extern int wave_set_def(wavedef_t* param, int i, int j,
 			waveform_t form, Float_t freq,Float_t phase);
 

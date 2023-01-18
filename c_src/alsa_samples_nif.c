@@ -116,6 +116,21 @@ DECL_ATOM(label);
 DECL_ATOM(marks);
 DECL_ATOM(peak);
 DECL_ATOM(energy);
+// info atoms
+DECL_ATOM(num_samples);
+DECL_ATOM(chan);
+DECL_ATOM(samples);
+DECL_ATOM(osc);
+DECL_ATOM(rate);
+DECL_ATOM(mute);
+DECL_ATOM(state);
+DECL_ATOM(t);
+DECL_ATOM(dt);
+DECL_ATOM(pos);
+DECL_ATOM(mode);
+DECL_ATOM(envelope);
+DECL_ATOM(wave);
+DECL_ATOM(mark);
 
 // format - use SND_FORMAT_LIST to declare all atom formats
 #undef SND_FORMAT
@@ -142,6 +157,8 @@ SND_FORMAT_LIST
     NIF("reformat", 5, nif_reformat)	  \
     NIF("filter", 4, nif_filter)	  \
     NIF("wave_new", 0, nif_wave_new)				\
+    NIF("wave_info", 1, nif_wave_info)				\
+    NIF("wave_info", 2, nif_wave_info)				\
     NIF("wave_set_buffer_mode", 3, nif_wave_set_buffer_mode)	\
     NIF("wave_clear", 1, nif_wave_clear)			\
     NIF("wave",     4, nif_wave)				\
@@ -164,6 +181,7 @@ SND_FORMAT_LIST
     NIF("wave_set_delay", 2, nif_wave_set_delay)		\
     NIF("wave_get_duration", 1, nif_wave_get_duration)		\
     NIF("wave_set_chan", 3, nif_wave_set_chan)			\
+    NIF("wave_set_volume", 3, nif_wave_set_volume)		\
     NIF("wave_set_level", 4, nif_wave_set_level)		\
     NIF("wave_set_form", 4, nif_wave_set_form)			\
     NIF("wave_set_freq", 4, nif_wave_set_freq)			\
@@ -403,6 +421,114 @@ static int get_mark_flags(ErlNifEnv* env, ERL_NIF_TERM list,
     return 1;
 }
 
+
+static ERL_NIF_TERM make_form(ErlNifEnv* env, waveform_t form)
+{
+    switch(form) {
+    case NONE: return ATOM(none);
+    case CONST: return ATOM(const);
+    case SINE: return ATOM(sine);
+    case SQUARE: return ATOM(square);
+    case PULSE: return ATOM(pulse);
+    case TRIANGLE: return ATOM(triangle);
+    case SAW: return ATOM(saw);
+    case RANDOM: return ATOM(random);
+    case CUSTOM1: return ATOM(custom1);
+    case CUSTOM2: return ATOM(custom2);
+    case CUSTOM3: return ATOM(custom3);
+    case CUSTOM4: return ATOM(custom4);
+    default: return ATOM(undefined);
+    }
+}
+
+static ERL_NIF_TERM make_osc_info(ErlNifEnv* env, int index, osc_t* osc)
+{
+    ERL_NIF_TERM key[5] =
+	{ ATOM(index), ATOM(form), ATOM(level), ATOM(freq), ATOM(phase) };
+    ERL_NIF_TERM val[5];
+    ERL_NIF_TERM props;
+
+    val[0] = enif_make_int(env, index);
+    val[1] = make_form(env, osc->form);
+    val[2] = enif_make_double(env, osc->level);
+    val[3] = enif_make_double(env, osc->freq);
+    val[4] = enif_make_double(env, osc->phase);
+    enif_make_map_from_arrays(env,key,val,5,&props);
+    return props;
+}
+
+static ERL_NIF_TERM make_sample_info(ErlNifEnv* env, sample_buffer_t* sp)
+{
+    return enif_make_tuple2(env, ATOM(num_samples),
+			    enif_make_int(env, sp->num_samples));
+}
+
+
+static ERL_NIF_TERM make_wave_info(ErlNifEnv* env, int index, wave_t* wp)
+{
+    ERL_NIF_TERM key[4] =
+	{ ATOM(index), ATOM(chan), ATOM(samples), ATOM(osc) };
+    ERL_NIF_TERM val[4];
+    ERL_NIF_TERM props;
+    ERL_NIF_TERM osc[MAX_OSC];
+    int i, j;
+
+    val[0] = enif_make_int(env, index);
+    val[1] = enif_make_int(env, wp->chan);
+    val[2] = make_sample_info(env, &wp->s);
+    j = 0;
+    for (i = 0; i < MAX_OSC; i++) {
+	if (wp->o_mask & (1 << i))
+	    osc[j++] = make_osc_info(env, i, &wp->osc[i]);
+    }
+    val[3] = enif_make_list_from_array(env, osc, j);
+    enif_make_map_from_arrays(env,key,val,4,&props);
+    return props;
+}
+
+static ERL_NIF_TERM make_wavedef_info(ErlNifEnv* env, wavedef_t* param)
+{
+    int i, j;
+    ERL_NIF_TERM wave[MAX_WAVES];
+    ERL_NIF_TERM cust[MAX_WAVE_FORMS];
+    ERL_NIF_TERM key[11] =
+	{ ATOM(rate), ATOM(mute), ATOM(state), ATOM(t), ATOM(dt),
+	  ATOM(pos),  ATOM(mode), ATOM(envelope), ATOM(wave),
+	  ATOM(custom), ATOM(mark) };
+    ERL_NIF_TERM val[11];
+    ERL_NIF_TERM props;
+
+    val[0] = enif_make_double(env, param->rate);
+    val[1] = param->mute ? ATOM(true) : ATOM(false);
+    val[2] = param->state ? ATOM(running) : ATOM(stopped);
+    val[3] = enif_make_double(env, param->t);
+    val[4] = enif_make_double(env, param->dt);
+    val[5] = enif_make_int(env, param->pos);
+    val[6] = enif_make_int(env, param->mode);
+    val[7] = ATOM(undefined);
+
+    j = 0;
+    for (i = 0; i < MAX_WAVES; i++) {
+	if (param->w_mask & (1 << i)) {
+	    wave[j++] = make_wave_info(env, i, &param->w[i]);
+	}
+    }
+    val[8] = enif_make_list_from_array(env, wave, j);
+
+    j = 0;
+    for (i = 0; i < MAX_WAVE_FORMS; i++) {
+	cust[j++] = make_sample_info(env, &param->custom[i]);
+    }    
+    val[9] = enif_make_list_from_array(env, cust, j);
+
+    val[10] = ATOM(undefined);  // marks!
+
+    enif_make_map_from_arrays(env,key,val,11,&props);
+    return props;    
+}
+
+
+
 // set wave mask and num_waves
 static void update_w_mask(wavedef_t* param, int index)
 {
@@ -629,6 +755,27 @@ static ERL_NIF_TERM nif_wave_new(ErlNifEnv* env, int argc,
     return term;
 }
 
+static ERL_NIF_TERM nif_wave_info(ErlNifEnv* env, int argc,
+				  const ERL_NIF_TERM argv[])
+{
+    wavedef_t *param;
+    int index;
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    switch(argc) {
+    case 1:
+	return make_wavedef_info(env, param);
+    case 2:
+	if (!enif_get_int(env, argv[1], &index))
+	    return enif_make_badarg(env);
+	if ((index < 0) || (index >= MAX_WAVES))
+	    return enif_make_badarg(env);
+	return make_wave_info(env, index, &param->w[index]);
+    default:
+	return enif_make_badarg(env);
+    }
+}
+
 static ERL_NIF_TERM nif_wave_clear(ErlNifEnv* env, int argc,
 				   const ERL_NIF_TERM argv[])
 {
@@ -784,6 +931,7 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
 	ix++;
     }
 
+    // FIXME: check index value!!!
     wp = &param->w[index];
     
     for (j = 0; j < MAX_OSC; j++) {
@@ -1027,6 +1175,26 @@ static ERL_NIF_TERM nif_wave_set_chan(ErlNifEnv* env, int argc,
     return ATOM(ok);
 }
 
+// set channel volume
+static ERL_NIF_TERM nif_wave_set_volume(ErlNifEnv* env, int argc,
+					const ERL_NIF_TERM argv[])
+{
+    wavedef_t* param;
+    int index;
+    double vol;
+    
+    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+	return enif_make_badarg(env);
+    if (!enif_get_int(env, argv[1], &index))
+	return enif_make_badarg(env);
+    if (!get_number(env, argv[2], &vol))
+	return enif_make_badarg(env);    
+    if (wave_set_volume(param, index, (Float_t) vol) < 0)
+	return enif_make_badarg(env);
+    return ATOM(ok);
+}
+
+
 // set envelope levels
 static ERL_NIF_TERM nif_wave_set_level(ErlNifEnv* env, int argc,
 				       const ERL_NIF_TERM argv[])
@@ -1132,7 +1300,7 @@ static ERL_NIF_TERM nif_wave_set_buffer_mode(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_samples_index(env, argv[1], &index))
 	return enif_make_badarg(env);
-    if ((index < 0) || (index >= MAX_OSC))
+    if ((index < 0) || (index >= MAX_WAVES))
 	return enif_make_badarg(env);
 
     if (queue >= 0)
@@ -1496,12 +1664,12 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(linear);
     LOAD_ATOM(quadratic);
     LOAD_ATOM(sustain);
-    // wave parts
+    // osc parts
     LOAD_ATOM(index);
     LOAD_ATOM(form);
     LOAD_ATOM(freq);
     LOAD_ATOM(level);
-    LOAD_ATOM(phase);
+    LOAD_ATOM(phase);    
     // form
     LOAD_ATOM(none);
     LOAD_ATOM(const);
@@ -1527,6 +1695,21 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(marks);
     LOAD_ATOM(peak);
     LOAD_ATOM(energy);
+    // info atoms
+    LOAD_ATOM(num_samples);    
+    LOAD_ATOM(chan);
+    LOAD_ATOM(samples);
+    LOAD_ATOM(osc);
+    LOAD_ATOM(rate);
+    LOAD_ATOM(mute);
+    LOAD_ATOM(state);
+    LOAD_ATOM(t);
+    LOAD_ATOM(dt);
+    LOAD_ATOM(pos);
+    LOAD_ATOM(mode);
+    LOAD_ATOM(envelope);
+    LOAD_ATOM(wave);
+    LOAD_ATOM(mark);    
 
     // format - use SND_FORMAT_LIST to load all atom formats    
 #undef SND_FORMAT
