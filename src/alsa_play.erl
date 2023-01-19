@@ -34,7 +34,7 @@
 -export([delete/2]).
 -export([run/1, run/0]).
 -export([stop/1, stop/0]).
--export([restart/1, clear/1, remove/1]).
+-export([restart/1, clear/1, remove/1, update/1]).
 -export([restart/0, clear/0, remove/0]).
 -export([pause/0, resume/0]).
 -export([set_callback/1, set_callback/2,set_callback_args/1]).
@@ -252,6 +252,15 @@ unmark(ID, Ref) ->
 %% delete samples in channel
 delete(ID, Range) when ?is_voiceid(ID), is_list(Range) ->
     gen_server:call(?SERVER, {delete, ID, Range}).
+
+
+update(U={ID,Update}) when ?is_voiceid(ID),is_list(Update) ->
+    gen_server:call(?SERVER, {update,[U]});
+update([]) ->
+    ok;
+update(IDList=[{ID,Update}|_]) when ?is_voiceid(ID), is_list(Update) ->
+    gen_server:call(?SERVER, {update, IDList}).
+
 
 restart(ID) when ?is_voiceid(ID) ->
     gen_server:call(?SERVER, {restart, ID});
@@ -474,6 +483,28 @@ handle_call({unmark,ID,Ref}, _From, State) ->
 	    erlang:demonitor(Ref, [flush]),
 	    {reply, ok, State}
     end;
+
+handle_call({update,UList}, _From, State) ->
+    %% UList is on form [ {ID,[{volume,V},restart,clear,mute,run]} ]
+    R = each_wave(UList, 
+		  fun({W,U}) ->
+			  lists:foreach(
+			    fun({volume,V}) ->
+				    alsa_samples:wave_set_volume(W, 0, V),
+				    alsa_samples:wave_set_volume(W, 1, V);
+			       (restart) ->
+				    alsa_samples:wave_set_time(W,0);
+			       (clear) ->
+				    alsa_samples:wave_clear(W);
+			       ({mute,On}) ->
+				    alsa_samples:wave_set_mute(W,On);
+			       (run) ->
+				    alsa_samples:wave_set_state(W, running);
+			       (stop) ->
+				    alsa_samples:wave_set_state(W, stopped)
+			    end, U)
+		  end, State),
+    {reply, R, State};
 
 handle_call({restart,ID}, _From, State) ->
     R = each_wave(ID, fun(W) -> alsa_samples:wave_set_time(W,0) end, State),    
@@ -737,6 +768,11 @@ each_wave(ID, Fun, State) when ?is_voiceid(ID) ->
 each_wave(VoiceMap, Fun, _State) when is_map(VoiceMap) ->
     maps_foreach(fun (_ID, W) -> Fun(W) end, VoiceMap).
 
+do_wave_({ID,UList}, Fun, State) ->
+    case find_voice(ID, State) of
+	Error = {error,_} -> Error;
+	W -> Fun({W,UList})
+    end;
 do_wave_(ID, Fun, State) ->
     case find_voice(ID, State) of
 	Error = {error,_} -> Error;

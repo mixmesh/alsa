@@ -1,2 +1,12 @@
-* non-blocking + select. check midi_nif.c
-* look carefully at Tonys fixes (hint)
+* alsa_samples
+ let mix / wave_mix mix directly from a number of sample buffers
+ into a destination buffer (then extract the destination later)
+
+* alsa_play
+
+  prepend silence before each samples for T milliseconds
+  let the normal beat be at T/2 milliseconds, using mark jump,
+  then it is "easy" to move the sample start back and forth
+  within one beat (changing jump length)
+  
+
