@@ -3,6 +3,7 @@
 //
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -11,8 +12,8 @@
 #include "erl_nif.h"
 #include "erl_driver.h"
 
-//#define DEBUG
-//#define NIF_TRACE
+// #define DEBUG
+// #define NIF_TRACE
 
 #include "debug.h"
 
@@ -527,8 +528,6 @@ static ERL_NIF_TERM make_wavedef_info(ErlNifEnv* env, wavedef_t* param)
     return props;    
 }
 
-
-
 // set wave mask and num_waves
 static void update_w_mask(wavedef_t* param, int index)
 {
@@ -884,6 +883,8 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!enif_get_int(env, argv[1], &index))
 	return enif_make_badarg(env);
+    if ((index < 0) || (index >= MAX_WAVES))
+	return enif_make_badarg(env);    
     if (!enif_is_list(env, argv[2]))
 	return enif_make_badarg(env);
     list = argv[2];
@@ -931,7 +932,6 @@ static ERL_NIF_TERM nif_wave_set_wave(ErlNifEnv* env, int argc,
 	ix++;
     }
 
-    // FIXME: check index value!!!
     wp = &param->w[index];
     
     for (j = 0; j < MAX_OSC; j++) {
@@ -1441,15 +1441,37 @@ static ERL_NIF_TERM nif_wave_get_pos(ErlNifEnv* env, int argc,
     return enif_make_int(env, pos);
 }
 
+static ERL_NIF_TERM make_mark_list(ErlNifEnv* env,mark_t* mpl,ERL_NIF_TERM list)
+{
+    while(mpl) {
+	ERL_NIF_TERM event;
+	mark_t* mpn = mpl->next;
+	event = enif_make_tuple4(env,
+				 enif_make_copy(env, mpl->ref),
+				 enif_make_pid(env, &mpl->pid),
+				 enif_make_int(env, mpl->pos),
+				 enif_make_copy(env, mpl->user_data));
+	list = enif_make_list_cell(env, event, list);
+	if (mpl->flags0 & MARK_FREE)
+	    free_mark(mpl);
+	mpl = mpn;
+    }
+    return list;
+}
+
 //
-// wave(WaveDef,Format,Channels,NumFrames::non_neg_integer()) ->
-//  {[event()],#{ peak => float(), energy => float() },Dst:binary()}
+// wave(wavedef()|[wavedef()],Format,Channels,NumFrames::non_neg_integer()) ->
+//   {[event()],#{ peak => float(), energy => float() },Dst:binary()}
+//
+// wave(wavedef()|[wavedef()], NumFrames::non_neg_integer(), Dst::wavedef()) ->
+//   {[event()],#{ peak => float(), energy => float() },Dst:binary()}
 //
 static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
 {
-    wavedef_t* param;
     snd_pcm_format_t format;
+    unsigned num_voices;
+    wavedef_t* voice[MAX_VOICES];
     size_t num_channels;
     size_t num_frames;
     ERL_NIF_TERM dst_bin;
@@ -1458,9 +1480,28 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
     double peak = 0.0, energy = 0.0;
     ERL_NIF_TERM prop_keys[2] = { ATOM(peak), ATOM(energy) };
     ERL_NIF_TERM prop_values[2];
-    
-    if (!enif_get_resource(env, argv[0], wavedef_r, (void **)&param))
+
+    if (enif_get_list_length(env, argv[0], &num_voices)) {
+	ERL_NIF_TERM hd, tl, list = argv[0];
+	int i;
+	if ((num_voices == 0) || (num_voices > MAX_VOICES))
+	    return enif_make_badarg(env);
+	i = 0;
+	while(enif_get_list_cell(env, list, &hd, &tl)) {
+	    if (!enif_get_resource(env,hd,wavedef_r,(void **)&voice[i]))
+		return enif_make_badarg(env);
+	    list = tl;
+	    i++;
+	}
+	if (!enif_is_empty_list(env, list))
+	    return enif_make_badarg(env);
+    }
+    else if (enif_get_resource(env,argv[0],wavedef_r,(void **)&voice[0])) {
+	num_voices = 1;
+    }
+    else
 	return enif_make_badarg(env);
+    
     if (!get_format(env, argv[1], &format))
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[2], &num_channels))
@@ -1469,28 +1510,43 @@ static ERL_NIF_TERM nif_wave(ErlNifEnv* env, int argc,
 	return enif_make_badarg(env);
     if (!get_size_t(env, argv[3], &num_frames))
 	return enif_make_badarg(env);
-    if ((param->state == 0) || (param->n_waves == 0))
+
+    if ((voice[0]->state == 0) || (voice[0]->n_waves == 0))
 	enif_make_new_binary(env, 0, &dst_bin);
     else {
 	mark_t* mpl;
 	size_t frame_size = snd_pcm_format_size(format, num_channels);
 	size_t size = frame_size*num_frames;
 	void* dst = enif_make_new_binary(env, size, &dst_bin);
-	mpl = wave_buffer(param, format, num_channels, dst, num_frames,
-			  &peak, &energy);
-	while(mpl) {
-	    ERL_NIF_TERM event;
-	    mark_t* mpn = mpl->next;
-	    event = enif_make_tuple4(env,
-				     enif_make_copy(env, mpl->ref),
-				     enif_make_pid(env, &mpl->pid),
-				     enif_make_int(env, mpl->pos),
-				     enif_make_copy(env, mpl->user_data));
-	    mark_list = enif_make_list_cell(env, event, mark_list);
-	    if (mpl->flags0 & MARK_FREE)
-		free_mark(mpl);
-	    mpl = mpn;
+	float fv0[num_channels*num_frames];
+	float fv1[num_channels*num_frames];
+	int i;
+	// void* fvv[2] = { (void*)fv0, (void*)fv1};
+	
+	mpl = wave_buffer(voice[0],num_channels,fv0,num_frames,&peak,&energy);
+	mark_list = make_mark_list(env, mpl, mark_list);
+
+	for (i = 1; i < num_voices; i++) {
+	    double p, e;
+	    size_t n;
+	    float* fptr0;
+	    float* fptr1;
+	    mpl = wave_buffer(voice[i],num_channels,fv1,num_frames,&p,&e);
+	    peak = fmax(peak, p);
+	    energy += e;
+	    mark_list = make_mark_list(env, mpl, mark_list);
+	    n = num_frames*num_channels;
+	    fptr0 = fv0;
+	    fptr1 = fv1;
+	    // add samples in fv1 to fv0 (fixme SIMD)
+	    while(n--) {
+		*fptr0 += *fptr1++;
+		fptr0++;
+	    }
+	    // mix(SND_PCM_FORMAT_FLOAT,fvv,NULL,2,(void*)fv0,num_frames*num_channels);
 	}
+	reformat(SND_PCM_FORMAT_FLOAT, num_channels, (void*) fv0,
+		 format, num_channels, dst, num_frames);
     }
     prop_values[0] = enif_make_double(env, peak);
     prop_values[1] = enif_make_double(env, energy);

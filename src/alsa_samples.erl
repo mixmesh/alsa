@@ -48,7 +48,6 @@
 -export([mark/6, unmark/2, get_marks/3, get_marks/2]).
 -export([wave/4]).
 %% util
-%% -export([create_wave/2]).
 -export([set_wave_def/2]).
 -export([to_frequency/1]).
 
@@ -170,12 +169,21 @@ get_marks(_W, _From, _To) ->
 get_marks(_W, _Period) ->
     ?nif_stub.
 
--spec wave(wavedef(), Format::alsa:format(), Channels::alsa:unsigned(),
-	   NumFrames::alsa:unsigned()) ->
+%% @doc
+%%    Given a list of wave definitions (max 32 entries), return samples in the
+%%    specified format, number of channels and number of frames.
+%% @end
+-spec wave(wavedef()|[wavedef()], Format::alsa:format(),
+	   Channels::alsa:unsigned(), NumFrames::alsa:unsigned()) ->
 	  {[event()], #{ peak => float(), energy => float() },
 	   Samples::binary()}.
-wave(_WaveDef, _Format, _Channels, _NumFrames) ->
+wave(_WaveDefs, _Format, _Channels, _NumFrames) ->
     ?nif_stub.
+
+%% @doc
+%%    Clear all wave definitions
+%%    This will also clear all marks
+%% @end
 
 -spec wave_clear(W::wavedef()) -> ok.
 wave_clear(_W) ->
@@ -296,6 +304,10 @@ wave_set_buffer_mode(_W, _Index, _Opts) ->
 wave_set_samples(_W, _Index, _Offset, _Channel,
 		 _SrcRate, _SrcFormat, _SrcChannels, _Src) ->
     ?nif_stub.
+
+%% @doc
+%%   resize sample buffer and reallocate if needed
+%% @end
 
 -spec wave_set_num_samples(W::wavedef(), Index::waveind()|custom(),
 			   Num::alsa:unsigned()) -> ok.

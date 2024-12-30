@@ -73,7 +73,7 @@ int sample_buffer_resize(sample_buffer_t* sp, size_t n, int and_clear)
     }
     return 0;
 }
-//
+// write ONE channel of sammple data to sample buffer
 // j is the position in the buffer
 // k is the channel number to write
 // 

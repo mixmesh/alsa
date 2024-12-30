@@ -10,11 +10,11 @@
 #ifdef USE_DOUBLE
 typedef double Float_t;
 #define FMOD(x,y) fmod((x),(y))
-#define SINE(x) sin((x))
+#define FSINE(x) sin((x))
 #else
 typedef float Float_t;
 #define FMOD(x,y) fmodf((x),(y))
-#define SINE(x) sinf((x))
+#define FSINE(x) sinf((x))
 #endif
 
 typedef struct {

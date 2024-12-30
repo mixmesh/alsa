@@ -162,8 +162,7 @@ set_file(ID, Index, Filename) ->
 		{ok,{Header,Samples}} ->
 		    io:format("load ~w samples format=~p\n",
 			      [byte_size(Samples), Header]),
-		    gen_server:call(?SERVER, {set_samples,ID,Index,
-					      Header,Samples});
+		    set_samples(ID, Index, Header, Samples);
 		Error ->
 		    io:format("file error: ~p\n", [Error]),
 		    Error
@@ -851,9 +850,10 @@ write_samples(ChanMask, Clear, W, Index, Pos,
 	       true ->
 		    ok
 	    end,
-	    io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
+	    %%io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
 	    alsa_samples:wave_set_samples(W, Index, Pos, Chan, Rate, Format, 
 					  Channels, Samples),
+	    %%io:format("set channel index=~w, chan=~w\n", [Index,Chan]),
 	    alsa_samples:wave_set_chan(W, Index, Chan);
        true ->
 	    ignore
@@ -865,12 +865,12 @@ write_samples(_ChanMask, Clear, W, Index, Pos,
       is_atom(Index) ->
     %% FIXME: at least stereo!?
     if Clear ->
-	    io:format("clear\n"),
+	    %%io:format("clear\n"),
 	    alsa_samples:wave_set_num_samples(W, Index, 0);
        true ->
 	    ok
     end,
-    io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
+    %% io:format("set samples index=~w, chan=~w\n", [Index,Chan]),
     alsa_samples:wave_set_samples(W, Index, Pos, Chan, Rate, Format, 
 				  Channels, Samples);
 write_samples(0, _Clear, _W, _Index, _Pos, _Chan, _Rate, _Format, 
@@ -1053,9 +1053,8 @@ read_buffer_list_([ID|IDs], VoiceMap, Format, Channels, PeriodSize,
 				      add_marks(ID,Ms,Marks));
 		{Ms,#{peak := _P, energy := _E},Samples} ->
 		    %% io:format("peak=~p, energy=~p\n", [_P, _E]),
-		    read_buffer_list_(IDs, VoiceMap,
-				      Format, Channels, PeriodSize,
-				      [Samples|Acc], 
+		    read_buffer_list_(IDs, VoiceMap, Format, Channels,
+				      PeriodSize, [Samples|Acc], 
 				      add_marks(ID,Ms,Marks))
 	    end
     end;
@@ -1064,7 +1063,7 @@ read_buffer_list_([], _VoiceMap, _Format, _Channels, _PeriodSize, Acc, Marks) ->
 
 add_marks(_ID,[],Marks) -> Marks;
 add_marks(ID,Ms,Marks) -> [{ID,Ms}|Marks].
-    
+
 %%
 %% check argument types
 %%

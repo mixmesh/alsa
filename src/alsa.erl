@@ -50,9 +50,10 @@
 	 make_silence/3,
 	 bytes_to_frames/2
 	]).
--export([info/0]).             % info elements
 -export([formats/0]).          % declare atoms and formats available
 -export([preloaded_atoms_/0]). % internal
+-export([display_cards/0]).    % show card information
+-export([list_cards/0]).       % collect card information for all cards
 
 
 -include("../include/alsa.hrl").
@@ -293,10 +294,6 @@ hw_range_params() ->
      can_pause, can_resume, can_sync_start,
      can_disable_period_wakeup, fifo_size].
 
-info() ->
-    [id, driver, name,
-     longname, mixername, components
-    ].
 
 %%
 %% Exported: get_hw_params
@@ -725,10 +722,17 @@ make_silence(_Format, _Channels, _Samples) ->
 %%
 %% Exported: card_info
 %%
+card_info_keys() ->
+    [id, driver, name,
+     longname, mixername, components
+    ].
 
 -spec card_info(Card::integer()) -> [info_key_value()].
 card_info(Card) ->
-    card_info(Card, info()).
+    case card_info(Card, card_info_keys()) of
+	{ok, Info} ->
+	    Info
+    end.
 
 -spec card_info(Card::integer(), Elems::[info_key()]) -> 
 	  [info_key_value()].
@@ -740,3 +744,49 @@ card_info(_Card, _Elems) ->
 
 card_next(_Card) ->
     ?nif_stub.
+
+%% Small util to dump card info
+
+-spec display_cards() -> ok.
+display_cards() ->
+    fold_cards(
+      fun(Card, Acc) ->
+	      io:format("Card ~w:~n", [Card]),
+	      [io:format("  ~w: ~p~n", [Key, Value]) || 
+		  {Key, Value} <- card_info(Card)],
+	      display_formats(Card),
+	      Acc
+      end, ok).
+
+display_formats(Card) when is_integer(Card) ->
+    case open_("hw:"++integer_to_list(Card), playback) of
+	{ok, Handle} ->
+	    {ok, Params} = get_hw_params_range(Handle),
+	    close_(Handle),
+	    lists:foreach(
+	      fun({Key,Value}) ->
+		      io:format("  ~w: ~p~n", [Key, Value])
+	      end, Params);
+	_ ->
+	    ok
+    end.
+
+-spec list_cards() -> [{Card::integer(), Info::[{Key::atom(),Value::term()}]}].
+list_cards() ->
+    List = fold_cards(
+	     fun(Card, Acc) ->
+		     [{Card, [card_info(Card)]} | Acc]
+	     end, []),
+    lists:reverse(List).
+
+-spec fold_cards(Fun::function(), Acc::term()) -> Acc1::term().
+fold_cards(Fun, Acc) ->
+    fold_cards(-1, Fun, Acc).
+
+fold_cards(Prev, Fun, Acc) ->
+    case card_next(Prev) of
+	false ->
+	    Acc;
+	Card ->
+	    fold_cards(Card, Fun, Fun(Card, Acc))
+    end.

@@ -685,7 +685,7 @@ void reformat(snd_pcm_format_t src_format, size_t src_channels, void* src,
     if (src_format == dst_format) {
 	if (src_channels == dst_channels) {
 	    ssize_t size = snd_pcm_format_size(src_format, src_channels);
-	    memcpy(dst, src, num_frames*snd_pcm_format_size(src_format, size));
+	    memcpy(dst, src, num_frames*size);
 	}
 	else {
 	    ssize_t src_size = snd_pcm_format_size(src_format, src_channels);

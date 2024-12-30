@@ -179,6 +179,7 @@ extern int wave_find_mark(wavedef_t* param, int pos);
 extern int wave_add_mark(wavedef_t* param, mark_t* mp);
 extern mark_t* wave_remove_mark(wavedef_t* param, ERL_NIF_TERM ref);
 
-extern mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format, unsigned int channels, void* dst, size_t n, double* peek_ptr, double* energy_ptr);
+//extern mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format, unsigned int channels, void* dst, size_t n, double* peek_ptr, double* energy_ptr);
+extern mark_t* wave_buffer(wavedef_t* param, unsigned int channels, float* dst, size_t n, double* peek_ptr, double* energy_ptr);
 
 #endif

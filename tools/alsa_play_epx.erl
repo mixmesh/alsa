@@ -243,6 +243,8 @@ draw(Pixels, _Dirty, State= #{ selection := Selection } ) ->
     end,
     State.
 
+-ifdef(unused).
+
 find_chord([Y|Ys], X, MaxX, Freq, Df, Acc) when X < MaxX ->
     find_chord(Ys, X+1, MaxX, Freq+Df, Df, [{Y,X,Freq}|Acc]);
 find_chord(_, _X, _MaxX, _Freq, _Df, Acc) ->
@@ -263,7 +265,7 @@ find_chord(_, _X, _MaxX, _Freq, _Df, Acc) ->
 	_ ->
 	    ok
     end.
-
+-endif.
     
 
 %% draw tool bar
@@ -368,14 +370,21 @@ shape(Form) ->
 custom_shape(Name) ->
     Sounds = filename:join([code:lib_dir(alsa), "waves", "Waveshapes"]),
     Filename = filename:join(Sounds, Name ++ ".wav"),
-    %% set on all voices (currently 10)
-    lists:foreach(
-      fun(I) ->
-	      alsa_play:set_file(I,custom1,filename:join(Sounds, Filename))
-      end, lists:seq(1,?MAX_VOICES)),
-    shape(custom1).
+    case alsa_util:read_file(Filename) of
+	{ok,{Header,Samples}} ->    
+	    io:format("load ~w samples format=~p\n",
+		      [byte_size(Samples), Header]),
+	    %% set on all voices (currently 10)
+	    %% FIXME: set_samples(all=0?, custom1, Header, Samples),
+	    lists:foreach(
+	      fun(I) ->
+		      alsa_play:set_samples(I, custom1, Header, Samples)
+	      end, lists:seq(1,?MAX_VOICES)),
+	    shape(custom1);
+	{error,Reason} ->
+	    io:format("load ~w failed: ~p\n", [Filename, Reason])
+    end.
 
-    
 %% callback from alsa_play 
 %% usin alsa_play environment!!! not very nice!
 send_samples(Samples, Len, Params, [Freq,Pid]) ->

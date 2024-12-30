@@ -65,10 +65,6 @@ static inline Radian_t clamp2pi(Float_t x)
 
 static inline Float_t mix2(Float_t a, Float_t b)
 {
-    if ((a < 0.0) && (b < 0.0))
-	return a + b + a*b;
-    else if ((a > 0.0) && (b > 0.0))
-	return a + b - a*b;
     return a+b;
 }
 
@@ -221,7 +217,7 @@ static inline Float_t frac(Float_t tf)
 //
 static inline Float_t envelope_step(Float_t t, envelope_t* e, int* p, int* q)
 {
-    Float_t dur;
+    Float_t dur = 0.0;
     Float_t t0 = t;
     int i = e->cur;
     int n = e->n;
@@ -311,7 +307,7 @@ static inline Float_t osc(Float_t x, waveform_t form, Float_t phase,
     case CUSTOM2: return shape(x, &custom[1]);
     case CUSTOM3: return shape(x, &custom[2]);
     case CUSTOM4: return shape(x, &custom[3]);
-    case SINE:    return SINE(2*M_PI*x + phase);
+    case SINE:    return FSINE(2*M_PI*x + phase);
     case SQUARE:  return ((x < 0.5) ? 1.0 : -1.0);
     case PULSE:   return ((x < 0.5) ? 1.0 : 0.0);
     case TRIANGLE: return 4*((x <= 0.25) ? x :
@@ -621,14 +617,14 @@ int wave_write_samples(wavedef_t* param, int i, int j, int k,
 	if (size > sp->num_samples)
 	    sample_buffer_resize(sp, size, 1);
     }
-    if (sample_buffer_is_queue(sp))
-	printf("write %ld/%ld: tail=%d  ",
-	       src_frames, sp->num_samples, sp->tail);
+//    if (sample_buffer_is_queue(sp))
+//	printf("write %ld/%ld: tail=%d  ",
+//	       src_frames, sp->num_samples, sp->tail);
     sample_buffer_write(sp, j, k, dx,
 			sample_size, frame_size,
 			src_format, src, src_frames, dst_frames);
-    if (sample_buffer_is_queue(sp))
-	printf("    tail'=%d\r\n", sp->tail);
+//    if (sample_buffer_is_queue(sp))
+//	printf("    tail'=%d\r\n", sp->tail);
     return 0;
 }
 
@@ -747,8 +743,8 @@ static int wave_goto_mark(wavedef_t* param, int lbl)
 }
 
 // make samples buffer, return list of marks contining notifications data
-mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
-		    unsigned int channels, void* dst, size_t n,
+mark_t* wave_buffer(wavedef_t* param,
+		    unsigned int channels, float* dst, size_t n,
 		    double* peak_ptr, double* energy_ptr)
 {
     Float_t t  = param->t;
@@ -756,8 +752,8 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
     int pos = param->pos;
     int pos1;
     Float_t y[MAX_CHANNELS];
-    int8_t* ptr = dst;
-    ssize_t size = snd_pcm_format_size(format, 1);
+    // int8_t* ptr = dst;
+    // ssize_t size = snd_pcm_format_size(format, 1);
     int mode = param->mode;
     envelope_t* ep = &param->e;
     mark_t* mpl = NULL;
@@ -780,8 +776,8 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
     while(n--) {
 	// check if muted || stopped || undefined (silence)
 	if (param->mute || !param->state || (param->n_waves == 0)) {
-	    snd_pcm_format_set_silence(format, ptr, channels);
-	    ptr += (channels*size);
+	    for (i = 0; i < channels; i++)
+		*dst++ = 0.0f;
 	}
 	else {	// do wave sample
 	    sample_buffer_t* custom = param->custom;  // custom wave forms
@@ -795,7 +791,7 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 		    int k = wp->chan;
 		    if (t < ep->duration) {
 			value = wave_sample(t,pos,mode,ep,wp,custom);
-			y[k] = mix2(y[k], value);  // fixme! improve
+			y[k] = mix2(y[k], value);
 		    }
 		}
 		i++;
@@ -805,9 +801,8 @@ mark_t* wave_buffer(wavedef_t* param, snd_pcm_format_t format,
 		double yi = y[i];
 		peak[i] = fmax(peak[i], fabs(yi));
 		energy[i] = energy[i]+yi*yi;
-		write_pcm_float(format, (double) clamp(yi), ptr);
+		*dst++ = (double) clamp(yi);
 		y[i] = 0.0;
-		ptr += size;
 	    }
 	}
 

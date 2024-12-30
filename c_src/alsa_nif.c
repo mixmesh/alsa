@@ -1935,7 +1935,6 @@ static int load_atoms(ErlNifEnv* env)
     LOAD_ATOM(mixername);
     LOAD_ATOM(components);
     
-
     // posix errors
     LOAD_ATOM(eagain);
     LOAD_ATOM(eintr);
@@ -2043,7 +2042,7 @@ static void unload(ErlNifEnv* env, void* priv_data) {
     nif_ctx_t* ctx = (nif_ctx_t*) priv_data;
 
     DEBUGF("unload%s", "");
-    enif_free(ctx);    
+    enif_free(ctx);
 }
 
 /*
