@@ -10,7 +10,7 @@
 -include("../include/alsa.hrl").
 -include("alsa_wav.hrl").
 
--export([read_header/1, write_header/2]).
+-export([read_header/1, write_header/2, write_header/3]).
 -export([read_data_tag/1, read_data_tag/2]).
 -export([read_file_info/1, read_info/1]).
 -export([encode_header/1]).
@@ -312,7 +312,10 @@ find_tag_(Fd, Endian, Tag) ->
     end.
 
 write_header(Fd, Params) when is_map(Params) ->
-    write_header(Fd, 28, Params).
+    write_header_(Fd, 28, Params).
+write_header(Fd, Length, Params) when is_map(Params),
+				      is_integer(Length), Length >= 0 ->
+    write_header_(Fd, 28+Length, Params).
 
 write_tag(Fd, Tag) when byte_size(Tag) =:= 4 ->
     case file:write(Fd, Tag) of
@@ -333,7 +336,7 @@ write_taglen(Fd, Tag, Len, big) when
 	Err = {error,_} -> Err
     end.
 
-write_header(Fd, FileLength, Params) when is_map(Params) ->
+write_header_(Fd, FileLength, Params) when is_map(Params) ->
     Format = maps:get(format, Params),
     {_AudioFormat, _BitsPerChannel, Endian} = from_snd(Format),
     Riff = if Endian =:= little -> ?WAV_ID_RIFF;
@@ -345,7 +348,7 @@ write_header(Fd, FileLength, Params) when is_map(Params) ->
 		ok ->
 		    case write_taglen(Fd, ?WAV_ID_FMT, 2+2+4+4+2+2, Endian) of
 			ok ->
-			    case write_header_(Fd, Params) of
+			    case write_header__(Fd, Params) of
 				ok ->
 				    case write_taglen(Fd, ?WAV_ID_DATA,
 						      FileLength-24, Endian) of
@@ -361,7 +364,7 @@ write_header(Fd, FileLength, Params) when is_map(Params) ->
 	Error -> Error
     end.
 		
-write_header_(Fd, Params) when is_map(Params)  ->
+write_header__(Fd, Params) when is_map(Params)  ->
     case file:write(Fd, encode_header(Params)) of
 	ok -> ok;
 	Err = {error,_} -> Err
