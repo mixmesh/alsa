@@ -43,13 +43,11 @@ read_file(Filename) ->
 		Header ->
 		    Format = maps:get(format, Header),
 		    Channels = maps:get(channels, Header),
-		    Size = case maps:get(data_length, Header, undefined) of
-			       undefined ->
-				   alsa:format_size(Format, 1)*Channels;
-			       DataLen -> 
-				   DataLen
-			   end,
-		    case read_file_data(Fd, Size) of
+		    DataLength = maps:get(data_length, Header, undefined),
+		    FrameSize = alsa:format_size(Format, 1)*Channels,
+		    io:format("FrameSize=~w, DataLength=~w~n",
+			      [FrameSize, DataLength]),
+		    case read_file_data(Fd, FrameSize, DataLength) of
 			{ok,Data} ->
 			    {ok,{Header, Data}};
 			Error ->
@@ -62,15 +60,17 @@ read_file(Filename) ->
 	    Error
     end.
 
-read_file_data(Fd, Align) ->
+read_file_data(Fd, FrameSize, DataLength) ->
     {ok,Cur} = file:position(Fd, cur),
     {ok,End} = file:position(Fd, eof),
-    Size = End - Cur,
-    AlignedDataSize = align_down(Size, Align),
+    DataSize = End - Cur,
+    io:format("DataSize=~w, DataLen=~w\n", [DataSize, DataLength]),
+    AlignedDataSize = align_down(DataSize, FrameSize),
+    io:format("AlignedDataSize=~w\n", [AlignedDataSize]),
     %% AlignedMaxDataSize = align_up(MaxDataSize, Align),
     DataSize = AlignedDataSize, %% min(AlignedMaxDataSize, AlignedDataSize),
     file:position(Fd, Cur),
-    file:read(Fd, DataSize).
+    file:read(Fd, AlignedDataSize).
 
 %% align X to nearest lower multiple of align
 align_down(X, Align) ->
@@ -213,7 +213,7 @@ chunks_(Bin, ChunkSize, Acc) ->
 energy_norm(Chunks, Format, Channels) when is_list(Chunks) ->
     Es = energy(Chunks, Format, Channels),
     Emax = lists:max(Es),
-    if Emax =:= 0.0 ->
+    if abs(Emax) < 1.0E-12 ->
 	    [ 0.0 || _ <- Es];
        true ->
 	    [ Ei/Emax || Ei <- Es]

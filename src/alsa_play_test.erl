@@ -491,14 +491,15 @@ simple(E) ->
     ].
 
 test_wave() ->
-    alsa_play:start(#{ rate => 44100, latency => 50 }),
+    alsa_play:start(#{ rate => 16000, latency => 50 }),
     alsa_play:remove(),
 
     alsa_play:new(1),
     E = [0.2, 0.5, 0.2],
     D = trunc(1000*lists:sum(E)),
 
-    alsa_play:set_wave(1, simple(E)),
+    %%alsa_play:set_wave(1, simple(E)),
+    alsa_play:set_wave(1, complex(E)),
     alsa_play:mark(1, {time,D}, [notify,{set,bof}], restart),
     erlang:start_timer(3*D, self(), stop),
     alsa_play:run(),

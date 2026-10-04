@@ -124,6 +124,7 @@ read_header(Fd, Options) ->
 		    ?dbg("au header: ~w\n", [Params]),
 		    maps:merge(Options, Params);
 		_ ->
+		    file:position(Fd, 0),
 		    Options
 	    end
     end.

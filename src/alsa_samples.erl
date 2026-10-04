@@ -336,14 +336,16 @@ set_wave_def(W, D) when is_tuple(D) ->
 set_def_(W,{wave,Wi,Fs}) ->
     Fs1 = [to_frequency(F) || F <- Fs],
     ok = wave_set_wave(W,Wi,Fs1);
+set_def_(W,{chan,Wi,Chan}) ->
+    ok = wave_set_chan(W, Wi, Chan);
 set_def_(W,{adsr,A,D,S,R}) ->
     ok = wave_set_adsr(W,A,D,S,R);
 set_def_(W,{envelope,Elems}) ->
     ok = wave_set_envelope(W,Elems).
 
 
-duration({adsr,_J, A,D,S,R}) -> A+D+S+R;
-duration({envelope,_J,Es}) ->
+duration({adsr,A,D,S,R}) -> A+D+S+R;
+duration({envelope,Es}) ->
     lists:sum([case E of
 		   {Ti,_Mode} -> Ti;
 		   Ti when is_number(Ti) -> Ti
@@ -361,12 +363,12 @@ to_frequency(Freq) when is_number(Freq) ->
     Freq.
 
 wave1(Rate) ->
-    Def = [{envelope,0, [ 2.0, 2.0 ]},
-	   {wave, 0, [#{form=>sine,freq=>"C4",level=>0.0},
-		      #{form=>square,freq=>"C4",level=>0.9},
-		      #{form=>sine,freq=>"C4",level=>0.0}]},
-	   {wave, 1, [#{form=>sine,freq=>"E4",level=>0.0},
-		      #{form=>square,freq=>"E4",level=>0.9},
+    Def = [{envelope, [ 2.0, 2.0 ]},
+	   {wave, 0, [#{form=>square,freq=>"C4",level=>0.0},
+		      #{form=>triangle,freq=>"C4",level=>0.5},
+		      #{form=>sine,freq=>"C4",level=>0.25}]},
+	   {wave, 1, [#{form=>sine,freq=>"E4",level=>0.25},
+		      #{form=>square,freq=>"E4",level=>0.5},
 		      #{form=>sine,freq=>"E4",level=>0.0}]}
 	  ],
     Dur = duration(Def),
@@ -380,7 +382,12 @@ wave1(Rate) ->
 test_play() -> test_play(8000).
 test_play(Rate) ->
     {W,NFrames} = wave1(Rate),
-    Samples = wave(W, s16_le, 1, NFrames),
+    io:format("1: pos=~p, time=~p\n", [wave_get_pos(W), wave_get_time(W)]),
+    wave_set_state(W, running),
+    io:format("2: pos=~p, time=~p\n", [wave_get_pos(W), wave_get_time(W)]),
+    _Wave = {_Events,_Param,Samples} = wave(W, s16_le, 1, NFrames),
+    io:format("3: pos=~p, time=~p\n", [wave_get_pos(W), wave_get_time(W)]),
+    io:format("size samples = ~p\n", [byte_size(Samples)]),
     play({[{format,s16_le},{rate,Rate},{channels,1}], Samples}).
 
 play(Samples) when is_binary(Samples) ->
@@ -403,7 +410,8 @@ play_(Params, Samples) when is_list(Params) ->
 test_plot() -> test_plot(8000).
 test_plot(Rate) ->
     {W,NFrames} = wave1(Rate),
-    Samples = wave(W, s16_le, 1, NFrames),
+    wave_set_state(W, running),
+    _Wave = {_Events,_Param,Samples} = wave(W, s16_le, 1, NFrames),
     plot({[{format,s16_le},{rate,Rate},{channels,1}], Samples}).
 
 plot(Samples) when is_binary(Samples) ->

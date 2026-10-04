@@ -150,7 +150,7 @@ read_header(Fd) ->
 	    {ok,<<_FileLength:32/big>>} = file:read(Fd, 4),
 	    ?dbg("FileLength(le) = ~w\n", [_FileLength + 8]),
 	    read_header(Fd, little);
-	{ok, _, _} -> {error, not_wav};
+	{ok, _Tag} -> {error, not_wav};
 	Err = {error,_} -> Err
     end.
 
@@ -203,7 +203,7 @@ read_info(Fd) ->
 	    {ok,<<_FileLength:32/big>>} = file:read(Fd, 4),
 	    ?dbg("FileLength = ~w\n", [_FileLength + 8]),
 	    read_info(Fd, big);
-	{ok,_,_} -> {error, not_wav};
+	{ok,_Tag} -> {error, not_wav};
 	Err = {error,_} -> Err
     end.
 

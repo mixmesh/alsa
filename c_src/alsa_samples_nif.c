@@ -246,12 +246,12 @@ static ERL_NIF_TERM make_error(ErlNifEnv* env, int err)
 }
 */
 
-static int get_boolean(ErlNifEnv* env, ERL_NIF_TERM arg, int* bool)
+static int get_boolean(ErlNifEnv* env, ERL_NIF_TERM arg, int* val)
 {
     if (arg == ATOM(true))
-	*bool = 1;
+	*val = 1;
     else if (arg == ATOM(false))
-	*bool = 0;
+	*val = 0;
     else
 	return 0;
     return 1;
@@ -839,9 +839,9 @@ static ERL_NIF_TERM nif_wave_set_envelope(ErlNifEnv* env, int argc,
 		    m = 0;
 		else if (elem[1] == ATOM(linear))
 		    m = LIN;
-		else if (elem[2] == ATOM(quadratic))
+		else if (elem[1] == ATOM(quadratic))
 		    m = QUAD;
-		else if (elem[2] == ATOM(sustain))
+		else if (elem[1] == ATOM(sustain))
 		    s = SUST;
 		// fall 
 	    case 1:
